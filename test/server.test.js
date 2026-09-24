@@ -6,7 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const fs = require('node:fs/promises');
 const http = require('node:http');
-const { createAppServer } = require('../server');
+const { createAppServer, listenWithPortRotation } = require('../server');
 
 async function start(dataDir) {
   const server = await createAppServer({ dataDir });
@@ -124,6 +124,28 @@ test('SSE delivers a live play event to the overlay', async () => {
   } finally {
     await reader.cancel().catch(() => {});
     await stop(server);
+    await fs.rm(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('rotates to the next free port when the starting port is occupied', async (t) => {
+  const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'virtually-ports-'));
+  const blocker = http.createServer((request, response) => response.end('occupied'));
+  await new Promise(resolve => blocker.listen(0, '127.0.0.1', resolve));
+  const startPort = blocker.address().port;
+  const server = await createAppServer({ dataDir });
+  try {
+    if (startPort > 65525) return t.skip('No room to test ten consecutive ports.');
+    await assert.rejects(
+      listenWithPortRotation(server, { startPort, maxAttempts: 1 }),
+      /No available port/
+    );
+    const selectedPort = await listenWithPortRotation(server, { startPort, maxAttempts: 10 });
+    assert.ok(selectedPort > startPort);
+    assert.equal((await fetch(`http://127.0.0.1:${selectedPort}/api/library`)).status, 200);
+  } finally {
+    if (server.listening) await stop(server);
+    await stop(blocker);
     await fs.rm(dataDir, { recursive: true, force: true });
   }
 });

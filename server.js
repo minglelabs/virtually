@@ -303,12 +303,56 @@ async function createAppServer({ dataDir = path.join(__dirname, 'data') } = {}) 
   return server;
 }
 
+function listenOnce(server, host, port) {
+  return new Promise((resolve, reject) => {
+    const onError = (error) => {
+      server.off('listening', onListening);
+      reject(error);
+    };
+    const onListening = () => {
+      server.off('error', onError);
+      resolve(server.address().port);
+    };
+    server.once('error', onError);
+    server.once('listening', onListening);
+    try {
+      server.listen(port, host);
+    } catch (error) {
+      server.off('error', onError);
+      server.off('listening', onListening);
+      reject(error);
+    }
+  });
+}
+
+async function listenWithPortRotation(server, { host = '127.0.0.1', startPort = 8787, maxAttempts = 100 } = {}) {
+  if (!Number.isInteger(startPort) || startPort < 1 || startPort > 65535) {
+    throw new Error('PORT must be an integer from 1 to 65535.');
+  }
+  if (!Number.isInteger(maxAttempts) || maxAttempts < 1) {
+    throw new Error('maxAttempts must be a positive integer.');
+  }
+  const lastPort = Math.min(65535, startPort + maxAttempts - 1);
+  for (let port = startPort; port <= lastPort; port += 1) {
+    try {
+      return await listenOnce(server, host, port);
+    } catch (error) {
+      if (error.code !== 'EADDRINUSE') throw error;
+    }
+  }
+  throw new Error(`No available port from ${startPort} to ${lastPort}.`);
+}
+
 if (require.main === module) {
-  createAppServer().then(server => {
+  createAppServer().then(async server => {
     const host = process.env.HOST || '127.0.0.1';
-    const port = Number(process.env.PORT || 8787);
-    server.listen(port, host, () => console.log(`Virtually PoC: http://${host}:${server.address().port}`));
+    const startPort = Number(process.env.PORT ?? 8787);
+    const port = await listenWithPortRotation(server, { host, startPort });
+    const displayHost = host.includes(':') ? `[${host}]` : host;
+    if (port !== startPort) console.log(`Port ${startPort} is in use; using ${port}.`);
+    console.log(`Virtually controller: http://${displayHost}:${port}/`);
+    console.log(`OBS Browser Source: http://${displayHost}:${port}/overlay`);
   }).catch(error => { console.error(error); process.exitCode = 1; });
 }
 
-module.exports = { createAppServer };
+module.exports = { createAppServer, listenWithPortRotation };

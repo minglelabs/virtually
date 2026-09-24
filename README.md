@@ -6,18 +6,23 @@ This is a small first step toward the broader [Virtually presentation](https://t
 
 ## Run
 
-Requires Node.js 20 or newer. No package installation or external service is required.
+Requires Node.js 20 or newer and pnpm. No external service is required.
 
 ```bash
-npm start
+pnpm start
 ```
 
-Open `http://127.0.0.1:8787/`. The controller includes an original illustrated demo avatar, so you can click **Demo motion** before uploading files. Uploaded files and the library index live in `data/`, which Git ignores. The server binds to `127.0.0.1` by default; the controller has no authentication and is intended for local use.
+By default, the server attempts to bind to port 8787 (or the port set by `PORT`). If the base port is occupied, it tries up to 100 consecutive ports and reports an error if none is available. The server prints the active controller and OBS overlay URLs upon starting:
+
+- Controller: `http://127.0.0.1:8787/` (or rotated port)
+- OBS overlay: `http://127.0.0.1:8787/overlay` (or rotated port)
+
+Open the printed controller URL in your browser. The controller includes an original illustrated demo avatar, so you can click **Demo motion** before uploading files. Uploaded files and the library index live in `data/`, which Git ignores. The server binds to `127.0.0.1` by default; the controller has no authentication and is intended for local use.
 
 ## Set up OBS
 
 1. Add a **Video Capture Device** (or your existing camera source) to the scene.
-2. Add a **Browser Source** above the camera. Use `http://127.0.0.1:8787/overlay` as its URL. Start with a 1920 × 1080 source and position or scale it in OBS to fit your layout.
+2. Add a **Browser Source** above the camera. Use the OBS overlay URL printed by the server (default `http://127.0.0.1:8787/overlay`, or the assigned port if 8787 was occupied). Start with a 1920 × 1080 source and position or scale it in OBS to fit your layout.
 3. Leave **Shutdown source when not visible** off if you want the overlay ready for immediate triggers.
 4. Keep the controller open in another browser tab. Click a motion button there; the OBS source and the controller's preview receive the same event.
 
@@ -42,4 +47,4 @@ The second command should show `TAG:alpha_mode=1`. We verified this encoding pat
 
 The PoC uses a local HTTP server and server-sent events to synchronize the controller, preview, and OBS Browser Source. It supports a single local library and does not include accounts, remote viewer triggers, AI generation, background removal, or a broadcasting platform. Browser playback and the transparent page background were tested locally; OBS scene rendering and long-running performance with hundreds of clips still need live validation.
 
-Run `npm test` for API, media-range, persistence, and event-stream checks.
+Run `pnpm test` for API, media-range, persistence, port rotation, and event-stream checks.
