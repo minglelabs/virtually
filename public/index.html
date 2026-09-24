@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Virtually 아바타 컨트롤러</title>
+  <link rel="stylesheet" href="./app.css">
+</head>
+<body>
+  <div class="app-layout">
+    <!-- 상단 헤더 -->
+    <header class="app-header">
+      <div class="header-brand">
+        <div class="brand-logo">🎭</div>
+        <div class="brand-text">
+          <h1>Virtually 컨트롤러</h1>
+          <p class="subtitle">OBS 투명 아바타 & 모션 트리거 시스템</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <!-- 항상 사용 가능한 데모 동작 버튼 -->
+        <button type="button" id="headerDemoTriggerBtn" class="btn btn-warning btn-sm" title="플레이스홀더 아바타 리액션 테스트">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+          <span>데모 동작 테스트</span>
+        </button>
+
+        <div id="connectionStatus" class="status-pill status-disconnected">
+          <span class="status-dot"></span>
+          <span class="status-label">연결 대기 중</span>
+        </div>
+        <a id="openOverlayBtn" href="./overlay" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+          오버레이 새 창
+        </a>
+      </div>
+    </header>
+
+    <!-- 알림 배너 / 토스트 -->
+    <div id="toastContainer" class="toast-container" aria-live="polite"></div>
+
+    <!-- 메인 대시보드 그리드 -->
+    <main class="dashboard-grid">
+      <!-- 좌측 패널: OBS 설정 및 오버레이 모니터 -->
+      <section class="panel panel-left">
+        <!-- OBS 브라우저 소스 설정 -->
+        <article class="card obs-card">
+          <div class="card-header">
+            <h2>OBS 브라우저 소스 연동</h2>
+            <span class="badge badge-accent">방송 연동</span>
+          </div>
+          <div class="card-body">
+            <p class="guide-text">OBS 스튜디오의 <strong>[브라우저 소스]</strong>에 아래 URL을 입력하면 투명 배경의 아바타가 방송 화면에 출력됩니다.</p>
+
+            <div class="url-copy-box">
+              <label for="overlayUrlInput" class="visually-hidden">OBS 오버레이 URL</label>
+              <input type="text" id="overlayUrlInput" readonly value="">
+              <button type="button" id="copyUrlBtn" class="btn btn-primary btn-copy">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                <span id="copyBtnText">URL 복사</span>
+              </button>
+            </div>
+
+            <details class="obs-setup-tips">
+              <summary>OBS 설정 권장 사항 가이드</summary>
+              <ul class="tip-list">
+                <li><strong>너비 / 높이:</strong> 1920 × 1080 (또는 아바타 크기에 맞춤)</li>
+                <li><strong>FPS:</strong> 60 FPS 권장 (부드러운 모션 전환)</li>
+                <li><strong>장면이 활성화되면 브라우저 새로고침:</strong> 체크 권장</li>
+                <li><strong>표시되지 않을 때 소스 종료:</strong> 체크 해제 (즉각적인 리액션 유지)</li>
+                <li><strong>커스텀 CSS:</strong> <code>body { background-color: rgba(0, 0, 0, 0); margin: 0; }</code> (기본 투명 적용)</li>
+              </ul>
+            </details>
+          </div>
+        </article>
+
+        <!-- 실시간 오버레이 미리보기 -->
+        <article class="card preview-card">
+          <div class="card-header">
+            <h2>오버레이 실시간 미리보기</h2>
+            <div class="card-actions">
+              <button type="button" id="refreshOverlayBtn" class="btn btn-ghost btn-sm" title="미리보기 새로고침">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+                새로고침
+              </button>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="preview-viewport-wrapper">
+              <div class="checkerboard-bg">
+                <iframe id="overlayPreviewFrame" src="./overlay" title="OBS 오버레이 미리보기"></iframe>
+              </div>
+            </div>
+            <div class="preview-meta">
+              <div class="meta-item">
+                <span class="meta-label">미리보기 상태:</span>
+                <span id="previewPlayStatus" class="meta-value status-idle-text">대기(Idle) 유지 중</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">최근 트리거:</span>
+                <span id="previewLastSeq" class="meta-value">-</span>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <!-- 실시간 이벤트 로그 -->
+        <article class="card log-card">
+          <div class="card-header">
+            <h3>이벤트 모니터</h3>
+            <button type="button" id="clearLogBtn" class="btn btn-ghost btn-xs">기록 지우기</button>
+          </div>
+          <div class="card-body">
+            <div id="eventLogContainer" class="event-log-container">
+              <div class="log-entry log-entry-info">
+                <span class="log-time">시스템</span>
+                <span class="log-msg">이벤트 리스너가 준비되었습니다.</span>
+              </div>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <!-- 우측 패널: 미디어 라이브러리 및 컨트롤 -->
+      <section class="panel panel-right">
+        <!-- 대기(Idle) 상태 관리 카드 -->
+        <article class="card idle-card">
+          <div class="card-header">
+            <div class="card-title-group">
+              <h2>기본 대기(Idle) 아바타</h2>
+              <span class="badge badge-info">1개 슬롯</span>
+            </div>
+            <span class="helper-tag">지원: .webm, .png, .webp</span>
+          </div>
+          <div class="card-body">
+            <!-- Idle 미디어 표시 영역 -->
+            <div id="idleMediaContainer" class="media-display-area">
+              <!-- JS 동적 렌더링 -->
+            </div>
+
+            <!-- Idle 업로드 폼 -->
+            <div class="upload-section">
+              <h3 class="upload-heading">새 대기 미디어 업로드</h3>
+              <p class="upload-desc">새 파일을 업로드하면 기존 대기 아바타가 교체됩니다. 투명 배경의 WebM 비디오 또는 PNG/WebP 이미지를 권장합니다.</p>
+
+              <form id="idleUploadForm" class="upload-form">
+                <div class="form-row">
+                  <div class="drop-zone" id="idleDropZone">
+                    <input type="file" id="idleFileInput" accept=".webm,video/webm,.png,image/png,.webp,image/webp" class="file-input-hidden">
+                    <div class="drop-zone-content">
+                      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                      <span class="drop-zone-text" id="idleDropZoneLabel">파일을 끌어다 놓거나 클릭하여 선택</span>
+                      <span class="drop-zone-hint">.webm (알파 투명 비디오), .png, .webp</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="form-controls-row">
+                  <div class="input-group">
+                    <label for="idleNameInput">미디어 레이블 (선택)</label>
+                    <input type="text" id="idleNameInput" placeholder="기본 대기 모션 (미입력 시 파일명 사용)" maxlength="50">
+                  </div>
+                  <button type="submit" id="idleUploadBtn" class="btn btn-primary btn-upload">
+                    <span class="btn-spinner hidden" id="idleUploadSpinner"></span>
+                    <span class="btn-text">Idle 등록</span>
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </article>
+
+        <!-- 모션(Motion) 클립 관리 & 트리거 패널 -->
+        <article class="card motions-card">
+          <div class="card-header">
+            <div class="card-title-group">
+              <h2>리액션 모션(Motion) 트리거</h2>
+              <span id="motionCountBadge" class="badge badge-accent">0개</span>
+            </div>
+            <span class="helper-tag">지원: .webm (VP8/VP9 알파 투명)</span>
+          </div>
+          <div class="card-body">
+            <!-- 상시 데모 트리거 배너 -->
+            <div class="demo-trigger-banner">
+              <div class="demo-banner-content">
+                <div class="demo-banner-icon">⚡</div>
+                <div class="demo-banner-info">
+                  <strong>내장 데모 동작 테스트</strong>
+                  <p>미디어 업로드 전에도 기본 플레이스홀더 아바타가 반응하도록 동작을 즉시 트리거합니다.</p>
+                </div>
+              </div>
+              <button type="button" id="inlineDemoTriggerBtn" class="btn btn-warning btn-demo-action">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                <span>데모 동작</span>
+              </button>
+            </div>
+
+            <!-- 모션 리스트 영역 -->
+            <label class="motion-search-label" for="motionSearchInput">등록된 동작 찾기</label>
+            <input id="motionSearchInput" class="motion-search-input" type="search" placeholder="동작 이름 검색" autocomplete="off">
+            <div id="motionsListContainer" class="motions-list-container">
+              <!-- JS 동적 렌더링 -->
+            </div>
+            <button type="button" id="moreMotionsBtn" class="btn btn-secondary btn-more-motions" hidden>더 보기</button>
+
+            <!-- 모션 업로드 폼 -->
+            <div class="upload-section">
+              <h3 class="upload-heading">새 모션 클립 추가</h3>
+              <p class="upload-desc">스트리밍 중 시청자 후원, 인사, 감정 표현 등으로 사용할 투명 WebM 클립을 추가하세요.</p>
+
+              <form id="motionUploadForm" class="upload-form">
+                <div class="form-row">
+                  <div class="drop-zone" id="motionDropZone">
+                    <input type="file" id="motionFileInput" accept=".webm,video/webm" class="file-input-hidden">
+                    <div class="drop-zone-content">
+                      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                      <span class="drop-zone-text" id="motionDropZoneLabel">모션 WebM 파일을 끌어다 놓거나 클릭하여 선택</span>
+                      <span class="drop-zone-hint">.webm 전용 (알파 채널 포함 투명 클립)</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="form-controls-row">
+                  <div class="input-group">
+                    <label for="motionNameInput">모션 이름 (선택)</label>
+                    <input type="text" id="motionNameInput" placeholder="예: 감사 인사, 환호, 박수 (미입력 시 파일명)" maxlength="50">
+                  </div>
+                  <button type="submit" id="motionUploadBtn" class="btn btn-accent btn-upload">
+                    <span class="btn-spinner hidden" id="motionUploadSpinner"></span>
+                    <span class="btn-text">모션 클립 추가</span>
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </article>
+      </section>
+    </main>
+  </div>
+
+  <script src="./app.js"></script>
+</body>
+</html>

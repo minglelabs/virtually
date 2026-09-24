@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Virtually Overlay</title>
+  <link rel="stylesheet" href="overlay.css">
+</head>
+<body>
+  <div id="stage" class="stage">
+    <!-- Demo Avatar Layer (Active when no idle media exists, or during demo test) -->
+    <div id="demo-layer" class="layer demo-layer active" aria-hidden="true">
+      <div id="demo-avatar" class="demo-avatar idle">
+        <svg viewBox="0 0 380 440" class="avatar-svg" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="body-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#c7d2fe"/>
+              <stop offset="50%" stop-color="#818cf8"/>
+              <stop offset="100%" stop-color="#6366f1"/>
+            </linearGradient>
+            <linearGradient id="belly-grad" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stop-color="#ffffff"/>
+              <stop offset="100%" stop-color="#e0e7ff"/>
+            </linearGradient>
+            <linearGradient id="ear-inner-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#fbcfe8"/>
+              <stop offset="100%" stop-color="#f43f5e"/>
+            </linearGradient>
+            <linearGradient id="eye-grad" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stop-color="#1e1b4b"/>
+              <stop offset="60%" stop-color="#4338ca"/>
+              <stop offset="100%" stop-color="#06b6d4"/>
+            </linearGradient>
+            <linearGradient id="collar-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#38bdf8"/>
+              <stop offset="100%" stop-color="#0284c7"/>
+            </linearGradient>
+            <filter id="soft-shadow" x="-20%" y="-20%" width="140%" height="140%">
+              <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#312e81" flood-opacity="0.25"/>
+            </filter>
+            <filter id="gem-glow" x="-30%" y="-30%" width="160%" height="160%">
+              <feGaussianBlur stdDeviation="3" result="blur"/>
+              <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+            </filter>
+          </defs>
+
+          <!-- Floating Sparkles (Burst during reaction) -->
+          <g class="sparkles-group">
+            <path class="sparkle sp-1" d="M70,110 Q70,125 55,125 Q70,125 70,140 Q70,125 85,125 Q70,125 70,110 Z" fill="#fde047"/>
+            <path class="sparkle sp-2" d="M310,120 Q310,135 295,135 Q310,135 310,150 Q310,135 325,135 Q310,135 310,120 Z" fill="#67e8f9"/>
+            <path class="sparkle sp-3" d="M190,40 Q190,55 175,55 Q190,55 190,70 Q190,55 205,55 Q190,55 190,40 Z" fill="#f472b6"/>
+            <circle class="sparkle sp-4" cx="95" cy="80" r="4" fill="#a5f3fc"/>
+            <circle class="sparkle sp-5" cx="285" cy="85" r="4.5" fill="#fef08a"/>
+          </g>
+
+          <!-- Main Character Body & Head Wrapper -->
+          <g class="character-wrap" filter="url(#soft-shadow)">
+            <!-- Fluffy Tail -->
+            <path class="avatar-tail" d="M260,310 C320,290 350,220 310,180 C285,155 270,195 285,225 C295,245 280,275 250,295 Z" fill="url(#body-grad)"/>
+
+            <!-- Left Ear -->
+            <g class="avatar-ear ear-left">
+              <path d="M115,145 C95,95 85,35 125,50 C155,62 160,115 150,145 Z" fill="url(#body-grad)"/>
+              <path d="M118,135 C105,95 100,55 125,65 C145,75 148,115 142,135 Z" fill="url(#ear-inner-grad)"/>
+            </g>
+
+            <!-- Right Ear -->
+            <g class="avatar-ear ear-right">
+              <path d="M265,145 C285,95 295,35 255,50 C225,62 220,115 230,145 Z" fill="url(#body-grad)"/>
+              <path d="M262,135 C275,95 280,55 255,65 C235,75 232,115 238,135 Z" fill="url(#ear-inner-grad)"/>
+            </g>
+
+            <!-- Body -->
+            <path class="avatar-body" d="M125,240 C110,280 100,355 135,385 C165,405 215,405 245,385 C280,355 270,280 255,240 Z" fill="url(#body-grad)"/>
+            <!-- White Belly Patch -->
+            <path class="avatar-belly" d="M145,260 C135,295 130,345 155,370 C175,385 205,385 225,370 C250,345 245,295 235,260 Z" fill="url(#belly-grad)"/>
+
+            <!-- Collar & Glowing Heart Gem -->
+            <path d="M152,250 Q190,266 228,250 Q232,258 226,263 Q190,278 154,263 Z" fill="url(#collar-grad)"/>
+            <path class="avatar-gem" d="M190,260 C182,252 173,260 178,269 L190,281 L202,269 C207,260 198,252 190,260 Z" fill="#22d3ee" filter="url(#gem-glow)"/>
+
+            <!-- Paws -->
+            <ellipse cx="148" cy="315" rx="14" ry="12" fill="#e0e7ff" transform="rotate(-10 148 315)"/>
+            <ellipse cx="232" cy="315" rx="14" ry="12" fill="#e0e7ff" transform="rotate(10 232 315)"/>
+
+            <!-- Head -->
+            <ellipse class="avatar-head" cx="190" cy="180" rx="84" ry="74" fill="url(#body-grad)"/>
+
+            <!-- Cheek Blush -->
+            <ellipse class="blush" cx="132" cy="198" rx="13" ry="8" fill="#fda4af" opacity="0.65"/>
+            <ellipse class="blush" cx="248" cy="198" rx="13" ry="8" fill="#fda4af" opacity="0.65"/>
+
+            <!-- Cute Cat Nose & Mouth -->
+            <polygon points="187,192 193,192 190,196" fill="#f43f5e"/>
+            <path d="M182,198 Q190,205 190,198 Q190,205 198,198" fill="none" stroke="#4338ca" stroke-width="2.5" stroke-linecap="round"/>
+
+            <!-- Eyes Group -->
+            <g class="avatar-eyes">
+              <!-- Normal Open Eyes (Default Idle) -->
+              <g class="eyes-normal">
+                <!-- Left Eye -->
+                <ellipse cx="150" cy="172" rx="17" ry="21" fill="url(#eye-grad)"/>
+                <ellipse cx="145" cy="164" rx="6" ry="8" fill="#ffffff"/>
+                <circle cx="156" cy="182" r="3.5" fill="#ffffff" opacity="0.8"/>
+                <path d="M133,158 Q148,149 167,156" fill="none" stroke="#312e81" stroke-width="3" stroke-linecap="round"/>
+
+                <!-- Right Eye -->
+                <ellipse cx="230" cy="172" rx="17" ry="21" fill="url(#eye-grad)"/>
+                <ellipse cx="225" cy="164" rx="6" ry="8" fill="#ffffff"/>
+                <circle cx="236" cy="182" r="3.5" fill="#ffffff" opacity="0.8"/>
+                <path d="M213,156 Q232,149 247,158" fill="none" stroke="#312e81" stroke-width="3" stroke-linecap="round"/>
+              </g>
+
+              <!-- Happy Curved Eyes (Visible during Reaction) -->
+              <g class="eyes-happy">
+                <path d="M136,174 Q150,158 164,174" fill="none" stroke="#312e81" stroke-width="4" stroke-linecap="round"/>
+                <path d="M216,174 Q230,158 244,174" fill="none" stroke="#312e81" stroke-width="4" stroke-linecap="round"/>
+                <!-- Star sparkle highlight on eyes -->
+                <polygon points="150,165 152,170 157,172 152,174 150,179 148,174 143,172 148,170" fill="#fde047"/>
+                <polygon points="230,165 232,170 237,172 232,174 230,179 228,174 223,172 228,170" fill="#fde047"/>
+              </g>
+            </g>
+          </g>
+        </svg>
+      </div>
+    </div>
+
+    <!-- Idle Media Layer (Active when library.idle is set and not reacting) -->
+    <div id="idle-layer" class="layer idle-layer">
+      <video id="idle-video" class="media-element" muted playsinline loop></video>
+      <img id="idle-image" class="media-element" alt="">
+    </div>
+
+    <!-- Reaction Media Layer (Active when playing triggered motion) -->
+    <div id="reaction-layer" class="layer reaction-layer">
+      <video id="reaction-video" class="media-element" muted playsinline></video>
+      <img id="reaction-image" class="media-element" alt="">
+    </div>
+  </div>
+
+  <script src="overlay.js"></script>
+</body>
+</html>

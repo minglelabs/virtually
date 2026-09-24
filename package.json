@@ -1,0 +1,13 @@
+{
+  "name": "virtually-poc",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local OBS character overlay proof of concept",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
