@@ -6,6 +6,7 @@
   "packageManager": "pnpm@9.15.3",
   "scripts": {
     "start": "node server.js",
+    "start:mock": "VIRTUALLY_ANIMATE_MOCK=1 node server.js",
     "test": "node --test",
     "sample:greenscreen": "node scripts/make-greenscreen-sample.js"
   },

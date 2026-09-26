@@ -8,7 +8,29 @@ const crypto = require('node:crypto');
 const { once } = require('node:events');
 const { spawn } = require('node:child_process');
 
+const {
+  CHROMA_DEFAULTS,
+  CHROMA_LIMITS,
+  CHROMA_EXTENSIONS,
+  VP9_ARGS,
+  normalizeChromaParams,
+  chromaFilter,
+  chromaCommand,
+} = require('./lib/chroma-encode');
+const { EncoderSlot } = require('./lib/encoder-slot');
+const presetsModule = require('./lib/animate/presets');
+const animateMedia = require('./lib/animate/media');
+const { ConfigStore } = require('./lib/animate/config');
+const { Registry } = require('./lib/animate/registry');
+const { Pipeline } = require('./lib/animate/pipeline');
+const realProviders = require('./lib/animate/providers');
+const mockProvider = require('./lib/animate/providers/mock');
+
 const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
+const ANIMATE_REFERENCE_MAX = 500 * 1024 * 1024;
+const ANIMATE_CHARACTER_MAX = 30 * 1024 * 1024;
+const REFERENCE_EXTENSIONS = ['.mp4', '.mov', '.m4v', '.webm', '.mkv'];
+const CHARACTER_EXTENSIONS = ['.png', '.webp', '.jpg', '.jpeg'];
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const STATIC_FILES = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
@@ -16,81 +38,20 @@ const STATIC_FILES = new Map([
   ['/app.css', ['app.css', 'text/css; charset=utf-8']],
   ['/app.js', ['app.js', 'text/javascript; charset=utf-8']],
   ['/chroma.js', ['chroma.js', 'text/javascript; charset=utf-8']],
+  ['/animate.js', ['animate.js', 'text/javascript; charset=utf-8']],
   ['/overlay.css', ['overlay.css', 'text/css; charset=utf-8']],
   ['/overlay.js', ['overlay.js', 'text/javascript; charset=utf-8']],
 ]);
 
 // --- Chroma key -> transparent WebM job API -----------------------------------
+// The chroma defaults/limits/extensions, param normaliser and filter builder now
+// live in lib/chroma-encode.js and are shared with the animate pipeline so both
+// produce byte-identical keying. Only the server-local job constants stay here.
 
-const CHROMA_DEFAULTS = { color: '#00FF00', similarity: 0.12, blend: 0.06, despill: false };
-const CHROMA_LIMITS = { similarity: [0.01, 1], blend: [0, 1] };
-const CHROMA_EXTENSIONS = ['.mp4', '.mov', '.m4v', '.webm', '.mkv'];
 const CHROMA_MAX_JOBS = 6;
 const CHROMA_FRAME_TIMEOUT_MS = 20000;
 const CHROMA_STDOUT_CAP = 64 * 1024 * 1024;
 const JOB_ID_RE = /^[0-9a-f-]{36}$/;
-
-// Format a number the way ffmpeg filter args expect: 0.12 -> "0.12", 1 -> "1".
-function chromaNum(value) {
-  return String(Number(Number(value).toFixed(4)));
-}
-
-// Normalize a raw color into canonical `#RRGGBB` (uppercase). Accepts
-// `#RRGGBB`, `RRGGBB`, `0xRRGGBB` (case-insensitive). Returns null otherwise.
-function normalizeColor(raw) {
-  if (raw == null) return null;
-  let value = String(raw).trim();
-  if (value.startsWith('#')) value = value.slice(1);
-  else if (/^0x/i.test(value)) value = value.slice(2);
-  if (!/^[0-9a-fA-F]{6}$/.test(value)) return null;
-  return `#${value.toUpperCase()}`;
-}
-
-// Decide the despill type for a color, or null when neither green nor blue
-// dominates. green if G>R && G>B; blue if B>R && B>G.
-function despillType(canonicalColor) {
-  const r = parseInt(canonicalColor.slice(1, 3), 16);
-  const g = parseInt(canonicalColor.slice(3, 5), 16);
-  const b = parseInt(canonicalColor.slice(5, 7), 16);
-  if (g > r && g > b) return 'green';
-  if (b > r && b > g) return 'blue';
-  return null;
-}
-
-// Normalize chroma params from a plain object (missing -> DEFAULTS). Throws a
-// {status:400} error on invalid color / out-of-range numbers. Used by BOTH the
-// preview route and the convert route so their filters always agree.
-function normalizeChromaParams(raw = {}) {
-  const source = raw || {};
-  const color = source.color == null ? CHROMA_DEFAULTS.color : normalizeColor(source.color);
-  if (!color) throw Object.assign(new Error('Invalid key color; use #RRGGBB.'), { status: 400 });
-
-  const similarity = source.similarity == null ? CHROMA_DEFAULTS.similarity : Number(source.similarity);
-  if (!Number.isFinite(similarity) || similarity < CHROMA_LIMITS.similarity[0] || similarity > CHROMA_LIMITS.similarity[1]) {
-    throw Object.assign(new Error('similarity must be a number within [0.01, 1].'), { status: 400 });
-  }
-  const blend = source.blend == null ? CHROMA_DEFAULTS.blend : Number(source.blend);
-  if (!Number.isFinite(blend) || blend < CHROMA_LIMITS.blend[0] || blend > CHROMA_LIMITS.blend[1]) {
-    throw Object.assign(new Error('blend must be a number within [0, 1].'), { status: 400 });
-  }
-
-  let despill = source.despill === true || source.despill === 1 || source.despill === '1' || source.despill === 'true';
-  // despill only applies to green/blue keys; otherwise silently disable it.
-  const type = despillType(color);
-  if (despill && !type) despill = false;
-
-  return { color, similarity, blend, despill };
-}
-
-// Build the ffmpeg filter string for the given params. `pixel` is 'yuva420p'
-// for the WebM encode or 'rgba' for a still PNG.
-function chromaFilter(params, pixel) {
-  const hex = `0x${params.color.slice(1)}`;
-  let filter = `chromakey=${hex}:${chromaNum(params.similarity)}:${chromaNum(params.blend)}`;
-  if (params.despill) filter += `,despill=type=${despillType(params.color)}`;
-  filter += `,format=${pixel}`;
-  return filter;
-}
 
 function sendJson(res, status, value) {
   res.writeHead(status, {
@@ -273,7 +234,7 @@ function parseVideoStream(probeJson) {
   };
 }
 
-async function createAppServer({ dataDir = path.join(__dirname, 'data'), ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg', ffprobePath = process.env.FFPROBE_PATH || 'ffprobe' } = {}) {
+async function createAppServer({ dataDir = path.join(__dirname, 'data'), ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg', ffprobePath = process.env.FFPROBE_PATH || 'ffprobe', animateMock = process.env.VIRTUALLY_ANIMATE_MOCK === '1', animatePollIntervalMs = null } = {}) {
   const mediaDir = path.join(dataDir, 'media');
   const manifestPath = path.join(dataDir, 'library.json');
   await fsp.mkdir(mediaDir, { recursive: true });
@@ -287,6 +248,9 @@ async function createAppServer({ dataDir = path.join(__dirname, 'data'), ffmpegP
   const clients = new Set();
   let sequence = 0;
   let mutation = Promise.resolve();
+
+  // One encode at a time across the chroma converter AND the animate pipeline.
+  const encoderSlot = new EncoderSlot();
 
   // --- Chroma key job state ---------------------------------------------------
   const workDir = path.join(dataDir, 'work');
@@ -353,6 +317,16 @@ async function createAppServer({ dataDir = path.join(__dirname, 'data'), ffmpegP
     jobChildren.delete(id);
   }
 
+  // Release the shared encoder slot a chroma convert holds. Idempotent: the
+  // convert's release fn resets to null so cancel + close never double-release.
+  function releaseChromaSlot(job) {
+    if (job && typeof job.slotRelease === 'function') {
+      const release = job.slotRelease;
+      job.slotRelease = null;
+      release();
+    }
+  }
+
   function enqueue(callback) {
     const next = mutation.then(callback);
     mutation = next.catch(() => {});
@@ -401,6 +375,307 @@ async function createAppServer({ dataDir = path.join(__dirname, 'data'), ffmpegP
       await fsp.rm(path.join(mediaDir, `${priorIdle.id}${previousExt}`), { force: true }).catch(() => {});
     }
     return item;
+  }
+
+  // Remove a library item by id with the SAME semantics as DELETE /api/media/:id
+  // (used by the animate pipeline's replaceExisting publish path).
+  async function removeMediaItem(id) {
+    let removed;
+    await enqueue(async () => {
+      removed = [library.idle, ...library.motions].find(item => item && item.id === id);
+      if (!removed) return;
+      const next = { idle: library.idle?.id === id ? null : library.idle, motions: library.motions.filter(item => item.id !== id) };
+      await save(next);
+    });
+    if (!removed) return false;
+    const ext = removed.mime === 'image/png' ? '.png' : removed.mime === 'image/webp' ? '.webp' : '.webm';
+    await fsp.rm(path.join(mediaDir, `${id}${ext}`), { force: true });
+    return true;
+  }
+
+  function findMediaItem(id) {
+    return [library.idle, ...library.motions].find(item => item && item.id === id) || null;
+  }
+
+  function mediaPathForItem(item) {
+    const ext = item.mime === 'image/png' ? '.png' : item.mime === 'image/webp' ? '.webp' : '.webm';
+    return path.join(mediaDir, `${item.id}${ext}`);
+  }
+
+  // --- Animate motion presets -------------------------------------------------
+  const animateDir = path.join(dataDir, 'animate');
+  const referencesDir = path.join(animateDir, 'references');
+  await fsp.mkdir(referencesDir, { recursive: true });
+  // Providers map: the real adapters always; the mock only when enabled.
+  const animateProviders = { ...realProviders };
+  if (animateMock) animateProviders.mock = mockProvider;
+
+  const configStore = await new ConfigStore(path.join(animateDir, 'providers.json'), animateProviders).load();
+  const presetStore = await new presetsModule.PresetStore(path.join(animateDir, 'presets.json')).load();
+  const registry = await new Registry(configStore, {
+    customRoutesPath: path.join(animateDir, 'custom-routes.json'),
+    mockEnabled: animateMock,
+  }).load();
+
+  // Resolve the character source: uploaded character image > library idle image
+  // (png/webp) > library idle webm (first frame). Returns { path, ext, isImage }
+  // or null.
+  async function resolveCharacterSource() {
+    // Uploaded character animate/character.<ext> wins.
+    for (const ext of CHARACTER_EXTENSIONS) {
+      const candidate = path.join(animateDir, `character${ext}`);
+      if (fs.existsSync(candidate)) return { path: candidate, ext, isImage: true };
+    }
+    const idle = library.idle;
+    if (idle) {
+      const idlePath = mediaPathForItem(idle);
+      if (fs.existsSync(idlePath)) {
+        if (idle.mime === 'image/png') return { path: idlePath, ext: '.png', isImage: true };
+        if (idle.mime === 'image/webp') return { path: idlePath, ext: '.webp', isImage: true };
+        return { path: idlePath, ext: '.webm', isImage: false };
+      }
+    }
+    return null;
+  }
+
+  const pipeline = new Pipeline({
+    dataDir,
+    ffmpegPath,
+    ffprobePath,
+    registry,
+    configStore,
+    presetStore,
+    encoderSlot,
+    probeFfmpeg,
+    commitLibraryItem,
+    removeMediaItem,
+    findMediaItem,
+    characterSource: () => null,
+    mediaPathFor: (id) => path.join(mediaDir, `${id}.webm`),
+    pollIntervalMs: animatePollIntervalMs,
+  });
+  await pipeline.init();
+
+  function requireJson(req) {
+    if (String(req.headers['content-type'] || '').split(';')[0].toLowerCase() !== 'application/json') {
+      throw Object.assign(new Error('Expected application/json.'), { status: 415 });
+    }
+  }
+
+  function safeErr(message) {
+    return String(message || '').replace(/(\/[^\s"']+)/g, m => path.basename(m)).slice(0, 240) || null;
+  }
+
+  function mimeForExt(ext) {
+    return { '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.m4v': 'video/x-m4v', '.webm': 'video/webm', '.mkv': 'video/x-matroska' }[ext] || 'application/octet-stream';
+  }
+
+  // Larger receiveFile with a caller-set byte cap (character uploads are 30 MB).
+  async function receiveFileWithLimit(req, target, limit) {
+    const output = fs.createWriteStream(target, { flags: 'wx' });
+    let total = 0;
+    let tooLarge = false;
+    try {
+      for await (const chunk of req) {
+        total += chunk.length;
+        if (total > limit) { tooLarge = true; break; }
+        if (!output.write(chunk)) await once(output, 'drain');
+      }
+      if (tooLarge) throw Object.assign(new Error('File too large.'), { status: 413 });
+      output.end();
+      await once(output, 'finish');
+      if (total === 0) throw Object.assign(new Error('Empty file'), { status: 400 });
+    } catch (error) {
+      output.destroy();
+      await fsp.rm(target, { force: true }).catch(() => {});
+      throw error;
+    }
+  }
+
+  // The newest reference file for a preset (by mtime), or null.
+  async function findReference(presetId) {
+    let entries = [];
+    try { entries = await fsp.readdir(referencesDir); } catch { return null; }
+    const candidates = [];
+    for (const name of entries) {
+      const ext = path.extname(name).toLowerCase();
+      if (path.basename(name, ext) !== presetId || !REFERENCE_EXTENSIONS.includes(ext)) continue;
+      const full = path.join(referencesDir, name);
+      try { const stat = await fsp.stat(full); candidates.push({ path: full, ext, name, size: stat.size, mtimeMs: stat.mtimeMs, mtime: stat.mtime.toISOString() }); } catch { /* gone */ }
+    }
+    candidates.sort((a, b) => b.mtimeMs - a.mtimeMs);
+    return candidates[0] || null;
+  }
+
+  async function removePresetReferences(presetId) {
+    let entries = [];
+    try { entries = await fsp.readdir(referencesDir); } catch { return; }
+    for (const name of entries) {
+      const ext = path.extname(name).toLowerCase();
+      const base = path.basename(name, ext);
+      // Remove `<presetId>.<ext>` (a real reference). Leave in-flight upload
+      // tmp files alone — their own handler renames or removes them.
+      if (base === presetId) {
+        await fsp.rm(path.join(referencesDir, name), { force: true }).catch(() => {});
+      }
+    }
+  }
+
+  async function removeCharacterFiles() {
+    let entries = [];
+    try { entries = await fsp.readdir(animateDir); } catch { return; }
+    for (const name of entries) {
+      if (/^character(\.[0-9a-f-]+\.tmp)?\.(png|webp|jpg|jpeg)$/i.test(name)) {
+        await fsp.rm(path.join(animateDir, name), { force: true }).catch(() => {});
+      }
+    }
+  }
+
+  async function presetView(presetId) {
+    const preset = presetsModule.getPreset(presetId);
+    const settings = presetStore.get(presetId);
+    const ref = await findReference(presetId);
+    let reference = null;
+    if (ref) {
+      const info = await animateMedia.probeVideo(ffprobePath, ref.path);
+      reference = {
+        filename: ref.name,
+        size: ref.size,
+        duration: info ? info.duration : null,
+        width: info ? info.width : null,
+        height: info ? info.height : null,
+        fps: info ? info.fps : null,
+        url: `/api/animate/references/${presetId}`,
+        mtime: ref.mtime,
+      };
+    }
+    // The most recent job for this preset -> lastJob.
+    const jobsForPreset = pipeline.list().filter(job => job.presetId === presetId);
+    const lastJob = jobsForPreset.length ? pipeline.view(jobsForPreset[0]) : null;
+    return {
+      id: preset.id,
+      name: preset.name,
+      orientation: preset.orientation,
+      fullBody: preset.fullBody,
+      prompt: presetsModule.composePrompt(preset, settings.prompt, configStore.config.promptSuffix),
+      promptOverride: settings.prompt || null,
+      reference,
+      trim: { start: settings.trimStart, end: settings.trimEnd },
+      lastJob,
+    };
+  }
+
+  async function characterView() {
+    const source = await resolveCharacterSource();
+    if (!source) return { source: null, filename: null, width: null, height: null, hasAlpha: null, previewUrl: null };
+    const uploaded = source.path.startsWith(animateDir) && path.basename(source.path).startsWith('character');
+    const info = await animateMedia.probeVideo(ffprobePath, source.path);
+    return {
+      source: uploaded ? 'upload' : 'idle',
+      filename: path.basename(source.path),
+      width: info ? info.width : null,
+      height: info ? info.height : null,
+      hasAlpha: info ? !!info.hasAlpha : null,
+      previewUrl: '/api/animate/character/preview',
+    };
+  }
+
+  async function buildAnimateStatus() {
+    const probe = await probeFfmpeg();
+    const presets = [];
+    for (const preset of presetsModule.listPresets()) presets.push(await presetView(preset.id));
+    return {
+      ffmpeg: { available: probe.available, reason: probe.reason },
+      presets,
+      character: await characterView(),
+      routes: registry.routeViews(),
+      providers: configStore.providerViews(),
+      config: configStore.publicConfig(),
+      referencesDir,
+    };
+  }
+
+  // Create one chroma job from an existing local file (used by open-in-converter).
+  async function createChromaJobFromFile(sourcePath, filename, label) {
+    const ext = path.extname(filename).toLowerCase();
+    const id = crypto.randomUUID();
+    const dir = jobDir(id);
+    await fsp.mkdir(dir, { recursive: true });
+    const dest = path.join(dir, `input${ext}`);
+    await fsp.copyFile(sourcePath, dest);
+    const probed = await runToBuffer(ffprobePath, ['-v', 'error', '-print_format', 'json', '-show_streams', '-show_format', dest]);
+    let source = null;
+    try { source = parseVideoStream(JSON.parse(probed.stdout.toString() || '{}')); } catch { source = null; }
+    if (!source) { await fsp.rm(dir, { recursive: true, force: true }).catch(() => {}); throw Object.assign(new Error('No video stream.'), { status: 409 }); }
+    const stat = await fsp.stat(dest);
+    const job = {
+      id, name: sanitizeName(label || path.basename(filename, ext)), createdAt: new Date().toISOString(),
+      ext, sourcePath: dest,
+      source: { filename, size: stat.size, width: source.width, height: source.height, duration: source.duration, fps: source.fps, codec: source.codec },
+      state: 'ready', progress: null, params: null, command: null, error: null, result: null,
+    };
+    jobs.set(id, job);
+    await evictOldJobs();
+    return jobView(job);
+  }
+
+  // POST /api/animate/jobs -> [status, body].
+  async function createAnimateJobs(body) {
+    const presetIds = body && Array.isArray(body.presetIds) ? body.presetIds : null;
+    if (!presetIds || presetIds.length < 1 || presetIds.length > 9) {
+      return [400, { error: 'presetIds must list 1..9 presets.' }];
+    }
+    const unknownPresets = presetIds.filter(id => !presetsModule.isPreset(id));
+    if (unknownPresets.length) return [400, { error: 'Unknown preset.', code: 'unknown_preset', detail: { presetIds: unknownPresets } }];
+    const routeId = body.routeId;
+    const route = registry.get(routeId);
+    if (!route) return [400, { error: 'Unknown route.', code: 'unknown_route' }];
+    const avail = registry.availability(route);
+    if (!avail.available) return [400, { error: 'Route unavailable.', code: avail.unavailableCode }];
+
+    const probe = await probeFfmpeg();
+    if (!probe.available) return [400, { error: 'ffmpeg unavailable.', code: 'ffmpeg_unavailable' }];
+
+    const characterSource = await resolveCharacterSource();
+    if (!characterSource) return [400, { error: 'No character image.', code: 'character_missing' }];
+
+    // Every preset needs a reference and no active job.
+    const missingRef = [];
+    const busy = [];
+    const refByPreset = new Map();
+    for (const presetId of presetIds) {
+      const ref = await findReference(presetId);
+      if (!ref) { missingRef.push(presetId); continue; }
+      refByPreset.set(presetId, ref);
+      if (pipeline.activeJobForPreset(presetId)) busy.push(presetId);
+    }
+    if (missingRef.length) return [400, { error: 'Reference missing.', code: 'reference_missing', detail: { presetIds: missingRef } }];
+    if (busy.length) return [409, { error: 'A preset already has an active job.', code: 'preset_busy', detail: { presetIds: busy } }];
+
+    const options = body.options && typeof body.options === 'object' ? body.options : {};
+    const created = [];
+    for (const presetId of presetIds) {
+      const preset = presetsModule.getPreset(presetId);
+      const ref = refByPreset.get(presetId);
+      const info = await animateMedia.probeVideo(ffprobePath, ref.path);
+      const settings = presetStore.get(presetId);
+      const prompt = route.fields && route.fields.prompt
+        ? presetsModule.composePrompt(preset, settings.prompt, configStore.config.promptSuffix)
+        : null;
+      const job = await pipeline.create({
+        presetId,
+        routeId,
+        options,
+        referencePath: ref.path,
+        referenceDuration: info ? info.duration : null,
+        trim: { start: settings.trimStart, end: settings.trimEnd },
+        characterSource,
+        prompt,
+        orientation: preset.orientation,
+      });
+      created.push(pipeline.view(job));
+    }
+    return [202, { jobs: created }];
   }
 
   const server = http.createServer((req, res) => {
@@ -655,9 +930,12 @@ async function createAppServer({ dataDir = path.join(__dirname, 'data'), ffmpegP
           if (!probe.available) return sendJson(res, 503, { error: 'ffmpeg is not available on this server.' });
           const params = normalizeChromaParams(body || {}); // throws 400
 
-          // Check and claim in the same synchronous step so two concurrent
-          // requests (a double click) can never start two encodes.
-          if ([...jobs.values()].some(other => other.state === 'converting')) {
+          // Take the shared encoder slot synchronously so two concurrent
+          // requests (a double click) can never start two encodes, AND the
+          // animate pipeline's keying cannot run at the same time. 409 while
+          // the slot is held by anyone (chroma or pipeline).
+          const slotRelease = encoderSlot.tryAcquire(`chroma:${id}`);
+          if (!slotRelease) {
             return sendJson(res, 409, { error: 'Another conversion is already running.' });
           }
           const filter = chromaFilter(params, 'yuva420p');
@@ -667,7 +945,7 @@ async function createAppServer({ dataDir = path.join(__dirname, 'data'), ffmpegP
           job.error = null;
           job.result = null;
           // Human-readable command with a stable input name.
-          job.command = `ffmpeg -i input${job.ext} -vf "${filter}" -c:v libvpx-vp9 -pix_fmt yuva420p -auto-alt-ref 0 -b:v 0 -crf 30 -row-mt 1 -an output.webm`;
+          job.command = chromaCommand(filter, `input${job.ext}`);
 
           // A new conversion discards the previous result.
           const dir = jobDir(id);
@@ -675,12 +953,13 @@ async function createAppServer({ dataDir = path.join(__dirname, 'data'), ffmpegP
           await fsp.rm(resultPath, { force: true }).catch(() => {});
           // A cancel or delete may have landed during the await above.
           if (job.state !== 'converting' || jobs.get(id) !== job) {
+            slotRelease();
             return sendJson(res, 409, { error: 'The conversion was canceled before it started.' });
           }
+          job.slotRelease = slotRelease;
           const tmpPath = path.join(dir, `result.${crypto.randomUUID()}.tmp.webm`);
           const args = ['-hide_banner', '-loglevel', 'error', '-nostdin', '-y', '-i', job.sourcePath,
-            '-vf', filter, '-c:v', 'libvpx-vp9', '-pix_fmt', 'yuva420p', '-auto-alt-ref', '0',
-            '-b:v', '0', '-crf', '30', '-row-mt', '1', '-an', '-progress', 'pipe:1', '-nostats', tmpPath];
+            '-vf', filter, ...VP9_ARGS, '-progress', 'pipe:1', '-nostats', tmpPath];
 
           const child = spawn(ffmpegPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
           jobChildren.set(id, child);
@@ -703,10 +982,12 @@ async function createAppServer({ dataDir = path.join(__dirname, 'data'), ffmpegP
           child.stderr.on('data', chunk => { stderr += chunk.toString(); });
           child.on('error', () => {
             jobChildren.delete(id);
+            releaseChromaSlot(job);
             if (job.state === 'converting') { job.state = 'failed'; job.progress = null; job.error = 'Failed to run ffmpeg.'; }
           });
           child.on('close', async code => {
             jobChildren.delete(id);
+            releaseChromaSlot(job);
             // A cancel/delete already moved the job out of converting.
             if (job.state !== 'converting') { await fsp.rm(tmpPath, { force: true }).catch(() => {}); return; }
             if (code === 0) {
@@ -748,6 +1029,7 @@ async function createAppServer({ dataDir = path.join(__dirname, 'data'), ffmpegP
           job.state = 'canceled';
           job.progress = null;
           killJobChild(id);
+          releaseChromaSlot(job);
           // Remove any temp encode files left in the job dir.
           try {
             const entries = await fsp.readdir(jobDir(id));
@@ -801,6 +1083,184 @@ async function createAppServer({ dataDir = path.join(__dirname, 'data'), ffmpegP
         }
       }
 
+      // --- Animate motion preset routes --------------------------------------
+      if (pathname === '/api/animate/status' && req.method === 'GET') {
+        return sendJson(res, 200, await buildAnimateStatus());
+      }
+
+      if (pathname === '/api/animate/config' && req.method === 'PUT') {
+        requireJson(req);
+        const body = await readBody(req);
+        await configStore.applyPatch(body); // throws {status:400}
+        await registry.load(); // custom routes/availability may change with credentials
+        return sendJson(res, 200, await buildAnimateStatus());
+      }
+
+      const providerTest = /^\/api\/animate\/providers\/([^/]+)\/test$/.exec(pathname);
+      if (providerTest && req.method === 'POST') {
+        const id = providerTest[1];
+        const adapter = animateProviders[id];
+        if (!adapter) return sendJson(res, 404, { error: 'Unknown provider.' });
+        if (typeof adapter.test !== 'function') return sendJson(res, 501, { error: 'This provider has no test.', code: 'not_testable' });
+        if (!configStore.isConfigured(id)) return sendJson(res, 400, { error: 'Provider is not configured.', code: 'not_configured' });
+        try {
+          const result = await adapter.test({ credentials: configStore.resolvedCredentials(id), settings: configStore.resolvedSettings(id), fetch: (...a) => fetch(...a), baseUrl: configStore.baseUrl(id), signal: undefined, log: () => {}, allowInsecure: configStore.allowInsecure(id) });
+          return sendJson(res, 200, { ok: !!(result && result.ok), detail: (result && result.detail) || null });
+        } catch (error) {
+          return sendJson(res, 200, { ok: false, detail: safeErr(error.message) });
+        }
+      }
+
+      // References: POST (upload) / GET|HEAD (serve) / DELETE
+      const refMatch = /^\/api\/animate\/references\/([^/]+)$/.exec(pathname);
+      if (refMatch) {
+        const presetId = refMatch[1];
+        if (!presetsModule.isPreset(presetId)) return sendJson(res, 404, { error: 'Unknown preset.' });
+        if (req.method === 'POST') {
+          const probe = await probeFfmpeg();
+          if (!probe.available) return sendJson(res, 503, { error: 'ffmpeg is not available on this server.', code: 'ffmpeg_unavailable' });
+          const filename = url.searchParams.get('filename') || '';
+          const ext = path.extname(filename).toLowerCase();
+          if (!REFERENCE_EXTENSIONS.includes(ext)) return sendJson(res, 415, { error: `Unsupported reference type; use one of ${REFERENCE_EXTENSIONS.join(', ')}.` });
+          const declared = Number(req.headers['content-length']);
+          if (declared > ANIMATE_REFERENCE_MAX) return sendJson(res, 413, { error: 'File exceeds 500 MB.' });
+          const tmpPath = path.join(referencesDir, `upload-${crypto.randomUUID()}.tmp${ext}`);
+          try {
+            await receiveFile(req, tmpPath);
+            const info = await animateMedia.probeVideo(ffprobePath, tmpPath);
+            if (!info || !info.duration) throw Object.assign(new Error('No video stream found in the reference.'), { status: 415 });
+            // Remove the preset's other reference files, then place this one.
+            await removePresetReferences(presetId);
+            const finalPath = path.join(referencesDir, `${presetId}${ext}`);
+            await fsp.rename(tmpPath, finalPath);
+            return sendJson(res, 201, await presetView(presetId));
+          } catch (error) {
+            await fsp.rm(tmpPath, { force: true }).catch(() => {});
+            throw error;
+          }
+        }
+        if (req.method === 'GET' || req.method === 'HEAD') {
+          const ref = await findReference(presetId);
+          if (!ref) return sendJson(res, 404, { error: 'No reference for this preset.' });
+          return serveMedia(req, res, ref.path, mimeForExt(ref.ext));
+        }
+        if (req.method === 'DELETE') {
+          await removePresetReferences(presetId);
+          return sendJson(res, 200, { ok: true });
+        }
+      }
+
+      // PUT /api/animate/presets/:presetId
+      const presetMatch = /^\/api\/animate\/presets\/([^/]+)$/.exec(pathname);
+      if (presetMatch && req.method === 'PUT') {
+        requireJson(req);
+        const body = await readBody(req);
+        const presetId = presetMatch[1];
+        await presetStore.update(presetId, body || {}); // throws {status:400|404}
+        return sendJson(res, 200, await presetView(presetId));
+      }
+
+      // Character: POST (upload) / DELETE / GET preview
+      if (pathname === '/api/animate/character' && req.method === 'POST') {
+        const probe = await probeFfmpeg();
+        if (!probe.available) return sendJson(res, 503, { error: 'ffmpeg is not available on this server.', code: 'ffmpeg_unavailable' });
+        const filename = url.searchParams.get('filename') || '';
+        const ext = path.extname(filename).toLowerCase();
+        if (!CHARACTER_EXTENSIONS.includes(ext)) return sendJson(res, 415, { error: 'Upload a PNG, WebP or JPEG image.' });
+        const declared = Number(req.headers['content-length']);
+        if (declared > ANIMATE_CHARACTER_MAX) return sendJson(res, 413, { error: 'Image exceeds 30 MB.' });
+        const tmpPath = path.join(animateDir, `charupload.${crypto.randomUUID()}.tmp${ext}`);
+        try {
+          await receiveFileWithLimit(req, tmpPath, ANIMATE_CHARACTER_MAX);
+          const info = await animateMedia.probeVideo(ffprobePath, tmpPath);
+          if (!info || !info.width) throw Object.assign(new Error('Could not read the image.'), { status: 415 });
+          await removeCharacterFiles();
+          await fsp.rename(tmpPath, path.join(animateDir, `character${ext === '.jpeg' ? '.jpg' : ext}`));
+          return sendJson(res, 201, await characterView());
+        } catch (error) {
+          await fsp.rm(tmpPath, { force: true }).catch(() => {});
+          throw error;
+        }
+      }
+      if (pathname === '/api/animate/character' && req.method === 'DELETE') {
+        await removeCharacterFiles();
+        return sendJson(res, 200, await characterView());
+      }
+      if (pathname === '/api/animate/character/preview' && (req.method === 'GET' || req.method === 'HEAD')) {
+        const probe = await probeFfmpeg();
+        if (!probe.available) return sendJson(res, 503, { error: 'ffmpeg is not available on this server.' });
+        const source = await resolveCharacterSource();
+        if (!source) return sendJson(res, 404, { error: 'No character image.' });
+        // Canvas-size composite onto #00FF00 for the preview (no route limits).
+        const tmpOut = path.join(animateDir, `preview.${crypto.randomUUID()}.tmp.png`);
+        try {
+          await animateMedia.compositeCharacter(ffmpegPath, ffprobePath, source, {}, tmpOut, { timeoutMs: 60000 });
+          const content = await fsp.readFile(tmpOut);
+          res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': content.length, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+          return res.end(req.method === 'HEAD' ? undefined : content);
+        } finally {
+          await fsp.rm(tmpOut, { force: true }).catch(() => {});
+        }
+      }
+
+      // Jobs collection
+      if (pathname === '/api/animate/jobs' && req.method === 'GET') {
+        return sendJson(res, 200, { jobs: pipeline.list().map(job => pipeline.view(job)) });
+      }
+      if (pathname === '/api/animate/jobs' && req.method === 'POST') {
+        requireJson(req);
+        const body = await readBody(req);
+        return sendJson(res, ...(await createAnimateJobs(body)));
+      }
+
+      // Single job routes
+      const animateJobMatch = /^\/api\/animate\/jobs\/([^/]+)(?:\/(cancel|retry|open-in-converter|generated|result))?$/.exec(pathname);
+      if (animateJobMatch) {
+        const id = animateJobMatch[1];
+        const sub = animateJobMatch[2];
+        if (!JOB_ID_RE.test(id)) return sendJson(res, 404, { error: 'Job not found.' });
+        const job = pipeline.get(id);
+        if (!sub && req.method === 'GET') {
+          if (!job) return sendJson(res, 404, { error: 'Job not found.' });
+          return sendJson(res, 200, pipeline.view(job));
+        }
+        if (!sub && req.method === 'DELETE') {
+          if (!job) return sendJson(res, 404, { error: 'Job not found.' });
+          await pipeline.cancel(id);
+          await fsp.rm(pipeline.jobDir(id), { recursive: true, force: true }).catch(() => {});
+          pipeline.jobs.delete(id);
+          return sendJson(res, 200, { ok: true });
+        }
+        if (sub === 'cancel' && req.method === 'POST') {
+          if (!job) return sendJson(res, 404, { error: 'Job not found.' });
+          const result = await pipeline.cancel(id);
+          if (result && result.conflict) return sendJson(res, 409, { error: 'Job is already finished.' });
+          return sendJson(res, 200, pipeline.view(pipeline.get(id)));
+        }
+        if (sub === 'retry' && req.method === 'POST') {
+          requireJson(req);
+          const body = await readBody(req);
+          if (!job) return sendJson(res, 404, { error: 'Job not found.' });
+          const result = await pipeline.retry(id, { regenerate: !!(body && body.regenerate) });
+          if (result && result.conflict) return sendJson(res, 409, { error: 'Job is active.' });
+          return sendJson(res, 202, pipeline.view(pipeline.get(id)));
+        }
+        if (sub === 'open-in-converter' && req.method === 'POST') {
+          if (!job) return sendJson(res, 404, { error: 'Job not found.' });
+          if (!pipeline.hasGenerated(id)) return sendJson(res, 409, { error: 'No generated video yet.' });
+          const chromaJob = await createChromaJobFromFile(pipeline.generatedPath(id), `${job.presetName}.mp4`, job.presetName);
+          return sendJson(res, 201, { chromaJob });
+        }
+        if (sub === 'generated' && (req.method === 'GET' || req.method === 'HEAD')) {
+          if (!job || !pipeline.hasGenerated(id)) return sendJson(res, 404, { error: 'No generated video.' });
+          return serveMedia(req, res, pipeline.generatedPath(id), 'video/mp4');
+        }
+        if (sub === 'result' && (req.method === 'GET' || req.method === 'HEAD')) {
+          if (!job || !fs.existsSync(pipeline.resultPath(id))) return sendJson(res, 404, { error: 'No result.' });
+          return serveMedia(req, res, pipeline.resultPath(id), 'video/webm');
+        }
+      }
+
       if ((req.method === 'GET' || req.method === 'HEAD') && STATIC_FILES.has(pathname)) {
         const [filename, mime] = STATIC_FILES.get(pathname);
         const content = await fsp.readFile(path.join(PUBLIC_DIR, filename));
@@ -816,6 +1276,7 @@ async function createAppServer({ dataDir = path.join(__dirname, 'data'), ffmpegP
   });
   // Kill any running ffmpeg encodes when the server closes (tests must not leak).
   server.on('close', () => {
+    pipeline.close().catch(() => {});
     for (const child of jobChildren.values()) {
       if (child && !child.killed) { try { child.kill('SIGKILL'); } catch { /* already gone */ } }
     }
