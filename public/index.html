@@ -28,6 +28,10 @@
           <span class="status-dot"></span>
           <span class="status-label">연결 대기 중</span>
         </div>
+        <a id="animateToolLink" href="#animateTool" class="btn btn-secondary btn-sm">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+          기본 동작 생성
+        </a>
         <a id="chromaToolLink" href="#chromaTool" class="btn btn-secondary btn-sm">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22a10 10 0 1 1 0-20 8 8 0 0 1 0 16 4 4 0 0 1 0-8 2 2 0 0 0 0-4"></path></svg>
           배경 제거 변환
@@ -241,6 +245,24 @@
       </section>
     </main>
 
+    <!-- 기본 동작 자동 생성 (레퍼런스 → AI 모션 → 투명 WebM) -->
+    <section id="animateTool" class="card animate-card">
+      <div class="card-header">
+        <div class="card-title-group">
+          <h2>기본 동작 자동 생성</h2>
+          <span class="badge badge-accent">레퍼런스 → AI 모션 → 투명 WebM</span>
+        </div>
+        <span id="animateStatusPill" class="status-pill status-connecting" role="status" aria-live="polite">
+          <span class="status-dot"></span>
+          <span class="status-label">확인 중…</span>
+        </span>
+      </div>
+      <div class="card-body" id="animateBody">
+        <!-- animate.js renders the interactive tool here -->
+        <p class="guide-text" id="animateBootMsg">도구를 초기화하는 중입니다…</p>
+      </div>
+    </section>
+
     <!-- 배경 제거 변환기 (크로마키 -> 투명 WebM) -->
     <section id="chromaTool" class="card chroma-card">
       <div class="card-header">
@@ -262,5 +284,6 @@
 
   <script src="./app.js"></script>
   <script src="./chroma.js"></script>
+  <script src="./animate.js"></script>
 </body>
 </html>

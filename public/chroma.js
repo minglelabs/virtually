@@ -1161,6 +1161,37 @@
   }
 
   // ==========================================================================
+  // Public API for other tools (animate.js opens a generated clip here)
+  // ==========================================================================
+  // adoptJob expects a chroma Job JSON (same shape as /api/chroma/jobs). When
+  // animate.js calls this the chroma UI may not be built yet (its own boot()
+  // runs independently and may have hit an unavailable/older server), so build
+  // the editor on demand before adopting. Returns true when the job was adopted.
+  function adoptExternalJob(job) {
+    if (!job || typeof job !== 'object') return false;
+    if (!dom.editor) {
+      const body = document.getElementById('chromaBody');
+      if (!body) return false;
+      // Build a minimal editor even if the initial status probe failed, so a
+      // generated clip can still be keyed. Fall back to FALLBACK defaults.
+      if (!state.status) {
+        state.available = true;
+        state.defaults = state.defaults || FALLBACK.defaults;
+        state.limits = state.limits || FALLBACK.limits;
+        state.acceptedExtensions = state.acceptedExtensions || FALLBACK.acceptedExtensions;
+        setStatusPill(true, null);
+        buildUI(body);
+      } else {
+        return false;
+      }
+    }
+    adoptJob(job);
+    return true;
+  }
+
+  window.VirtuallyChroma = { adoptJob: adoptExternalJob };
+
+  // ==========================================================================
   // Go
   // ==========================================================================
   if (document.readyState === 'loading') {
