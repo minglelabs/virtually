@@ -28,6 +28,10 @@
           <span class="status-dot"></span>
           <span class="status-label">연결 대기 중</span>
         </div>
+        <a id="chromaToolLink" href="#chromaTool" class="btn btn-secondary btn-sm">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22a10 10 0 1 1 0-20 8 8 0 0 1 0 16 4 4 0 0 1 0-8 2 2 0 0 0 0-4"></path></svg>
+          배경 제거 변환
+        </a>
         <a id="openOverlayBtn" href="./overlay" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
           오버레이 새 창
@@ -206,6 +210,7 @@
             <div class="upload-section">
               <h3 class="upload-heading">새 모션 클립 추가</h3>
               <p class="upload-desc">스트리밍 중 시청자 후원, 인사, 감정 표현 등으로 사용할 투명 WebM 클립을 추가하세요.</p>
+              <p class="upload-hint-inline">녹색 배경 영상은 아래 <a href="#chromaTool" class="inline-link">[배경 제거 변환기]</a>에서 투명 WebM으로 만들 수 있습니다.</p>
 
               <form id="motionUploadForm" class="upload-form">
                 <div class="form-row">
@@ -235,8 +240,27 @@
         </article>
       </section>
     </main>
+
+    <!-- 배경 제거 변환기 (크로마키 -> 투명 WebM) -->
+    <section id="chromaTool" class="card chroma-card">
+      <div class="card-header">
+        <div class="card-title-group">
+          <h2>배경 제거 변환기</h2>
+          <span class="badge badge-accent">크로마키 → 투명 WebM</span>
+        </div>
+        <span id="chromaStatusPill" class="status-pill status-connecting" role="status" aria-live="polite">
+          <span class="status-dot"></span>
+          <span class="status-label">ffmpeg 확인 중…</span>
+        </span>
+      </div>
+      <div class="card-body" id="chromaBody">
+        <!-- chroma.js renders the interactive tool here -->
+        <p class="guide-text" id="chromaBootMsg">도구를 초기화하는 중입니다…</p>
+      </div>
+    </section>
   </div>
 
   <script src="./app.js"></script>
+  <script src="./chroma.js"></script>
 </body>
 </html>
