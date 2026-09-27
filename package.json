@@ -6,7 +6,8 @@
   "packageManager": "pnpm@9.15.3",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test"
+    "test": "node --test",
+    "sample:greenscreen": "node scripts/make-greenscreen-sample.js"
   },
   "engines": {
     "node": ">=20"

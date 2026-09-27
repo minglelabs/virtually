@@ -838,6 +838,10 @@
     initSSE();
   }
 
+  // Expose a tiny UI surface so chroma.js (a separate script) can reuse the
+  // toast + event-log infrastructure instead of duplicating it.
+  window.VirtuallyUI = { showToast, addLog };
+
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
   } else {
