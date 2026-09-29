@@ -1,0 +1,45 @@
+'use strict';
+
+const assert = require('node:assert/strict');
+const test = require('node:test');
+const { PRESET_MOTIONS, buildMotionItems } = require('../public/app.js');
+
+const motion = (id, name) => ({ id, name, kind: 'motion', mime: 'video/webm', url: `/api/media/${id}` });
+
+test('empty library: demo button plus 9 unlinked presets in catalog order', () => {
+  const items = buildMotionItems({ idle: null, motions: [] });
+  assert.equal(items.length, 10);
+  assert.deepEqual(items[0], { key: 'demo', label: '데모 동작', sub: '기본 아바타', triggerId: 'demo', linked: false });
+  assert.deepEqual(items.slice(1).map(i => i.label), PRESET_MOTIONS.map(p => p.label));
+  assert.deepEqual(PRESET_MOTIONS.map(p => p.key), [
+    'hi', 'wink', 'cheek-heart', 'finger-heart', 'kpop-heart', 'clap-laugh', 'dont-know', 'wonyoung-turn', 'bad-challenge',
+  ]);
+  for (const item of items.slice(1)) {
+    assert.equal(item.sub, '영상 없음 · 데모 재생');
+    assert.equal(item.triggerId, 'demo');
+  }
+  assert.equal(buildMotionItems(null).length, 10);
+});
+
+test('presets link by trimmed, case-insensitive key or label; first match wins', () => {
+  const items = buildMotionItems({
+    motions: [
+      motion('a', 'extra'),
+      motion('b', '  WINK '),
+      motion('c', 'wink'),
+      motion('d', '볼하트'),
+      motion('e', "I DON'T KNOW 포즈"),
+    ],
+  });
+  const byKey = Object.fromEntries(items.map(i => [i.key, i]));
+  assert.equal(byKey['preset:wink'].triggerId, 'b');
+  assert.equal(byKey['preset:wink'].sub, '영상');
+  assert.equal(byKey['preset:cheek-heart'].triggerId, 'd');
+  assert.equal(byKey['preset:dont-know'].triggerId, 'e');
+  assert.equal(byKey['preset:hi'].triggerId, 'demo');
+  // Unlinked library motions follow the presets in library order (duplicate 'wink' included).
+  assert.deepEqual(items.slice(10).map(i => [i.label, i.triggerId, i.sub]), [
+    ['extra', 'a', '영상'],
+    ['wink', 'c', '영상'],
+  ]);
+});
