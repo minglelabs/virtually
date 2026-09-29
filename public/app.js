@@ -62,8 +62,24 @@ function buildMotionItems(library) {
   return items;
 }
 
+// Motion buttons are rendered in batches as the list scrolls into view.
+const MOTION_BATCH_SIZE = 30;
+
+/**
+ * How many of `total` motion items to render.
+ * Without `grow` (initial render or a library update) keep what is already shown,
+ * but at least one batch; with `grow` (the sentinel came into view) add one batch.
+ * Never exceeds `total`.
+ */
+function motionRenderCount(shown, total, { grow = false, batchSize = MOTION_BATCH_SIZE } = {}) {
+  const safeShown = Math.max(0, Number.isFinite(shown) ? Math.floor(shown) : 0);
+  const safeTotal = Math.max(0, Number.isFinite(total) ? Math.floor(total) : 0);
+  const target = grow ? safeShown + batchSize : Math.max(safeShown, batchSize);
+  return Math.min(safeTotal, target);
+}
+
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { PRESET_MOTIONS, buildMotionItems };
+  module.exports = { PRESET_MOTIONS, buildMotionItems, MOTION_BATCH_SIZE, motionRenderCount };
 }
 
 if (typeof document !== 'undefined') (() => {
@@ -76,6 +92,7 @@ if (typeof document !== 'undefined') (() => {
   const frame = document.getElementById('overlayPreviewFrame');
   const motionList = document.getElementById('motionList');
   const motionStatus = document.getElementById('motionStatus');
+  const motionSentinel = document.getElementById('motionSentinel');
 
   const overlayUrl = new URL('/overlay', window.location.origin).href;
   urlInput.value = overlayUrl;
@@ -99,6 +116,7 @@ if (typeof document !== 'undefined') (() => {
 
   // ---- Motion buttons ----
   let items = buildMotionItems(null);
+  let shownCount = 0;
   let playingKey = null;
   let playingTimer = null;
   let lastOverlayIdleAt = 0;
@@ -127,9 +145,41 @@ if (typeof document !== 'undefined') (() => {
     applyPlayingState();
   }
 
+  // root: null watches the viewport, so it works both inside the scrolling pane
+  // (ancestor clipping applies) and when the page itself scrolls (narrow layout).
+  const observer = typeof IntersectionObserver === 'function'
+    ? new IntersectionObserver((entries) => {
+      if (entries.some(entry => entry.isIntersecting)) loadMore();
+    }, { root: null, rootMargin: '300px 0px' })
+    : null;
+  let observing = false;
+
+  function updateSentinel() {
+    const done = shownCount >= items.length;
+    motionSentinel.hidden = done;
+    if (!observer) return;
+    if (observing) observer.unobserve(motionSentinel);
+    observing = false;
+    if (!done) {
+      // Re-observing delivers a fresh entry, so a sentinel that is still in view
+      // after a batch keeps loading until it leaves the viewport.
+      observer.observe(motionSentinel);
+      observing = true;
+    }
+  }
+
+  function loadMore() {
+    const next = motionRenderCount(shownCount, items.length, { grow: true });
+    if (next <= shownCount) return;
+    shownCount = next;
+    render();
+  }
+
   function render() {
+    // Without IntersectionObserver, render everything.
+    shownCount = observer ? motionRenderCount(shownCount, items.length) : items.length;
     const fragment = document.createDocumentFragment();
-    for (const item of items) {
+    for (const item of items.slice(0, shownCount)) {
       // Motion names are user data: build with textContent only.
       const button = document.createElement('button');
       button.type = 'button';
@@ -153,6 +203,7 @@ if (typeof document !== 'undefined') (() => {
       const again = [...motionList.children].find(el => el.dataset.key === focusedKey);
       if (again) again.focus();
     }
+    updateSentinel();
   }
 
   async function trigger(item) {

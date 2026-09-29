@@ -2,7 +2,7 @@
 
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { PRESET_MOTIONS, buildMotionItems } = require('../public/app.js');
+const { PRESET_MOTIONS, buildMotionItems, MOTION_BATCH_SIZE, motionRenderCount } = require('../public/app.js');
 
 const motion = (id, name) => ({ id, name, kind: 'motion', mime: 'video/webm', url: `/api/media/${id}` });
 
@@ -42,4 +42,25 @@ test('presets link by trimmed, case-insensitive key or label; first match wins',
     ['extra', 'a', '영상'],
     ['wink', 'c', '영상'],
   ]);
+});
+
+test('motionRenderCount renders batches of 30 and never shrinks below what is shown', () => {
+  assert.equal(MOTION_BATCH_SIZE, 30);
+  // Initial render: one batch, capped by the total.
+  assert.equal(motionRenderCount(0, 10), 10);
+  assert.equal(motionRenderCount(0, 85), 30);
+  // Sentinel intersections add one batch each until everything is shown.
+  assert.equal(motionRenderCount(30, 85, { grow: true }), 60);
+  assert.equal(motionRenderCount(60, 85, { grow: true }), 85);
+  assert.equal(motionRenderCount(85, 85, { grow: true }), 85);
+  // A library update keeps the already-rendered count (a new item stays unrendered until reached).
+  assert.equal(motionRenderCount(60, 86), 60);
+  assert.equal(motionRenderCount(85, 86), 85);
+  assert.equal(motionRenderCount(85, 86, { grow: true }), 86);
+  // A shrinking library caps at the new total.
+  assert.equal(motionRenderCount(60, 40), 40);
+  // Defensive inputs.
+  assert.equal(motionRenderCount(Number.NaN, 5), 5);
+  assert.equal(motionRenderCount(-3, 0), 0);
+  assert.equal(motionRenderCount(0, 100, { batchSize: 7 }), 7);
 });
