@@ -21,7 +21,7 @@ Open the printed controller URL in your browser. It works before you add any fil
 
 ## Motion buttons
 
-The **동작** (Motions) card lists, in this order:
+The **동작** (Motions) card sits at the bottom of the controller, below the **OBS에 연동하기!** section. The whole control pane scrolls as one, and the list renders 30 buttons at a time, loading the next 30 as you scroll to the end (infinite scroll). It lists, in this order:
 
 1. **데모 동작** — always plays the built-in demo avatar reaction.
 2. Nine preset buttons:
@@ -46,7 +46,7 @@ A new trigger replaces a motion that is already playing. The OBS source and the 
 
 ## Set up OBS
 
-The controller's **OBS 브라우저 소스 연동** card shows the same guide with the actual overlay URL and a copy button.
+The controller's collapsible **OBS에 연동하기!** section (closed by default; click it to open) shows a short version of this guide with the actual overlay URL and a copy button.
 
 1. In the **Sources** dock, click **+** (Add Source).
 2. Under Source Type, choose **Browser**.
