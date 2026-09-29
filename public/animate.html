@@ -23,31 +23,47 @@
         <span>예시 영상이 아직 없습니다</span>
         <button type="button" id="fetchExamplesBtn" class="btn btn-sm">예시 영상 받기</button>
       </div>
-      <div id="drivingList" class="driving-grid" role="radiogroup" aria-labelledby="drivingTitle"></div>
-      <input type="file" id="drivingInput" accept="video/mp4,video/quicktime,video/webm" hidden>
+      <div class="strip" data-strip>
+        <div id="drivingList" class="strip-scroller" role="radiogroup" aria-labelledby="drivingTitle">
+          <div class="strip-lead">
+            <button type="button" id="drivingDrop" class="dropzone dropzone-video" aria-label="내 영상 올리기: 끌어다 놓거나 눌러서 고르기">
+              <svg class="dropzone-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <rect x="3" y="5" width="13" height="14" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.6"/>
+                <path d="M16 10.2 21 7v10l-5-3.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+                <path d="M9.5 9v6M6.5 12h6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+              </svg>
+              <span class="dropzone-title" id="drivingDropTitle">+ 내 영상 올리기</span>
+              <span class="dropzone-sub">끌어다 놓기 · MP4 · MOV · WebM</span>
+            </button>
+          </div>
+          <span id="drivingSentinel" class="strip-sentinel" aria-hidden="true"></span>
+        </div>
+      </div>
+      <input type="file" id="drivingInput" accept="video/mp4,video/quicktime,video/webm" multiple hidden>
       <p id="drivingStatus" class="status" aria-live="polite"></p>
       <video id="drivingPreview" class="driving-preview" muted loop autoplay playsinline controls hidden></video>
     </section>
 
     <!-- 2. Character -->
-    <section class="card" aria-labelledby="characterTitle">
+    <section id="characterCard" class="card" aria-labelledby="characterTitle">
       <h2 id="characterTitle">2. 캐릭터</h2>
-      <div class="character">
-        <div class="character-preview checkerboard">
-          <img id="characterImg" alt="캐릭터 미리보기" hidden>
-          <span id="characterEmpty" class="muted">캐릭터 없음</span>
-        </div>
-        <div class="character-info">
-          <p id="characterMeta" class="muted"></p>
-          <p id="characterIdle" class="muted" hidden>대기 이미지 사용 중</p>
-          <div class="row">
-            <button type="button" id="characterUploadBtn" class="btn btn-sm">이미지 올리기</button>
-            <button type="button" id="characterRemoveBtn" class="btn btn-ghost btn-sm" hidden>삭제</button>
+      <div class="strip" data-strip>
+        <div id="characterList" class="strip-scroller" role="list" aria-labelledby="characterTitle">
+          <div class="strip-lead">
+            <button type="button" id="characterDrop" class="dropzone dropzone-image" aria-label="캐릭터 이미지 올리기: 끌어다 놓거나 눌러서 고르기">
+              <svg class="dropzone-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M7 17.5h-.5a4 4 0 0 1-.6-7.95A6 6 0 0 1 17.6 8.1 4.5 4.5 0 0 1 17.5 17.5H17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M12 20v-8m0 0-3 3m3-3 3 3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <span class="dropzone-title" id="characterDropTitle">이미지를 끌어다 놓으세요</span>
+              <span class="dropzone-sub">또는 클릭해서 고르기 · PNG · JPG · WebP</span>
+            </button>
           </div>
-          <input type="file" id="characterInput" accept="image/png,image/jpeg,image/webp" hidden>
-          <p id="characterStatus" class="status" aria-live="polite"></p>
         </div>
       </div>
+      <p id="characterMeta" class="muted character-meta"></p>
+      <input type="file" id="characterInput" accept="image/png,image/jpeg,image/webp" multiple hidden>
+      <p id="characterStatus" class="status" aria-live="polite"></p>
     </section>
 
     <!-- 3. Model -->

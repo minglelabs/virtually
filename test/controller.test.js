@@ -209,3 +209,66 @@ test('formatting helpers', () => {
   assert.equal(H.videoContentType('a.webm', ''), 'video/webm');
   assert.equal(H.videoContentType('a.bin', ''), 'application/octet-stream');
 });
+
+test('drivingRenderCount renders batches of 12 and never shrinks below what is shown', () => {
+  assert.equal(H.DRIVING_BATCH_SIZE, 12);
+  assert.equal(H.drivingRenderCount(0, 5), 5);
+  assert.equal(H.drivingRenderCount(0, 32), 12);
+  assert.equal(H.drivingRenderCount(12, 32, { grow: true }), 24);
+  assert.equal(H.drivingRenderCount(24, 32, { grow: true }), 32);
+  assert.equal(H.drivingRenderCount(32, 32, { grow: true }), 32);
+  // A live refresh keeps what is shown; one more item stays unrendered until reached.
+  assert.equal(H.drivingRenderCount(24, 33), 24);
+  assert.equal(H.drivingRenderCount(32, 33), 32);
+  assert.equal(H.drivingRenderCount(24, 20), 20);
+  assert.equal(H.drivingRenderCount(Number.NaN, 3), 3);
+});
+
+test('fileKind accepts PNG/JPEG/WebP images and MP4/MOV/WebM videos only', () => {
+  assert.equal(H.fileKind('a.png', 'image/png'), 'image');
+  assert.equal(H.fileKind('a.jpg', 'image/jpeg'), 'image');
+  assert.equal(H.fileKind('a.webp', 'image/webp'), 'image');
+  assert.equal(H.fileKind('a.gif', 'image/gif'), null);
+  assert.equal(H.fileKind('A.JPEG', ''), 'image');
+  assert.equal(H.fileKind('clip.mp4', 'video/mp4'), 'video');
+  assert.equal(H.fileKind('clip.mov', 'video/quicktime'), 'video');
+  assert.equal(H.fileKind('clip.webm', ''), 'video');
+  assert.equal(H.fileKind('clip.avi', 'video/x-msvideo'), null);
+  assert.equal(H.fileKind('notes.txt', 'text/plain'), null);
+  assert.equal(H.fileKind('noext', ''), null);
+  // A typed file is judged by its type, not a misleading name.
+  assert.equal(H.fileKind('fake.png', 'text/plain'), null);
+});
+
+test('stripWheelDelta maps vertical wheels to horizontal scroll until either end', () => {
+  const strip = (scrollLeft, scrollWidth = 1000, clientWidth = 400) => ({ scrollLeft, scrollWidth, clientWidth });
+  assert.equal(H.stripWheelDelta({ deltaY: 100 }, strip(0)), 100);
+  assert.equal(H.stripWheelDelta({ deltaY: -100 }, strip(300)), -100);
+  assert.equal(H.stripWheelDelta({ deltaY: 3, deltaMode: 1 }, strip(0)), 48);
+  // At the ends the page scrolls instead.
+  assert.equal(H.stripWheelDelta({ deltaY: 100 }, strip(600)), 0);
+  assert.equal(H.stripWheelDelta({ deltaY: -100 }, strip(0)), 0);
+  assert.equal(H.stripWheelDelta({ deltaY: -100 }, strip(1)), 0);
+  assert.equal(H.stripWheelDelta({ deltaY: 100 }, strip(599.5)), 0);
+  // Nothing to scroll, horizontal gestures and pinch zoom are left alone.
+  assert.equal(H.stripWheelDelta({ deltaY: 100 }, strip(0, 400, 400)), 0);
+  assert.equal(H.stripWheelDelta({ deltaY: 10, deltaX: 40 }, strip(0)), 0);
+  assert.equal(H.stripWheelDelta({ deltaY: 100, ctrlKey: true }, strip(0)), 0);
+});
+
+test('animate page: drop zones replace the upload button', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'animate.html'), 'utf8');
+  assert.doesNotMatch(html, /이미지 올리기<\/button>|characterUploadBtn/);
+  assert.match(html, /<div class="strip-lead">\s*<button type="button" id="characterDrop" class="dropzone/);
+  assert.match(html, /이미지를 끌어다 놓으세요/);
+  assert.match(html, /또는 클릭해서 고르기 · PNG · JPG · WebP/);
+  assert.match(html, /<div class="strip-lead">\s*<button type="button" id="drivingDrop" class="dropzone/);
+  assert.match(html, /id="drivingSentinel"/);
+  const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'animate.js'), 'utf8');
+  assert.match(js, /rootMargin: '0px 300px 0px 0px'/);
+  assert.match(js, /이미지 파일만 올릴 수 있습니다/);
+  assert.match(js, /영상 파일만 올릴 수 있습니다/);
+  assert.match(js, /이 캐릭터를 지울까요\?/);
+});
