@@ -6,7 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const fs = require('node:fs/promises');
 const http = require('node:http');
-const { createAppServer, listenWithPortRotation } = require('../server');
+const { createAppServer, listenWithPortRotation, extForMime } = require('../server');
 
 async function start(dataDir) {
   const server = await createAppServer({ dataDir });
@@ -190,6 +190,38 @@ test('rotates to the next free port when the starting port is occupied', async (
   } finally {
     if (server.listening) await stop(server);
     await stop(blocker);
+    await fs.rm(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('library media extensions come from one helper', () => {
+  assert.equal(extForMime('video/webm'), '.webm');
+  assert.equal(extForMime('video/mp4'), '.mp4');
+  assert.equal(extForMime('image/png'), '.png');
+  assert.equal(extForMime('image/webp'), '.webp');
+});
+
+test('an mp4 library motion is served, and deleting it removes the .mp4 file', async () => {
+  const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'virtually-test-'));
+  const id = '0f0e0d0c-0b0a-4900-8800-706050403020';
+  const bytes = Buffer.from('0000ftypisom-fake-mp4-body');
+  await fs.mkdir(path.join(dataDir, 'media'), { recursive: true });
+  await fs.writeFile(path.join(dataDir, 'media', `${id}.mp4`), bytes);
+  await fs.writeFile(path.join(dataDir, 'library.json'), JSON.stringify({
+    idle: null,
+    motions: [{ id, name: 'mp4 motion', kind: 'motion', mime: 'video/mp4', url: `/api/media/${id}`, createdAt: new Date().toISOString() }],
+  }));
+  const { server, base } = await start(dataDir);
+  try {
+    const response = await fetch(`${base}/api/media/${id}`);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('content-type'), 'video/mp4');
+    assert.deepEqual(Buffer.from(await response.arrayBuffer()), bytes);
+    const removed = await fetch(`${base}/api/media/${id}`, { method: 'DELETE' });
+    assert.equal(removed.status, 200);
+    await assert.rejects(fs.stat(path.join(dataDir, 'media', `${id}.mp4`)), { code: 'ENOENT' });
+  } finally {
+    await stop(server);
     await fs.rm(dataDir, { recursive: true, force: true });
   }
 });

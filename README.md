@@ -2,11 +2,11 @@
 
 A local proof of concept for putting a pre-rendered character over a live camera feed in OBS. The camera remains an ordinary OBS source. Virtually supplies a **separate transparent Browser Source** for the character and a controller with motion buttons, an OBS setup guide, and a large live preview. A button plays one motion once, then the overlay returns to the idle character.
 
-This is a small first step toward the broader [Virtually presentation](https://translator.minglelabs.xyz/xr-virtually). It does not generate animations from an image during a stream. Prepare the character and clips in a separate tool, then add them with the controller's **+ 동작 추가하기** button or the HTTP API (see [Add clips](#add-clips)).
+This is a small first step toward the broader [Virtually presentation](https://translator.minglelabs.xyz/xr-virtually). It does not generate animations during a stream. New motions are made ahead of time on the **동작 만들기** page (a driving video + your character image, animated by an AI video API; see [Make motions](#make-motions-동작-만들기)) or prepared in another tool and added through the HTTP API (see [Add clips](#add-clips)).
 
 ## Run
 
-Requires Node.js 20 or newer and pnpm. No external service is required.
+Requires Node.js 20 or newer and pnpm. The controller and overlay need no external service. The **동작 만들기** page also needs `ffmpeg` and `ffprobe` with `libx264` on the `PATH` (or `FFMPEG_PATH` / `FFPROBE_PATH`), and an API key for at least one provider to generate real motions.
 
 ```bash
 pnpm start
@@ -46,7 +46,9 @@ A new trigger replaces a motion that is already playing. The OBS source and the 
 
 The card header, which stays visible at the top while the list scrolls, has a **대기로 돌아가기** (Back to idle) button. It stops the current motion and returns the overlay to the idle character (`POST /api/idle`).
 
-The **+ 동작 추가하기** (Add motion) button stays visible at the bottom of the list while it scrolls and rests under the last row at the end. It opens a file picker for transparent WebM clips (several at once is fine) and uploads them through `POST /api/upload`. The file name decides the link: `wink.webm` or `윙크.webm` becomes the video of the **윙크** button, and any other name becomes a new button with that name. After an upload, the list scrolls to the new or linked button and highlights it briefly.
+The **+ 동작 추가하러 가기** button stays visible at the bottom of the list while it scrolls and rests under the last row at the end. It opens the **동작 만들기** page (`/animate`).
+
+Motions can be transparent WebM clips (uploaded through the API) or MP4 results added from the 동작 만들기 page. The name decides the link: a motion named `wink` or `윙크` becomes the video of the **윙크** button, and any other name becomes a new button with that name.
 
 ## Set up OBS
 
@@ -74,9 +76,73 @@ Recommended properties, in OBS order:
 
 Do not add a camera feed to the overlay page. Audio stays with your regular microphone and OBS sources.
 
+## Make motions (동작 만들기)
+
+Open `http://127.0.0.1:8787/animate` (or **+ 동작 추가하러 가기** on the controller):
+
+1. **동작 영상** — pick an example driving video, or upload your own MP4/MOV/WebM (up to 200 MB).
+2. **캐릭터** — upload a PNG/JPEG/WebP image (up to 20 MB). Without one, the library's PNG/WebP idle image is used. Transparent pixels are sent as a plain green background.
+3. **모델** — pick a route: Wan 2.2 Animate, DreamActor V2 (M2.0) or Kling motion control, through WaveSpeed, fal.ai, Replicate, Higgsfield, Alibaba Model Studio or Kling directly. Routes marked "검증 전" have an endpoint or field name that was not confirmed against the vendor's docs; see [docs/animate-providers.md](docs/animate-providers.md). The page shows an estimated cost when the route has a known price and asks for confirmation before any paid request.
+4. **결과** — jobs update live. A finished result plays on the page; **동작으로 추가하기** copies it into the motion list as an MP4 motion. Its default name is the preset label of the example (for example `인사 (Hi)`), so it lands on that preset button.
+
+Background removal of results and fixing hard driving videos (several people, busy backgrounds) are not implemented yet.
+
+### Example driving videos
+
+`examples/driving.json` lists the example videos: label, preset, source page, author, license and trim. The videos themselves are **not** stored in this repository. They are downloaded from the sources listed in that file, trimmed and converted (H.264, height <= 720, no audio) into `data/animate/drivings/examples/`. The source's license applies to each video; see its `license` and `sourcePage`.
+
+Download them with the page's **예시 영상 받기** button, or without the server:
+
+```bash
+pnpm run fetch-examples
+```
+
+Only the manifest's `https:` URLs are fetched (redirects must stay on `https:`), each file is limited to 100 MB and 60 seconds.
+
+### API keys
+
+Enter keys in the page's **API 키 설정** panel. They are saved in `data/animate/config.json` (file mode 0600, Git-ignored) and only a masked form is ever sent back. Environment variables work too and are used when no key is saved:
+
+| Provider | Environment variables |
+|---|---|
+| WaveSpeed | `WAVESPEED_API_KEY` |
+| fal.ai | `FAL_KEY` |
+| Replicate | `REPLICATE_API_TOKEN` |
+| Higgsfield | `HIGGSFIELD_API_KEY_ID` + `HIGGSFIELD_API_KEY_SECRET` |
+| Alibaba Model Studio | `DASHSCOPE_API_KEY` |
+| Kling AI (direct) | `KLING_ACCESS_KEY` + `KLING_SECRET_KEY`, or `KLING_API_KEY` |
+
+Kling direct has no video upload API, so it also needs a WaveSpeed, fal.ai or Higgsfield key to relay the driving video. Generation is billed by the provider.
+
+For a free local try-out, start the server with `VIRTUALLY_ANIMATE_MOCK=1 pnpm start`. It adds the **로컬 테스트 (AI 아님)** route, which only animates the character image with ffmpeg and never uses the network.
+
+### Animate API
+
+All errors are JSON `{ "error", "code"?, "detail"? }`. JSON bodies need `Content-Type: application/json`.
+
+| Method and path | Purpose |
+|---|---|
+| `GET /api/animate/status` | ffmpeg availability, routes, providers (masked keys), config, current character |
+| `PUT /api/animate/config` | Save provider keys/settings (`{ "providers": { "wavespeed": { "apiKey": "..." } } }`); `""` removes a key |
+| `POST /api/animate/providers/<id>/test` | Check a provider key (where the provider has a test call) |
+| `POST /api/animate/character?name=<file>` | Upload the character image (raw body) |
+| `DELETE /api/animate/character` | Remove it (falls back to the idle image) |
+| `GET /api/animate/character/image` | The character image in use |
+| `GET /api/animate/drivings` | Examples (manifest order), then uploads (newest first) |
+| `POST /api/animate/examples/fetch` | Download missing example videos (`{}`) |
+| `POST /api/animate/drivings?name=<file>` | Upload a driving video (raw body) |
+| `DELETE /api/animate/drivings/<id>` | Delete an upload (examples are read-only) |
+| `GET /api/animate/drivings/<id>/video`, `/poster` | Driving video (byte ranges) and poster |
+| `GET /api/animate/jobs`, `POST /api/animate/jobs` | List jobs; start one: `{ "drivingId", "routeId", "options"?, "confirmed": true }` |
+| `GET /api/animate/jobs/<id>`, `POST .../cancel` | One job; cancel it |
+| `GET /api/animate/jobs/<id>/result`, `/poster` | Result MP4 (byte ranges) and poster |
+| `POST /api/animate/jobs/<id>/motion` | Add the result to the motion list: `{ "name"? }` |
+
+Job states: `queued`, `preparing`, `submitting`, `running`, `downloading`, `succeeded`, `failed`, `canceled`. Every change is also sent on `/api/events` as `{ "type": "animate-job", "job": ... }`. Jobs are kept in `data/animate/jobs/` and survive a restart: a job that was generating resumes polling, and a job cut off while submitting is marked failed (`interrupted`) rather than submitted twice.
+
 ## Add clips
 
-The **+ 동작 추가하기** button adds motion clips from the controller. Without it (or for the idle asset), use `POST /api/upload`, sending the raw file as the request body. The display name is the file name without its extension, so `wink.webm` becomes a motion named `wink`, which links to the **윙크** button.
+Motion clips and the idle asset can also be added with `POST /api/upload`, sending the raw file as the request body. The display name is the file name without its extension, so `wink.webm` becomes a motion named `wink`, which links to the **윙크** button.
 
 ```bash
 # Motion clip (transparent WebM)
@@ -106,7 +172,7 @@ Use your server's actual port. The `Content-Type` header is required: without it
 ## Prepare media
 
 - **Idle:** one transparent WebM video that loops, or a transparent PNG/WebP image.
-- **Motions:** individually named transparent WebM clips, each played once per trigger.
+- **Motions:** individually named transparent WebM clips, each played once per trigger. MP4 motions added from the 동작 만들기 page play the same way but have no transparency (the provider's background is kept).
 - Use the same canvas size and character position across idle and motion clips for a clean transition. Put the character on a transparent background before encoding; changing the file extension to `.webm` does not create transparency.
 
 For example, if `input.mov` already contains an alpha channel, FFmpeg can encode a transparent VP9 WebM:
@@ -120,6 +186,6 @@ The second command should show `TAG:alpha_mode=1`. We verified this encoding pat
 
 ## Scope and limitations
 
-The PoC uses a local HTTP server and server-sent events to synchronize the controller, preview, and OBS Browser Source. It supports a single local library and does not include accounts, remote viewer triggers, AI generation, background removal, or a broadcasting platform. Browser playback and the transparent page background were tested locally; OBS scene rendering and long-running performance with many clips still need live validation.
+The PoC uses a local HTTP server and server-sent events to synchronize the controller, preview, and OBS Browser Source. It supports a single local library and does not include accounts, remote viewer triggers, live AI generation, background removal, or a broadcasting platform. Browser playback and the transparent page background were tested locally; OBS scene rendering and long-running performance with many clips still need live validation.
 
-Run `pnpm test` for API, media-range, persistence, port rotation, and event-stream checks.
+Run `pnpm test` for API, media-range, persistence, port rotation, and event-stream checks. The animate tests use the mock route, local fixture servers and ffmpeg-generated clips; they never call a provider.
