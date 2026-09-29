@@ -272,3 +272,23 @@ test('animate page: drop zones replace the upload button', () => {
   assert.match(js, /영상 파일만 올릴 수 있습니다/);
   assert.match(js, /이 캐릭터를 지울까요\?/);
 });
+
+test('controller previews a true-scale 1920 x 1080 canvas', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
+  assert.match(html, /<h2 id="previewTitle">캔버스<\/h2>/);
+  assert.match(html, /1920 × 1080 · 체크무늬 부분은 투명하게 송출됩니다\./);
+  assert.match(html, /<h1 id="controlTitle">Virtually<\/h1>\s*<p class="subtitle">컨트롤러<\/p>/);
+  assert.match(html,
+    /<div class="stage">\s*<div class="canvas" id="canvasBox">\s*<iframe id="overlayPreviewFrame" src="\.\/overlay" title="OBS 캔버스 미리보기"><\/iframe>\s*<\/div>\s*<\/div>/);
+
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.css'), 'utf8');
+  const rule = css.match(/\.stage iframe \{([^}]*)\}/);
+  assert.ok(rule, 'app.css has a .stage iframe rule');
+  assert.match(rule[1], /width:\s*1920px;/);
+  assert.match(rule[1], /height:\s*1080px;/);
+  assert.match(rule[1], /transform-origin:\s*0 0;/);
+  assert.match(rule[1], /transform:\s*scale\(var\(--canvas-scale\)\);/);
+  assert.match(rule[1], /color-scheme:\s*normal;/);
+});

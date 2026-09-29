@@ -33,6 +33,28 @@
     setTimeout(() => { copyBtn.textContent = 'URL 복사'; }, 1500);
   });
 
+  // ---- True-scale canvas preview ----
+  // The overlay renders at the OBS browser-source size and is scaled to fit the stage.
+  const CANVAS_W = 1920;
+  const CANVAS_H = 1080;
+  const CANVAS_BORDER = 2; // 1px border on each side, outside the scaled box
+  const stage = document.querySelector('.stage');
+  const canvasBox = document.getElementById('canvasBox');
+  // Mirrors the narrow layout in app.css, where the stage has no fixed height.
+  const narrowQuery = window.matchMedia('(max-width: 800px)');
+
+  function fitCanvas() {
+    const byWidth = Math.max(0, stage.clientWidth - CANVAS_BORDER) / CANVAS_W;
+    const byHeight = Math.max(0, stage.clientHeight - CANVAS_BORDER) / CANVAS_H;
+    const scale = narrowQuery.matches ? byWidth : Math.min(byWidth, byHeight);
+    canvasBox.style.setProperty('--canvas-scale', String(scale));
+  }
+
+  fitCanvas(); // initial pass before first paint
+  if (typeof ResizeObserver === 'function') new ResizeObserver(fitCanvas).observe(stage);
+  else window.addEventListener('resize', fitCanvas);
+  narrowQuery.addEventListener('change', fitCanvas);
+
   refreshBtn.addEventListener('click', () => {
     frame.src = './overlay?t=' + Date.now();
   });
