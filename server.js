@@ -38,6 +38,17 @@ function extForMime(mime) {
   return EXT_BY_MIME[mime] || '.webm';
 }
 
+// Bounds for the OBS browser-source size the overlay reports.
+const OBS_SOURCE_MIN = 16;
+const OBS_SOURCE_MAX = 8192;
+
+function parseObsSource(value) {
+  if (!value || typeof value !== 'object') return null;
+  const valid = n => Number.isInteger(n) && n >= OBS_SOURCE_MIN && n <= OBS_SOURCE_MAX;
+  if (!valid(value.width) || !valid(value.height)) return null;
+  return { width: value.width, height: value.height };
+}
+
 function sendJson(res, status, value) {
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
@@ -178,6 +189,14 @@ async function createAppServer({
   } catch (error) {
     if (error.code !== 'ENOENT') throw error;
   }
+  // Latest viewport size reported by the OBS browser source ({width, height} or null).
+  const obsSourcePath = path.join(dataDir, 'obs-source.json');
+  let obsSource = null;
+  try {
+    obsSource = parseObsSource(JSON.parse(await fsp.readFile(obsSourcePath, 'utf8')));
+  } catch (error) {
+    if (error.code !== 'ENOENT' && !(error instanceof SyntaxError)) throw error;
+  }
   const clients = new Set();
   let sequence = 0;
   let mutation = Promise.resolve();
@@ -213,6 +232,20 @@ async function createAppServer({
   }
   function mediaPathForItem(item) {
     return path.join(mediaDir, `${item.id}${extForMime(item.mime)}`);
+  }
+  function obsSourceMessage() {
+    return { type: 'obs-source', width: obsSource ? obsSource.width : null, height: obsSource ? obsSource.height : null };
+  }
+  async function saveObsSource(next) {
+    const temporary = `${obsSourcePath}.${crypto.randomUUID()}.tmp`;
+    try {
+      await fsp.writeFile(temporary, JSON.stringify(next) + '\n');
+      await fsp.rename(temporary, obsSourcePath);
+      obsSource = next;
+    } finally {
+      await fsp.rm(temporary, { force: true });
+    }
+    broadcast(obsSourceMessage());
   }
 
   const animate = await createAnimateApi({
@@ -256,8 +289,23 @@ async function createAppServer({
         res.on('close', cleanup);
         res.on('error', cleanup);
         clients.add(res);
-        res.write(`data: ${JSON.stringify({ type: 'library', library })}\n\n`);
+        // One write, so the library and the OBS source size arrive together.
+        res.write(`data: ${JSON.stringify({ type: 'library', library })}\n\ndata: ${JSON.stringify(obsSourceMessage())}\n\n`);
         return;
+      }
+      if (req.method === 'GET' && pathname === '/api/obs-source') return sendJson(res, 200, obsSource);
+      if (req.method === 'POST' && pathname === '/api/obs-source') {
+        if (String(req.headers['content-type'] || '').split(';')[0].toLowerCase() !== 'application/json') {
+          return sendJson(res, 415, { error: 'Expected application/json.' });
+        }
+        const next = parseObsSource(await readBody(req));
+        if (!next) return sendJson(res, 400, { error: `width and height must be integers from ${OBS_SOURCE_MIN} to ${OBS_SOURCE_MAX}.` });
+        await enqueue(async () => {
+          // Skip the write and the broadcast when nothing changed (every reconnect reports again).
+          if (obsSource && obsSource.width === next.width && obsSource.height === next.height) return;
+          await saveObsSource(next);
+        });
+        return sendJson(res, 200, obsSource);
       }
       if (req.method === 'POST' && pathname === '/api/upload') {
         const kind = url.searchParams.get('kind');
