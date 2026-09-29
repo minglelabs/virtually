@@ -26,28 +26,16 @@
       "notes": "single person, static camera, plain pink background; woman clapping and laughing, front-facing. Frames verified."
     },
     {
-      "id": "finger-heart",
-      "label": "손하트",
-      "presetKey": "finger-heart",
-      "downloadUrl": "https://videos.pexels.com/video-files/8689971/8689971-hd_720_1280_25fps.mp4",
-      "sourcePage": "https://www.pexels.com/video/woman-doing-finger-heart-sign-8689971/",
-      "author": "Pexels contributor",
-      "license": "Pexels License",
-      "licenseUrl": "https://www.pexels.com/license/",
-      "trim": { "start": 1, "duration": 6 },
-      "notes": "single person, static camera, dark plain background; woman forming a finger heart, front-facing. Portrait (360x640). Frames verified."
-    },
-    {
-      "id": "heart-hand",
-      "label": "하트 (손에 하트)",
+      "id": "hand-heart",
+      "label": "두 손 하트",
       "presetKey": null,
-      "downloadUrl": "https://videos.pexels.com/video-files/6968211/6968211-hd_1920_1080_25fps.mp4",
-      "sourcePage": "https://www.pexels.com/video/man-holding-heart-shape-6968211/",
+      "downloadUrl": "https://videos.pexels.com/video-files/6586296/6586296-hd_1280_720_30fps.mp4",
+      "sourcePage": "https://www.pexels.com/video/a-woman-doing-heart-shape-using-her-hands-6586296/",
       "author": "Pexels contributor",
       "license": "Pexels License",
       "licenseUrl": "https://www.pexels.com/license/",
-      "trim": { "start": 0, "duration": 4 },
-      "notes": "single person, static camera, plain yellow background; man smiling holding a red paper heart (prop, not a finger heart) -> presetKey null. Frames verified."
+      "trim": { "start": 0, "duration": 5 },
+      "notes": "single person, static camera, simple softly-lit indoor background; woman forms a two-hand heart in front of her chest, front-facing and centered, head/shoulders/both arms/both hands fully in frame with margin. Real 1280x720, ~8.2s source; heart held 0-4.5s. K-pop overhead big heart not found on Pexels meeting all criteria, so used the two-hand chest heart fallback (id hand-heart, presetKey null). Frames verified."
     },
     {
       "id": "dance-greenscreen",
