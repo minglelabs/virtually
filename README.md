@@ -80,8 +80,8 @@ Do not add a camera feed to the overlay page. Audio stays with your regular micr
 
 Open `http://127.0.0.1:8787/animate` (or **+ 동작 추가하러 가기** on the controller):
 
-1. **동작 영상** — pick an example driving video, or upload your own MP4/MOV/WebM (up to 200 MB).
-2. **캐릭터** — upload a PNG/JPEG/WebP image (up to 20 MB). Without one, the library's PNG/WebP idle image is used. Transparent pixels are sent as a plain green background.
+1. **동작 영상** — pick an example driving video, or upload your own MP4/MOV/WebM (up to 200 MB) by clicking or dropping files on the first tile. The clips form a horizontal strip (mouse wheel scrolls it sideways) that loads 12 more cards as you near the right end.
+2. **캐릭터** — drop PNG/JPEG/WebP images (up to 20 MB each) anywhere on the card, or click the drop zone. Every uploaded character stays in a horizontal strip; click a tile to use it. The most recently selected character comes first and stays selected after a reload; a new upload becomes the selected one. With no uploaded character, the library's PNG/WebP idle image is used. Transparent pixels are sent as a plain green background. Deleting a character does not affect jobs already started with it.
 3. **모델** — pick a route: Wan 2.2 Animate, DreamActor V2 (M2.0) or Kling motion control, through WaveSpeed, fal.ai, Replicate, Higgsfield, Alibaba Model Studio or Kling directly. Routes marked "검증 전" have an endpoint or field name that was not confirmed against the vendor's docs; see [docs/animate-providers.md](docs/animate-providers.md). The page shows an estimated cost when the route has a known price and asks for confirmation before any paid request.
 4. **결과** — jobs update live. A finished result plays on the page; **동작으로 추가하기** copies it into the motion list as an MP4 motion. Its default name is the preset label of the example (for example `인사 (Hi)`), so it lands on that preset button.
 
@@ -125,9 +125,12 @@ All errors are JSON `{ "error", "code"?, "detail"? }`. JSON bodies need `Content
 | `GET /api/animate/status` | ffmpeg availability, routes, providers (masked keys), config, current character |
 | `PUT /api/animate/config` | Save provider keys/settings (`{ "providers": { "wavespeed": { "apiKey": "..." } } }`); `""` removes a key |
 | `POST /api/animate/providers/<id>/test` | Check a provider key (where the provider has a test call) |
-| `POST /api/animate/character?name=<file>` | Upload the character image (raw body) |
-| `DELETE /api/animate/character` | Remove it (falls back to the idle image) |
-| `GET /api/animate/character/image` | The character image in use |
+| `GET /api/animate/characters` | `{ characters, selectedId }`, most recently selected first |
+| `POST /api/animate/characters?name=<file>` | Upload a character image (raw body); it becomes selected. `201 { character, characters, selectedId }` |
+| `POST /api/animate/characters/<id>/select` | Select one (`{}`) |
+| `DELETE /api/animate/characters/<id>` | Delete one; deleting the selected one selects the next most recently selected |
+| `GET /api/animate/characters/<id>/image` | One character image |
+| `POST`, `DELETE /api/animate/character`, `GET /api/animate/character/image` | Legacy aliases: upload, delete the selected one, the image in use (selected or idle) |
 | `GET /api/animate/drivings` | Examples (manifest order), then uploads (newest first) |
 | `POST /api/animate/examples/fetch` | Download missing example videos (`{}`) |
 | `POST /api/animate/drivings?name=<file>` | Upload a driving video (raw body) |
@@ -137,6 +140,8 @@ All errors are JSON `{ "error", "code"?, "detail"? }`. JSON bodies need `Content
 | `GET /api/animate/jobs/<id>`, `POST .../cancel` | One job; cancel it |
 | `GET /api/animate/jobs/<id>/result`, `/poster` | Result MP4 (byte ranges) and poster |
 | `POST /api/animate/jobs/<id>/motion` | Add the result to the motion list: `{ "name"? }` |
+
+Characters are stored in `data/animate/characters/` (`<id>.<ext>` plus `index.json`). A single character saved by an older version (`data/animate/character.json`) is imported into the library on startup. Jobs record `characterId` and `characterLabel`.
 
 Job states: `queued`, `preparing`, `submitting`, `running`, `downloading`, `succeeded`, `failed`, `canceled`. Every change is also sent on `/api/events` as `{ "type": "animate-job", "job": ... }`. Jobs are kept in `data/animate/jobs/` and survive a restart: a job that was generating resumes polling, and a job cut off while submitting is marked failed (`interrupted`) rather than submitted twice.
 

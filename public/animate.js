@@ -203,7 +203,52 @@ const AnimateHelpers = (() => {
       || 'application/octet-stream';
   }
 
+  const DRIVING_BATCH_SIZE = 12;
+
+  /**
+   * How many driving cards to render: one batch of 12 at first, one more batch
+   * per sentinel hit (`grow`), never fewer than already shown, capped by the total.
+   */
+  function drivingRenderCount(shown, total, { grow = false } = {}) {
+    return motions.motionRenderCount(shown, total, { grow, batchSize: DRIVING_BATCH_SIZE });
+  }
+
+  const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
+  const VIDEO_TYPES = new Set(['video/mp4', 'video/quicktime', 'video/webm']);
+
+  /** 'image' (PNG/JPEG/WebP), 'video' (MP4/MOV/WebM) or null, from the MIME type or, when empty, the extension. */
+  function fileKind(name, type) {
+    const mime = String(type ?? '').toLowerCase();
+    if (IMAGE_TYPES.has(mime)) return 'image';
+    if (VIDEO_TYPES.has(mime)) return 'video';
+    if (mime) return null;
+    const ext = /\.([a-z0-9]+)$/i.exec(String(name ?? ''))?.[1]?.toLowerCase();
+    if (['png', 'jpg', 'jpeg', 'webp'].includes(ext)) return 'image';
+    if (['mp4', 'm4v', 'mov', 'webm'].includes(ext)) return 'video';
+    return null;
+  }
+
+  /**
+   * Horizontal scroll delta for a wheel event over a strip, or 0 to leave the
+   * event to the page: only mostly-vertical wheels, only when the strip can
+   * scroll, and not past either end.
+   */
+  function stripWheelDelta({ deltaX = 0, deltaY = 0, deltaMode = 0, ctrlKey = false }, { scrollLeft, scrollWidth, clientWidth }) {
+    if (ctrlKey || Math.abs(deltaY) <= Math.abs(deltaX)) return 0;
+    const max = scrollWidth - clientWidth;
+    if (!(max > 1)) return 0;
+    const delta = deltaMode === 1 ? deltaY * 16 : deltaMode === 2 ? deltaY * clientWidth : deltaY;
+    // 1px tolerance: fractional layout and snapping can leave a strip a pixel off its end.
+    if (delta > 0 && scrollLeft >= max - 1) return 0;
+    if (delta < 0 && scrollLeft <= 1) return 0;
+    return delta;
+  }
+
   return {
+    DRIVING_BATCH_SIZE,
+    drivingRenderCount,
+    fileKind,
+    stripWheelDelta,
     JOB_STATE_LABELS,
     ACTIVE_STATES,
     errorText,
@@ -237,15 +282,17 @@ if (typeof document !== 'undefined') (() => {
   const exampleBar = $('exampleBar');
   const fetchExamplesBtn = $('fetchExamplesBtn');
   const drivingList = $('drivingList');
+  const drivingDrop = $('drivingDrop');
+  const drivingDropTitle = $('drivingDropTitle');
+  const drivingSentinel = $('drivingSentinel');
   const drivingInput = $('drivingInput');
   const drivingStatus = $('drivingStatus');
   const drivingPreview = $('drivingPreview');
-  const characterImg = $('characterImg');
-  const characterEmpty = $('characterEmpty');
+  const characterCard = $('characterCard');
+  const characterList = $('characterList');
+  const characterDrop = $('characterDrop');
+  const characterDropTitle = $('characterDropTitle');
   const characterMeta = $('characterMeta');
-  const characterIdle = $('characterIdle');
-  const characterUploadBtn = $('characterUploadBtn');
-  const characterRemoveBtn = $('characterRemoveBtn');
   const characterInput = $('characterInput');
   const characterStatus = $('characterStatus');
   const routeList = $('routeList');
@@ -262,9 +309,11 @@ if (typeof document !== 'undefined') (() => {
     ffmpeg: null,
     routes: [],
     providers: [],
-    character: null,
-    characterVersion: Date.now(),
+    characters: [],
+    selectedCharacterId: null,
+    idle: null, // the idle-image character view from /status, used while the library is empty
     drivings: [],
+    drivingShown: 0,
     drivingId: null,
     routeId: null,
     options: {}, // routeId -> { key: value }
@@ -327,7 +376,121 @@ if (typeof document !== 'undefined') (() => {
   const selectedDriving = () => state.drivings.find(d => d.id === state.drivingId) || null;
   const selectedRoute = () => state.routes.find(r => r.id === state.routeId) || null;
 
+  // ---- Horizontal strips (shared by 1 and 2) ----
+  // A strip is `.strip > .strip-scroller`; the scroller's first child is a
+  // sticky lead tile (drop zone). This adds: vertical wheel -> horizontal
+  // scroll, fade edges when there is more to see, and an optional sentinel
+  // that asks for the next batch as it nears the right edge.
+  function setupStrip(scroller, { sentinel = null, onMore = null } = {}) {
+    const wrap = scroller.parentElement;
+    const lead = scroller.querySelector('.strip-lead');
+    let wheelTimer = null;
+
+    function updateEdges() {
+      const max = scroller.scrollWidth - scroller.clientWidth;
+      wrap.style.setProperty('--strip-lead', `${lead ? lead.offsetWidth : 0}px`);
+      wrap.toggleAttribute('data-more-left', scroller.scrollLeft > 1);
+      wrap.toggleAttribute('data-more-right', max > 1 && scroller.scrollLeft < max - 1);
+    }
+
+    scroller.addEventListener('wheel', (event) => {
+      const delta = H.stripWheelDelta(event, scroller);
+      if (!delta) return;
+      event.preventDefault();
+      // Snapping would pull small wheel steps back; pause it while wheeling.
+      scroller.classList.add('is-wheeling');
+      clearTimeout(wheelTimer);
+      wheelTimer = setTimeout(() => scroller.classList.remove('is-wheeling'), 180);
+      scroller.scrollLeft += delta;
+    }, { passive: false });
+    scroller.addEventListener('scroll', updateEdges, { passive: true });
+    if (typeof ResizeObserver === 'function') new ResizeObserver(updateEdges).observe(scroller);
+    else window.addEventListener('resize', updateEdges);
+
+    const observer = sentinel && onMore && typeof IntersectionObserver === 'function'
+      ? new IntersectionObserver((entries) => {
+        if (entries.some(entry => entry.isIntersecting)) onMore();
+      }, { root: scroller, rootMargin: '0px 300px 0px 0px' })
+      : null;
+
+    return {
+      // Call after every render. `more` = whether unrendered items remain.
+      refresh({ more = false } = {}) {
+        if (sentinel) {
+          sentinel.hidden = !more;
+          if (observer) {
+            observer.unobserve(sentinel);
+            // Re-observing delivers a fresh entry, so a sentinel still in range
+            // after a batch keeps loading until it leaves the range.
+            if (more) observer.observe(sentinel);
+          }
+        }
+        updateEdges();
+      },
+    };
+  }
+
+  // Replace a strip's tiles, keeping its lead tile (and sentinel) in place so
+  // a focused drop zone keeps focus.
+  function setTiles(scroller, nodes, tail = null) {
+    for (const child of [...scroller.children]) {
+      if (child.classList.contains('strip-lead') || child === tail) continue;
+      child.remove();
+    }
+    const fragment = document.createDocumentFragment();
+    fragment.append(...nodes);
+    scroller.insertBefore(fragment, tail);
+  }
+
+  // Drag-and-drop of files onto `target`, shown as the drag-over state on `zone`.
+  function acceptDrops(target, zone, onFiles) {
+    let depth = 0;
+    const hasFiles = event => Array.from(event.dataTransfer?.types || []).includes('Files');
+    const clear = () => { depth = 0; zone.classList.remove('is-dragover'); };
+    target.addEventListener('dragenter', (event) => {
+      if (!hasFiles(event)) return;
+      event.preventDefault();
+      depth += 1;
+      zone.classList.add('is-dragover');
+    });
+    target.addEventListener('dragover', (event) => {
+      if (!hasFiles(event)) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'copy';
+      zone.classList.add('is-dragover');
+    });
+    target.addEventListener('dragleave', (event) => {
+      if (!hasFiles(event)) return;
+      depth = Math.max(0, depth - 1);
+      if (depth === 0) zone.classList.remove('is-dragover');
+    });
+    target.addEventListener('drop', (event) => {
+      if (!hasFiles(event)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      clear();
+      onFiles(Array.from(event.dataTransfer.files || []));
+    });
+  }
+
+  // A file dropped outside a drop zone must not navigate away from the page.
+  for (const type of ['dragover', 'drop']) {
+    window.addEventListener(type, (event) => {
+      if (Array.from(event.dataTransfer?.types || []).includes('Files')) event.preventDefault();
+    });
+  }
+
   // ---- 1. Driving videos ----
+  const drivingStrip = setupStrip(drivingList, {
+    sentinel: drivingSentinel,
+    onMore: () => {
+      const next = H.drivingRenderCount(state.drivingShown, state.drivings.length, { grow: true });
+      if (next <= state.drivingShown) return;
+      state.drivingShown = next;
+      renderDrivings();
+    },
+  });
+
   function renderDrivings() {
     const missing = state.drivings.some(d => d.kind === 'example' && !d.available);
     exampleBar.hidden = !missing;
@@ -338,21 +501,20 @@ if (typeof document !== 'undefined') (() => {
     if (!state.drivings.some(d => d.id === state.drivingId && d.available)) {
       state.drivingId = state.drivings.find(d => d.available)?.id || null;
     }
+    // Live refreshes never shrink what is rendered; the selected card is always rendered.
+    const selectedIndex = state.drivings.findIndex(d => d.id === state.drivingId);
+    state.drivingShown = Math.max(
+      H.drivingRenderCount(state.drivingShown, state.drivings.length),
+      Math.min(state.drivings.length, selectedIndex + 1),
+    );
 
-    const focusedId = drivingList.contains(document.activeElement) ? document.activeElement.value : null;
-    const fragment = document.createDocumentFragment();
-    for (const driving of state.drivings) fragment.append(drivingCard(driving));
-    fragment.append(el('div', { className: 'driving-card driving-add' }, [
-      el('button', {
-        type: 'button',
-        className: 'driving-add-btn',
-        disabled: state.busy.driving,
-        text: state.busy.driving ? '올리는 중…' : '+ 내 영상 올리기',
-        onclick: () => drivingInput.click(),
-      }),
-    ]));
-    drivingList.replaceChildren(fragment);
+    drivingDrop.setAttribute('aria-busy', String(state.busy.driving));
+
+    const focusedId = drivingList.contains(document.activeElement) && document.activeElement.name === 'driving'
+      ? document.activeElement.value : null;
+    setTiles(drivingList, state.drivings.slice(0, state.drivingShown).map(drivingCard), drivingSentinel);
     if (focusedId) drivingList.querySelector(`input[value="${CSS.escape(focusedId)}"]`)?.focus();
+    drivingStrip.refresh({ more: state.drivingShown < state.drivings.length });
     renderPreview();
   }
 
@@ -463,36 +625,48 @@ if (typeof document !== 'undefined') (() => {
     try { await loadDrivings(); } catch (error) { setStatus(drivingStatus, error.message, 'error'); }
   });
 
-  drivingInput.addEventListener('change', async () => {
-    const file = drivingInput.files[0];
-    drivingInput.value = '';
-    if (!file) return;
-    if (file.size > MAX_DRIVING_BYTES) {
-      setStatus(drivingStatus, '200MB 이하만 올릴 수 있습니다', 'error');
-      return;
-    }
+  // Upload driving videos one by one; the last uploaded one becomes selected.
+  async function uploadDrivings(files) {
+    if (state.busy.driving || files.length === 0) return;
+    const videos = files.filter(file => H.fileKind(file.name, file.type) === 'video');
+    const errors = [];
+    if (videos.length < files.length) errors.push('영상 파일만 올릴 수 있습니다');
+    const fitting = videos.filter(file => file.size <= MAX_DRIVING_BYTES);
+    if (fitting.length < videos.length) errors.push('200MB 이하만 올릴 수 있습니다');
+    setStatus(drivingStatus, errors.join(' · '), errors.length ? 'error' : null);
+    if (fitting.length === 0) return;
     state.busy.driving = true;
     renderDrivings();
-    setStatus(drivingStatus, '');
+    let lastId = null;
     try {
-      const driving = await api('POST', '/api/animate/drivings?name=' + encodeURIComponent(file.name), {
-        body: file,
-        contentType: H.videoContentType(file.name, file.type),
-      });
-      state.busy.driving = false;
-      await loadDrivings();
-      if (driving?.id && driving.available !== false) {
-        state.drivingId = driving.id;
-        renderDrivings();
-        renderRoutes();
+      for (const [index, file] of fitting.entries()) {
+        drivingDropTitle.textContent = fitting.length > 1 ? `올리는 중… (${index + 1}/${fitting.length})` : '올리는 중…';
+        try {
+          const driving = await api('POST', '/api/animate/drivings?name=' + encodeURIComponent(file.name), {
+            body: file,
+            contentType: H.videoContentType(file.name, file.type),
+          });
+          if (driving?.id && driving.available !== false) lastId = driving.id;
+        } catch (error) {
+          errors.push(`올리기 실패: ${error.message}`);
+          setStatus(drivingStatus, errors.join(' · '), 'error');
+        }
       }
-    } catch (error) {
-      setStatus(drivingStatus, `올리기 실패: ${error.message}`, 'error');
     } finally {
       state.busy.driving = false;
-      renderDrivings();
+      drivingDropTitle.textContent = '+ 내 영상 올리기';
     }
+    if (lastId) state.drivingId = lastId;
+    try { await loadDrivings(); } catch (error) { setStatus(drivingStatus, error.message, 'error'); }
+  }
+
+  drivingDrop.addEventListener('click', () => { if (!state.busy.driving) drivingInput.click(); });
+  drivingInput.addEventListener('change', () => {
+    const files = Array.from(drivingInput.files || []);
+    drivingInput.value = '';
+    uploadDrivings(files);
   });
+  acceptDrops(drivingDrop, drivingDrop, uploadDrivings);
 
   async function deleteDriving(driving) {
     if (!window.confirm(`'${driving.label}' 영상을 지울까요?`)) return;
@@ -505,79 +679,169 @@ if (typeof document !== 'undefined') (() => {
   }
 
   // ---- 2. Character ----
-  function renderCharacter() {
-    const c = state.character;
-    characterImg.hidden = !c;
-    characterEmpty.hidden = Boolean(c);
-    if (c) {
-      const sep = c.url.includes('?') ? '&' : '?';
-      const src = `${c.url}${sep}v=${state.characterVersion}`;
-      if (characterImg.getAttribute('src') !== src) characterImg.src = src;
-    } else {
-      characterImg.removeAttribute('src');
-    }
-    const meta = [];
-    if (c?.source === 'upload' && c.filename) meta.push(c.filename);
-    if (c && c.width && c.height) meta.push(`${c.width}×${c.height}`);
-    characterMeta.textContent = meta.join(' · ');
-    characterMeta.hidden = meta.length === 0;
-    characterIdle.hidden = c?.source !== 'idle';
-    characterUploadBtn.textContent = state.busy.character ? '올리는 중…' : (c ? '바꾸기' : '이미지 올리기');
-    characterUploadBtn.disabled = state.busy.character;
-    characterRemoveBtn.hidden = c?.source !== 'upload';
-    characterRemoveBtn.disabled = state.busy.character;
+  const characterStrip = setupStrip(characterList);
+
+  // The character a new job would use: the selected library item, else the idle image.
+  function currentCharacter() {
+    const selected = state.characters.find(c => c.id === state.selectedCharacterId);
+    if (selected) return { source: 'upload', ...selected };
+    return state.characters.length === 0 && state.idle ? state.idle : null;
   }
 
-  function setCharacter(character) {
-    state.character = character && typeof character.url === 'string' ? character : null;
-    state.characterVersion = Date.now();
-    renderCharacter();
+  function renderCharacters() {
+    characterDrop.setAttribute('aria-busy', String(state.busy.character));
+    const active = document.activeElement;
+    const focusedId = characterList.contains(active) ? active.closest('.char-tile')?.dataset.id : null;
+    const focusedDelete = Boolean(focusedId) && active.classList.contains('char-delete');
+    const tiles = state.characters.map(characterTile);
+    if (state.characters.length === 0 && state.idle) tiles.push(idleTile(state.idle));
+    setTiles(characterList, tiles);
+    if (focusedId) {
+      const tile = characterList.querySelector(`.char-tile[data-id="${CSS.escape(focusedId)}"]`);
+      (focusedDelete ? tile?.querySelector('.char-delete') : tile?.querySelector('.char-pick'))?.focus({ preventScroll: true });
+    }
+    characterStrip.refresh();
+
+    const c = currentCharacter();
+    const meta = [];
+    if (c?.source === 'idle') meta.push('대기 이미지 사용 중');
+    else if (c) meta.push(`선택: ${c.filename || ''}`);
+    else meta.push('캐릭터 이미지를 올려 주세요');
+    if (c && c.width && c.height) meta.push(`${c.width}×${c.height}`);
+    characterMeta.textContent = meta.join(' · ');
+  }
+
+  function tileParts(src, name, selected) {
+    return [
+      el('span', { className: 'char-thumb checkerboard' }, [
+        el('img', { src, alt: '', loading: 'lazy', decoding: 'async', draggable: false }),
+      ]),
+      el('span', { className: 'char-name', text: name, title: name }),
+      selected ? el('span', { className: 'char-check', 'aria-hidden': 'true', text: '✓' }) : null,
+    ];
+  }
+
+  function characterTile(character) {
+    const selected = character.id === state.selectedCharacterId;
+    const name = character.filename || '캐릭터';
+    const [thumb, label, check] = tileParts(character.url, name, selected);
+    return el('div', {
+      className: 'char-tile' + (selected ? ' is-selected' : ''),
+      role: 'listitem',
+      dataset: { id: character.id },
+    }, [
+      el('button', {
+        type: 'button',
+        className: 'char-pick',
+        'aria-pressed': String(selected),
+        'aria-label': `${name}${selected ? ' (선택됨)' : ' 선택'}`,
+        onclick: () => selectCharacter(character),
+      }, [thumb, label]),
+      check,
+      el('button', {
+        type: 'button',
+        className: 'char-delete',
+        'aria-label': `${name} 삭제`,
+        title: '삭제',
+        text: '×',
+        onclick: () => deleteCharacter(character),
+      }),
+    ]);
+  }
+
+  function idleTile(idle) {
+    const [thumb, label, check] = tileParts(idle.url, '대기 이미지', true);
+    return el('div', { className: 'char-tile char-idle is-selected', role: 'listitem', dataset: { id: 'idle' } }, [
+      el('button', { type: 'button', className: 'char-pick', 'aria-pressed': 'true', 'aria-label': '대기 이미지 (사용 중)' }, [thumb, label]),
+      check,
+      el('span', { className: 'char-tag', text: '사용 중' }),
+    ]);
+  }
+
+  async function applyCharacters(data) {
+    if (!data || !Array.isArray(data.characters)) return;
+    state.characters = data.characters;
+    state.selectedCharacterId = typeof data.selectedId === 'string' ? data.selectedId : null;
+    if (state.characters.length === 0) {
+      // The idle fallback may only be known now that the library is empty.
+      try {
+        const status = await api('GET', '/api/animate/status');
+        state.idle = status?.character?.source === 'idle' ? status.character : null;
+      } catch { /* keep what we had */ }
+    }
+    renderCharacters();
     renderCreate();
   }
 
-  characterUploadBtn.addEventListener('click', () => characterInput.click());
+  async function loadCharacters() {
+    await applyCharacters(await api('GET', '/api/animate/characters'));
+  }
 
-  characterInput.addEventListener('change', async () => {
-    const file = characterInput.files[0];
-    characterInput.value = '';
-    if (!file) return;
-    if (file.size > MAX_CHARACTER_BYTES) {
-      setStatus(characterStatus, '20MB 이하만 올릴 수 있습니다', 'error');
-      return;
-    }
+  // Upload images one by one; each upload becomes the selected one.
+  async function uploadCharacters(files) {
+    if (state.busy.character || files.length === 0) return;
+    const images = files.filter(file => H.fileKind(file.name, file.type) === 'image');
+    const errors = [];
+    if (images.length < files.length) errors.push('이미지 파일만 올릴 수 있습니다');
+    const fitting = images.filter(file => file.size <= MAX_CHARACTER_BYTES);
+    if (fitting.length < images.length) errors.push('20MB 이하만 올릴 수 있습니다');
+    setStatus(characterStatus, errors.join(' · '), errors.length ? 'error' : null);
+    if (fitting.length === 0) return;
     state.busy.character = true;
-    renderCharacter();
-    setStatus(characterStatus, '');
+    renderCharacters();
     try {
-      const character = await api('POST', '/api/animate/character?name=' + encodeURIComponent(file.name), {
-        body: file,
-        contentType: file.type || 'application/octet-stream',
-      });
-      state.busy.character = false;
-      setCharacter(character);
-    } catch (error) {
-      setStatus(characterStatus, `올리기 실패: ${error.message}`, 'error');
+      for (const [index, file] of fitting.entries()) {
+        characterDropTitle.textContent = fitting.length > 1 ? `올리는 중… (${index + 1}/${fitting.length})` : '올리는 중…';
+        try {
+          const data = await api('POST', '/api/animate/characters?name=' + encodeURIComponent(file.name), {
+            body: file,
+            contentType: file.type || 'application/octet-stream',
+          });
+          await applyCharacters(data);
+        } catch (error) {
+          errors.push(`올리기 실패: ${error.message}`);
+          setStatus(characterStatus, errors.join(' · '), 'error');
+        }
+      }
     } finally {
       state.busy.character = false;
-      renderCharacter();
+      characterDropTitle.textContent = '이미지를 끌어다 놓으세요';
+      renderCharacters();
     }
-  });
+    characterList.scrollTo({ left: 0, behavior: 'smooth' });
+  }
 
-  characterRemoveBtn.addEventListener('click', async () => {
-    state.busy.character = true;
-    renderCharacter();
+  async function selectCharacter(character) {
+    if (character.id === state.selectedCharacterId) return;
     setStatus(characterStatus, '');
     try {
-      const data = await api('DELETE', '/api/animate/character');
-      state.busy.character = false;
-      setCharacter(data?.character || null);
+      await applyCharacters(await api('POST', `/api/animate/characters/${encodeURIComponent(character.id)}/select`, { json: {} }));
+      // The selected tile moves to the front.
+      characterList.scrollTo({ left: 0, behavior: 'smooth' });
+    } catch (error) {
+      setStatus(characterStatus, `선택 실패: ${error.message}`, 'error');
+      loadCharacters().catch(() => {});
+    }
+  }
+
+  async function deleteCharacter(character) {
+    if (!window.confirm('이 캐릭터를 지울까요?')) return;
+    setStatus(characterStatus, '');
+    try {
+      await applyCharacters(await api('DELETE', `/api/animate/characters/${encodeURIComponent(character.id)}`));
     } catch (error) {
       setStatus(characterStatus, `삭제 실패: ${error.message}`, 'error');
-    } finally {
-      state.busy.character = false;
-      renderCharacter();
+      loadCharacters().catch(() => {});
     }
+  }
+
+  characterDrop.addEventListener('click', () => { if (!state.busy.character) characterInput.click(); });
+  characterInput.addEventListener('change', () => {
+    const files = Array.from(characterInput.files || []);
+    characterInput.value = '';
+    uploadCharacters(files);
   });
+  acceptDrops(characterCard, characterDrop, uploadCharacters);
 
   // ---- 3. Routes ----
   function routeOptionsFor(route) {
@@ -800,7 +1064,10 @@ if (typeof document !== 'undefined') (() => {
       globalStatus.hidden = ok;
       globalStatus.textContent = ok ? '' : 'ffmpeg가 없어 영상을 처리할 수 없습니다';
     }
-    if ('character' in data) setCharacter(data.character);
+    if ('character' in data) {
+      state.idle = data.character?.source === 'idle' ? data.character : null;
+      renderCharacters();
+    }
     renderRoutes();
   }
 
@@ -810,7 +1077,7 @@ if (typeof document !== 'undefined') (() => {
     const route = selectedRoute();
     if (state.ffmpeg && state.ffmpeg.available === false) return 'ffmpeg가 필요합니다';
     if (!driving) return '동작 영상을 고르세요';
-    if (!state.character) return '캐릭터를 올리세요';
+    if (!currentCharacter()) return '캐릭터를 올리세요';
     if (!route) return '모델을 고르세요';
     if (H.routeState(route, driving.duration).tooLong) return '영상이 모델 제한보다 깁니다';
     return null;
@@ -1057,12 +1324,14 @@ if (typeof document !== 'undefined') (() => {
   });
 
   // ---- Boot ----
-  renderCharacter();
+  renderCharacters();
+  renderDrivings();
   renderCreate();
   (async () => {
     const results = await Promise.allSettled([
       api('GET', '/api/animate/status').then(applyStatus),
       loadDrivings(),
+      loadCharacters(),
       loadJobs(),
     ]);
     const failed = results.find(r => r.status === 'rejected');

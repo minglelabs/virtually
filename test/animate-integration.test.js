@@ -205,7 +205,8 @@ test('full flow: fetch examples -> character -> mock job -> result -> add as mot
     response = await upload(app.base, '/api/animate/character?name=my%20char.png', fixtures.character, 'image/png');
     assert.equal(response.status, 201);
     const character = await response.json();
-    assert.deepEqual(character, { source: 'upload', filename: 'my char.png', width: 64, height: 96, hasAlpha: true, url: '/api/animate/character/image' });
+    assert.match(character.id, /^ch-[0-9a-f-]{36}$/);
+    assert.deepEqual(character, { source: 'upload', id: character.id, filename: 'my char.png', width: 64, height: 96, hasAlpha: true, url: `/api/animate/characters/${character.id}/image` });
     response = await fetch(`${app.base}/api/animate/character/image`);
     assert.equal(response.status, 200);
     assert.equal(response.headers.get('content-type'), 'image/png');
@@ -278,7 +279,7 @@ test('full flow: fetch examples -> character -> mock job -> result -> add as mot
     assert.equal(done.result.width, 64);
     assert.equal(done.result.height, 96);
     assert.ok(done.result.duration > 2.5 && done.result.duration < 3.5, `result duration ${done.result.duration}`);
-    assert.deepEqual(Object.keys(done).sort(), ['createdAt', 'drivingId', 'drivingLabel', 'error', 'estimate', 'familyLabel', 'id', 'motionId',
+    assert.deepEqual(Object.keys(done).sort(), ['characterId', 'characterLabel', 'createdAt', 'drivingId', 'drivingLabel', 'error', 'estimate', 'familyLabel', 'id', 'motionId',
       'motionName', 'presetKey', 'progress', 'providerLabel', 'providerStatus', 'result', 'routeId', 'routeLabel', 'state', 'updatedAt']);
 
     const list = (await (await fetch(`${app.base}/api/animate/jobs`)).json()).jobs;
@@ -369,7 +370,7 @@ test('job validation, uploads, config, cancel and the idle fallback', { skip }, 
     let response = await upload(app.base, '/api/upload?kind=idle&name=Idle%20pose.png', fixtures.character, 'image/png');
     assert.equal(response.status, 201);
     let status = await (await fetch(`${app.base}/api/animate/status`)).json();
-    assert.deepEqual(status.character, { source: 'idle', filename: 'Idle pose.png', width: 64, height: 96, hasAlpha: true, url: '/api/animate/character/image' });
+    assert.deepEqual(status.character, { source: 'idle', id: null, filename: 'Idle pose.png', width: 64, height: 96, hasAlpha: true, url: '/api/animate/character/image' });
 
     // Character uploads are checked by signature.
     response = await fetch(`${app.base}/api/animate/character?name=x.png`, { method: 'POST', body: Buffer.from('not an image at all') });
