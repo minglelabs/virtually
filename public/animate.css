@@ -94,7 +94,7 @@ h2 { margin: 0 0 12px; font-size: 15px; }
 /* ---- 1. Driving videos ---- */
 .driving-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
   gap: 10px;
 }
 .driving-card {
@@ -119,9 +119,10 @@ h2 { margin: 0 0 12px; font-size: 15px; }
   align-items: center;
   justify-content: center;
   width: 100%;
-  aspect-ratio: 9 / 16;
-  max-height: 200px;
-  object-fit: cover;
+  /* Most driving clips are landscape; portrait uploads get side bars instead of being cropped. */
+  aspect-ratio: 16 / 9;
+  /* Show the whole frame (letterboxed), so a cut-off person is visible before picking a clip. */
+  object-fit: contain;
   background: #0a0c10;
   color: var(--muted);
   font-size: 12px;
