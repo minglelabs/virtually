@@ -12,6 +12,7 @@
     <!-- Left: controls -->
     <section class="pane pane-control" aria-labelledby="controlTitle">
       <h1 id="controlTitle">Virtually</h1>
+      <p class="subtitle">컨트롤러</p>
 
       <details class="card obs-toggle" id="obsToggle">
         <summary class="obs-summary">OBS에 연동하기!</summary>
@@ -71,17 +72,19 @@
       </article>
     </section>
 
-    <!-- Right: live overlay preview -->
+    <!-- Right: true-scale 1920 x 1080 OBS canvas preview -->
     <section class="pane pane-preview" aria-labelledby="previewTitle">
       <header class="preview-header">
         <div>
-          <h2 id="previewTitle">오버레이 실시간 미리보기</h2>
-          <p class="caption">체크무늬 부분은 투명하게 송출됩니다.</p>
+          <h2 id="previewTitle">캔버스</h2>
+          <p class="caption">1920 × 1080 · 체크무늬 부분은 투명하게 송출됩니다.</p>
         </div>
         <button type="button" id="refreshOverlayBtn" class="btn btn-ghost">새로고침</button>
       </header>
       <div class="stage">
-        <iframe id="overlayPreviewFrame" src="./overlay" title="OBS 오버레이 미리보기"></iframe>
+        <div class="canvas" id="canvasBox">
+          <iframe id="overlayPreviewFrame" src="./overlay" title="OBS 캔버스 미리보기"></iframe>
+        </div>
       </div>
     </section>
   </main>
