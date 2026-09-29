@@ -7,16 +7,36 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { once } = require('node:events');
 
+const { createAnimateApi } = require('./lib/animate/api');
+
 const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
 const PUBLIC_DIR = path.join(__dirname, 'public');
+const EXAMPLES_MANIFEST = path.join(__dirname, 'examples', 'driving.json');
 const STATIC_FILES = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
   ['/overlay', ['overlay.html', 'text/html; charset=utf-8']],
+  ['/animate', ['animate.html', 'text/html; charset=utf-8']],
   ['/app.css', ['app.css', 'text/css; charset=utf-8']],
   ['/app.js', ['app.js', 'text/javascript; charset=utf-8']],
+  ['/animate.css', ['animate.css', 'text/css; charset=utf-8']],
+  ['/animate.js', ['animate.js', 'text/javascript; charset=utf-8']],
+  ['/motions.js', ['motions.js', 'text/javascript; charset=utf-8']],
   ['/overlay.css', ['overlay.css', 'text/css; charset=utf-8']],
   ['/overlay.js', ['overlay.js', 'text/javascript; charset=utf-8']],
 ]);
+
+// The one place a library item's file extension comes from (serve, delete and
+// idle replacement all use it).
+const EXT_BY_MIME = {
+  'video/webm': '.webm',
+  'video/mp4': '.mp4',
+  'image/png': '.png',
+  'image/webp': '.webp',
+};
+
+function extForMime(mime) {
+  return EXT_BY_MIME[mime] || '.webm';
+}
 
 function sendJson(res, status, value) {
   res.writeHead(status, {
@@ -80,20 +100,20 @@ async function readBody(req, limit = 16 * 1024) {
   }
 }
 
-async function receiveFile(req, target) {
+async function receiveFile(req, target, limit = MAX_UPLOAD_BYTES, tooLargeMessage = 'File exceeds 500 MB') {
   const output = fs.createWriteStream(target, { flags: 'wx' });
   let total = 0;
   let tooLarge = false;
   try {
     for await (const chunk of req) {
       total += chunk.length;
-      if (total > MAX_UPLOAD_BYTES) {
+      if (total > limit) {
         tooLarge = true;
         break;
       }
       if (!output.write(chunk)) await once(output, 'drain');
     }
-    if (tooLarge) throw Object.assign(new Error('File exceeds 500 MB'), { status: 413 });
+    if (tooLarge) throw Object.assign(new Error(tooLargeMessage), { status: 413, code: 'too_large' });
     output.end();
     await once(output, 'finish');
     if (total === 0) throw Object.assign(new Error('Empty file'), { status: 400 });
@@ -138,7 +158,16 @@ async function serveMedia(req, res, filePath, mime) {
   fs.createReadStream(filePath).pipe(res);
 }
 
-async function createAppServer({ dataDir = path.join(__dirname, 'data') } = {}) {
+async function createAppServer({
+  dataDir = path.join(__dirname, 'data'),
+  ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg',
+  ffprobePath = process.env.FFPROBE_PATH || 'ffprobe',
+  animateMock = process.env.VIRTUALLY_ANIMATE_MOCK === '1',
+  animatePollIntervalMs = null,
+  examplesManifestPath = EXAMPLES_MANIFEST,
+  // Test-only: lets example downloads use plain http fixture servers.
+  allowHttpExamples = false,
+} = {}) {
   const mediaDir = path.join(dataDir, 'media');
   const manifestPath = path.join(dataDir, 'library.json');
   await fsp.mkdir(mediaDir, { recursive: true });
@@ -182,6 +211,16 @@ async function createAppServer({ dataDir = path.join(__dirname, 'data') } = {}) 
     }
     broadcast({ type: 'library', library });
   }
+  function mediaPathForItem(item) {
+    return path.join(mediaDir, `${item.id}${extForMime(item.mime)}`);
+  }
+
+  const animate = await createAnimateApi({
+    dataDir, mediaDir, ffmpegPath, ffprobePath, mock: animateMock, pollIntervalMs: animatePollIntervalMs,
+    examplesManifestPath, allowHttpExamples,
+    getLibrary: () => library, mediaPathForItem, enqueue, save, broadcast,
+    sendJson, readBody, receiveFile, serveMedia, sanitizeName,
+  });
 
   const server = http.createServer((req, res) => {
     (async () => {
@@ -245,8 +284,7 @@ async function createAppServer({ dataDir = path.join(__dirname, 'data') } = {}) 
           });
           committed = true;
           if (kind === 'idle' && priorIdle) {
-            const previousExt = priorIdle.mime === 'image/png' ? '.png' : priorIdle.mime === 'image/webp' ? '.webp' : '.webm';
-            await fsp.rm(path.join(mediaDir, `${priorIdle.id}${previousExt}`), { force: true }).catch(() => {});
+            await fsp.rm(mediaPathForItem(priorIdle), { force: true }).catch(() => {});
           }
           return sendJson(res, 201, item);
         } catch (error) {
@@ -287,17 +325,16 @@ async function createAppServer({ dataDir = path.join(__dirname, 'data') } = {}) 
           await save(next);
         });
         if (!removed) return sendJson(res, 404, { error: 'Media not found.' });
-        const ext = removed.mime === 'image/png' ? '.png' : removed.mime === 'image/webp' ? '.webp' : '.webm';
-        await fsp.rm(path.join(mediaDir, `${id}${ext}`), { force: true });
+        await fsp.rm(mediaPathForItem(removed), { force: true });
         return sendJson(res, 200, { ok: true });
       }
       if ((req.method === 'GET' || req.method === 'HEAD') && pathname.startsWith('/api/media/')) {
         const id = pathname.slice('/api/media/'.length);
         const item = [library.idle, ...library.motions].find(value => value && value.id === id);
         if (!item) return sendJson(res, 404, { error: 'Media not found.' });
-        const ext = item.mime === 'image/png' ? '.png' : item.mime === 'image/webp' ? '.webp' : '.webm';
-        return serveMedia(req, res, path.join(mediaDir, `${id}${ext}`), item.mime);
+        return serveMedia(req, res, mediaPathForItem(item), item.mime);
       }
+      if (await animate.handle(req, res, url)) return;
       if ((req.method === 'GET' || req.method === 'HEAD') && STATIC_FILES.has(pathname)) {
         const [filename, mime] = STATIC_FILES.get(pathname);
         const content = await fsp.readFile(path.join(PUBLIC_DIR, filename));
@@ -307,10 +344,19 @@ async function createAppServer({ dataDir = path.join(__dirname, 'data') } = {}) 
       sendJson(res, 404, { error: 'Not found.' });
     })().catch(error => {
       if (res.headersSent) return res.destroy(error);
-      sendJson(res, error.status || 500, { error: error.status ? error.message : 'Internal server error.' });
-      if (!error.status) console.error(error);
+      if (!error.status) {
+        sendJson(res, 500, { error: 'Internal server error.' });
+        return console.error(error);
+      }
+      const body = { error: error.message };
+      if (typeof error.code === 'string') body.code = error.code;
+      if (error.detail && typeof error.detail === 'object') body.detail = error.detail;
+      sendJson(res, error.status, body);
     });
   });
+  // Stop running jobs and downloads with the server (tests must not leak).
+  server.on('close', () => { animate.close().catch(() => {}); });
+  server.animate = animate;
   return server;
 }
 
@@ -366,4 +412,4 @@ if (require.main === module) {
   }).catch(error => { console.error(error); process.exitCode = 1; });
 }
 
-module.exports = { createAppServer, listenWithPortRotation };
+module.exports = { createAppServer, listenWithPortRotation, extForMime };

@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "examples": [
+    {
+      "id": "hi-wave",
+      "label": "인사 (손 흔들기)",
+      "presetKey": "hi",
+      "downloadUrl": "https://videos.pexels.com/video-files/4586958/4586958-hd_1280_720_25fps.mp4",
+      "sourcePage": "https://www.pexels.com/video/a-man-greeting-and-waving-his-hand-4586958/",
+      "author": "Pexels contributor",
+      "license": "Pexels License",
+      "licenseUrl": "https://www.pexels.com/license/",
+      "trim": { "start": 1, "duration": 5 },
+      "notes": "single person, static camera, plain brown background; man waving hand, front-facing. Frames verified."
+    },
+    {
+      "id": "clap-laugh",
+      "label": "박수치며 웃기",
+      "presetKey": "clap-laugh",
+      "downloadUrl": "https://videos.pexels.com/video-files/4586618/4586618-hd_1280_720_25fps.mp4",
+      "sourcePage": "https://www.pexels.com/video/a-woman-clapping-4586618/",
+      "author": "Pexels contributor",
+      "license": "Pexels License",
+      "licenseUrl": "https://www.pexels.com/license/",
+      "trim": { "start": 2, "duration": 5 },
+      "notes": "single person, static camera, plain pink background; woman clapping and laughing, front-facing. Frames verified."
+    },
+    {
+      "id": "finger-heart",
+      "label": "손하트",
+      "presetKey": "finger-heart",
+      "downloadUrl": "https://videos.pexels.com/video-files/8689971/8689971-hd_720_1280_25fps.mp4",
+      "sourcePage": "https://www.pexels.com/video/woman-doing-finger-heart-sign-8689971/",
+      "author": "Pexels contributor",
+      "license": "Pexels License",
+      "licenseUrl": "https://www.pexels.com/license/",
+      "trim": { "start": 1, "duration": 6 },
+      "notes": "single person, static camera, dark plain background; woman forming a finger heart, front-facing. Portrait (360x640). Frames verified."
+    },
+    {
+      "id": "heart-hand",
+      "label": "하트 (손에 하트)",
+      "presetKey": null,
+      "downloadUrl": "https://videos.pexels.com/video-files/6968211/6968211-hd_1920_1080_25fps.mp4",
+      "sourcePage": "https://www.pexels.com/video/man-holding-heart-shape-6968211/",
+      "author": "Pexels contributor",
+      "license": "Pexels License",
+      "licenseUrl": "https://www.pexels.com/license/",
+      "trim": { "start": 0, "duration": 4 },
+      "notes": "single person, static camera, plain yellow background; man smiling holding a red paper heart (prop, not a finger heart) -> presetKey null. Frames verified."
+    },
+    {
+      "id": "dance-greenscreen",
+      "label": "짧은 춤 (그린스크린)",
+      "presetKey": null,
+      "downloadUrl": "https://videos.pexels.com/video-files/6905095/6905095-hd_1280_720_25fps.mp4",
+      "sourcePage": "https://www.pexels.com/video/woman-dancing-while-listening-to-music-using-headphones-6905095/",
+      "author": "Pexels contributor",
+      "license": "Pexels License",
+      "licenseUrl": "https://www.pexels.com/license/",
+      "trim": { "start": 4, "duration": 6 },
+      "notes": "single person, static camera, no cuts, green screen background; woman dancing with headphones, front/side-facing. Clip is ~77s continuous. Frames verified at 0.5/2/4/6/8/20/40/60s. Portrait? no, 640x360 landscape."
+    }
+  ]
+}

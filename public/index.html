@@ -63,12 +63,10 @@
         <div id="motionList" class="motion-list" role="group" aria-labelledby="motionsTitle"></div>
         <div id="motionSentinel" class="motion-sentinel" aria-hidden="true"></div>
         <div class="motion-footer">
-          <button type="button" id="addMotionBtn" class="motion-add-btn">
-            <span class="motion-label">+ 동작 추가하기</span>
-            <span class="motion-sub">투명 WebM (예: 윙크.webm → 윙크 버튼)</span>
-          </button>
-          <input type="file" id="addMotionInput" accept=".webm,video/webm" multiple hidden>
-          <p id="uploadStatus" class="status upload-status" aria-live="polite"></p>
+          <a href="./animate" class="motion-add-btn">
+            <span class="motion-label">+ 동작 추가하러 가기</span>
+            <span class="motion-sub">예시 영상 + 캐릭터로 AI 동작 만들기</span>
+          </a>
         </div>
       </article>
     </section>
@@ -87,6 +85,7 @@
       </div>
     </section>
   </main>
+  <script src="./motions.js"></script>
   <script src="./app.js"></script>
 </body>
 </html>

@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>동작 만들기 · Virtually</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="./animate.css">
+</head>
+<body>
+  <main class="page">
+    <header class="page-header">
+      <a href="./" class="back-link">← 메인으로</a>
+      <h1>동작 만들기</h1>
+    </header>
+
+    <p id="globalStatus" class="bar bar-warn" role="alert" hidden></p>
+
+    <!-- 1. Driving video -->
+    <section class="card" aria-labelledby="drivingTitle">
+      <h2 id="drivingTitle">1. 동작 영상</h2>
+      <div id="exampleBar" class="bar" hidden>
+        <span>예시 영상이 아직 없습니다</span>
+        <button type="button" id="fetchExamplesBtn" class="btn btn-sm">예시 영상 받기</button>
+      </div>
+      <div id="drivingList" class="driving-grid" role="radiogroup" aria-labelledby="drivingTitle"></div>
+      <input type="file" id="drivingInput" accept="video/mp4,video/quicktime,video/webm" hidden>
+      <p id="drivingStatus" class="status" aria-live="polite"></p>
+      <video id="drivingPreview" class="driving-preview" muted loop autoplay playsinline controls hidden></video>
+    </section>
+
+    <!-- 2. Character -->
+    <section class="card" aria-labelledby="characterTitle">
+      <h2 id="characterTitle">2. 캐릭터</h2>
+      <div class="character">
+        <div class="character-preview checkerboard">
+          <img id="characterImg" alt="캐릭터 미리보기" hidden>
+          <span id="characterEmpty" class="muted">캐릭터 없음</span>
+        </div>
+        <div class="character-info">
+          <p id="characterMeta" class="muted"></p>
+          <p id="characterIdle" class="muted" hidden>대기 이미지 사용 중</p>
+          <div class="row">
+            <button type="button" id="characterUploadBtn" class="btn btn-sm">이미지 올리기</button>
+            <button type="button" id="characterRemoveBtn" class="btn btn-ghost btn-sm" hidden>삭제</button>
+          </div>
+          <input type="file" id="characterInput" accept="image/png,image/jpeg,image/webp" hidden>
+          <p id="characterStatus" class="status" aria-live="polite"></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. Model -->
+    <section class="card" aria-labelledby="modelTitle">
+      <h2 id="modelTitle">3. 모델</h2>
+      <div id="routeList" class="route-list"></div>
+      <div id="routeOptions" class="route-options"></div>
+      <details id="keyPanel" class="key-panel">
+        <summary>API 키 설정</summary>
+        <div id="keyList" class="key-list"></div>
+      </details>
+    </section>
+
+    <div class="create-row">
+      <button type="button" id="createBtn" class="btn btn-primary" disabled>동작 만들기</button>
+      <p id="createStatus" class="status" aria-live="polite"></p>
+    </div>
+
+    <!-- 4. Results -->
+    <section class="card" aria-labelledby="resultTitle">
+      <h2 id="resultTitle">4. 결과</h2>
+      <p id="jobsEmpty" class="muted">아직 없습니다</p>
+      <ol id="jobList" class="job-list"></ol>
+    </section>
+  </main>
+
+  <dialog id="confirmDialog" class="confirm" aria-labelledby="confirmTitle">
+    <form method="dialog">
+      <h2 id="confirmTitle">만들까요?</h2>
+      <dl class="confirm-list">
+        <div><dt>모델</dt><dd id="confirmModel"></dd></div>
+        <div><dt>영상 길이</dt><dd id="confirmLength"></dd></div>
+        <div><dt>예상 비용</dt><dd id="confirmCost"></dd></div>
+      </dl>
+      <div class="row row-end">
+        <button type="submit" value="cancel" class="btn btn-ghost">취소</button>
+        <button type="submit" value="ok" class="btn btn-primary">만들기</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="./motions.js"></script>
+  <script src="./animate.js"></script>
+</body>
+</html>
