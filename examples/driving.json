@@ -48,6 +48,30 @@
       "licenseUrl": "https://www.pexels.com/license/",
       "trim": { "start": 4, "duration": 6 },
       "notes": "single person, static camera, no cuts, green screen background; woman dancing with headphones, front/side-facing. Clip is ~77s continuous. Frames verified at 0.5/2/4/6/8/20/40/60s. Portrait? no, 640x360 landscape."
+    },
+    {
+      "id": "wonyoung-turn",
+      "label": "원영턴 (한 바퀴 턴)",
+      "presetKey": "wonyoung-turn",
+      "downloadUrl": "https://videos.pexels.com/video-files/8992290/8992290-hd_720_1280_25fps.mp4",
+      "sourcePage": "https://www.pexels.com/video/woman-wearing-dress-spinning-around-8992290/",
+      "author": "Pexels contributor",
+      "license": "Pexels License",
+      "licenseUrl": "https://www.pexels.com/license/",
+      "trim": { "start": 3, "duration": 7 },
+      "notes": "single person, static tripod camera, indoor boutique background; woman in a long dress does a full turn in place (front->side->back->front) and settles into a pose, full body head-to-feet in frame with margin, front-facing at start. Real 720x1280 portrait, ~16.6s source. Frames verified 3-11s."
+    },
+    {
+      "id": "challenge-dance",
+      "label": "챌린지 스타일 춤",
+      "presetKey": null,
+      "downloadUrl": "https://videos.pexels.com/video-files/6003989/6003989-hd_720_1280_30fps.mp4",
+      "sourcePage": "https://www.pexels.com/video/woman-dancing-in-front-of-the-camera-6003989/",
+      "author": "Pexels contributor",
+      "license": "Pexels License",
+      "licenseUrl": "https://www.pexels.com/license/",
+      "trim": { "start": 1, "duration": 7 },
+      "notes": "single person, static tripod camera, plain living-room background; woman performs an energetic full-body challenge-style dance, front-facing at start, full body head-to-feet in frame with margin. Not the real BAD challenge choreography (unavailable on free stock). Real 720x1280 portrait, ~15.6s source. Frames verified 1-8s."
     }
   ]
 }
