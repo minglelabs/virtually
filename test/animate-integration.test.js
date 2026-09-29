@@ -15,6 +15,7 @@ const http = require('node:http');
 const { execFileSync } = require('node:child_process');
 
 const { createAppServer } = require('../server');
+const { main: fetchExamplesMain } = require('../scripts/fetch-examples');
 const mockProvider = require('../lib/animate/providers/mock');
 
 const FFMPEG = process.env.FFMPEG_PATH || 'ffmpeg';
@@ -405,10 +406,6 @@ test('job validation, uploads, config, cancel and the idle fallback', { skip }, 
     assert.deepEqual(drivings.slice(-3).map(item => item.id), [long.id, short.id, mine.id], 'uploads newest first after the examples');
     assert.equal(drivings[0].id, 'hi-wave');
 
-    response = await fetch(`${app.base}/api/animate/drivings/hi-wave`, { method: 'DELETE' });
-    assert.equal(response.status, 403);
-    assert.equal((await response.json()).code, 'example_readonly');
-
     // Job validation.
     const post = body => json(app.base, 'POST', '/api/animate/jobs', body);
     response = await fetch(`${app.base}/api/animate/jobs`, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: '{}' });
@@ -489,6 +486,120 @@ test('job validation, uploads, config, cancel and the idle fallback', { skip }, 
   }
 });
 
+test('deleting an example hides it; restore brings it back unavailable', { skip }, async () => {
+  const fixtures = await makeFixtures();
+  const fixtureServer = await startFixtureServer(fixtures.clip);
+  const manifestPath = await writeManifest(fixtures.dir, fixtureServer.base);
+  const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'virtually-animate-'));
+  const drivingsDir = path.join(dataDir, 'animate', 'drivings');
+  const hiddenPath = path.join(drivingsDir, 'hidden-examples.json');
+  const exampleFile = (id, ext) => path.join(drivingsDir, 'examples', `${id}.${ext}`);
+  const list = async base => (await fetch(`${base}/api/animate/drivings`)).json();
+  let app = await start(dataDir, manifestPath);
+  try {
+    await upload(app.base, '/api/animate/character?name=c.png', fixtures.character);
+    await (await json(app.base, 'POST', '/api/animate/examples/fetch', {})).json();
+    assert.ok(fsSync.existsSync(exampleFile('hi-wave', 'mp4')));
+    assert.equal((await list(app.base)).hiddenExamples, 0);
+
+    // A job made from the example before it is hidden.
+    let response = await json(app.base, 'POST', '/api/animate/jobs', { drivingId: 'hi-wave', routeId: 'mock/local-demo' });
+    const job = await waitForJob(app.base, (await response.json()).job.id, ['succeeded', 'failed']);
+    assert.equal(job.state, 'succeeded', JSON.stringify(job.error));
+    const mine = await (await upload(app.base, '/api/animate/drivings?name=mine.mp4', fixtures.clip)).json();
+
+    // Hide it: gone from the list, files removed, persisted.
+    response = await fetch(`${app.base}/api/animate/drivings/hi-wave`, { method: 'DELETE' });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { ok: true });
+    let data = await list(app.base);
+    assert.equal(data.hiddenExamples, 1);
+    assert.deepEqual(data.drivings.map(item => item.id), ['free-dance', 'gone', 'not-video', 'bad-redirect', mine.id]);
+    for (const ext of ['mp4', 'jpg', 'json']) assert.equal(fsSync.existsSync(exampleFile('hi-wave', ext)), false, `hi-wave.${ext} removed`);
+    assert.deepEqual(JSON.parse(await fs.readFile(hiddenPath, 'utf8')), { hidden: ['hi-wave'] });
+    assert.deepEqual((await fs.readdir(drivingsDir)).filter(name => name.endsWith('.tmp')), [], 'no temp files left');
+    response = await fetch(`${app.base}/api/animate/drivings/hi-wave/video`);
+    assert.equal(response.status, 404);
+    response = await json(app.base, 'POST', '/api/animate/jobs', { drivingId: 'hi-wave', routeId: 'mock/local-demo' });
+    assert.equal((await response.json()).code, 'driving_missing');
+    response = await fetch(`${app.base}/api/animate/drivings/hi-wave`, { method: 'DELETE' });
+    assert.equal(response.status, 404, 'an already hidden example is not found');
+
+    // The earlier job still serves its result.
+    response = await fetch(`${app.base}${job.result.url}`);
+    assert.equal(response.status, 200);
+    assert.equal(Buffer.from(await response.arrayBuffer()).toString('ascii', 4, 8), 'ftyp');
+    response = await fetch(`${app.base}${job.result.posterUrl}`);
+    assert.equal(response.status, 200);
+    await response.arrayBuffer();
+    assert.equal((await (await fetch(`${app.base}/api/animate/jobs/${job.id}`)).json()).state, 'succeeded');
+
+    // Uploads are unaffected.
+    response = await fetch(`${app.base}${mine.url}`, { method: 'HEAD' });
+    assert.equal(response.status, 200);
+
+    // Bad and unknown ids.
+    for (const id of ['no-such-example', 'BAD_ID', '..%2Fhidden-examples.json', 'up-00000000-0000-0000-0000-000000000000', 'a'.repeat(41)]) {
+      response = await fetch(`${app.base}/api/animate/drivings/${id}`, { method: 'DELETE' });
+      assert.equal(response.status, 404, id);
+      assert.equal((await response.json()).code, 'driving_missing');
+    }
+
+    // Fetch skips hidden examples. Hiding the failing ones leaves nothing missing.
+    const hitsBefore = fixtureServer.hits.get('/redirect') || 0;
+    for (const id of ['gone', 'not-video', 'bad-redirect']) {
+      assert.equal((await fetch(`${app.base}/api/animate/drivings/${id}`, { method: 'DELETE' })).status, 200);
+    }
+    const fetched = await (await json(app.base, 'POST', '/api/animate/examples/fetch', {})).json();
+    assert.deepEqual(fetched.results, []);
+    assert.equal(fetched.hiddenExamples, 4);
+    assert.equal(fixtureServer.hits.get('/redirect') || 0, hitsBefore, 'hidden example was not downloaded');
+    assert.equal(fsSync.existsSync(exampleFile('hi-wave', 'mp4')), false);
+    assert.ok(fetched.drivings.filter(item => item.kind === 'example').every(item => item.available), 'no missing examples left to announce');
+  } finally {
+    await stop(app.server);
+  }
+
+  try {
+    // The hidden list survives a restart, and the CLI skips it too.
+    const lines = [];
+    const { results } = await fetchExamplesMain(['--data-dir', dataDir, '--manifest', manifestPath], { allowHttpExamples: true, log: line => lines.push(line) });
+    assert.deepEqual(results, []);
+    assert.ok(lines.some(line => /4 hidden/.test(line)), lines.join('\n'));
+    assert.equal(fsSync.existsSync(exampleFile('hi-wave', 'mp4')), false);
+
+    app = await start(dataDir, manifestPath);
+    let data = await list(app.base);
+    assert.equal(data.hiddenExamples, 4);
+    assert.ok(!data.drivings.some(item => item.id === 'hi-wave'));
+
+    // Restore: examples come back unavailable until fetched again.
+    let response = await fetch(`${app.base}/api/animate/examples/restore`, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: '{}' });
+    assert.equal(response.status, 415);
+    response = await json(app.base, 'POST', '/api/animate/examples/restore', {});
+    assert.equal(response.status, 200);
+    const restored = await response.json();
+    assert.deepEqual(Object.keys(restored).sort(), ['drivings', 'hidden']);
+    assert.deepEqual(restored.hidden, []);
+    const hi = restored.drivings.find(item => item.id === 'hi-wave');
+    assert.equal(hi.available, false);
+    assert.equal(hi.url, null);
+    assert.equal(restored.drivings.find(item => item.id === 'free-dance').available, true);
+    assert.deepEqual(JSON.parse(await fs.readFile(hiddenPath, 'utf8')), { hidden: [] });
+    data = await list(app.base);
+    assert.equal(data.hiddenExamples, 0);
+    assert.deepEqual(data.drivings.filter(item => item.kind === 'example').map(item => item.id), ['hi-wave', 'free-dance', 'gone', 'not-video', 'bad-redirect']);
+
+    const refetched = await (await json(app.base, 'POST', '/api/animate/examples/fetch', {})).json();
+    assert.ok(refetched.results.some(result => result.id === 'hi-wave' && result.ok));
+    assert.equal(refetched.drivings.find(item => item.id === 'hi-wave').available, true);
+  } finally {
+    await stop(app.server);
+    await new Promise(resolve => fixtureServer.server.close(resolve));
+    await cleanup(dataDir, fixtures.dir);
+  }
+});
+
 test('jobs survive a restart: polling resumes, a mid-submit job becomes interrupted', { skip }, async () => {
   const fixtures = await makeFixtures();
   const fixtureServer = await startFixtureServer(fixtures.clip);
@@ -538,7 +649,7 @@ test('the mock route is hidden unless enabled', async () => {
     assert.ok(!status.routes.some(route => route.id === 'mock/local-demo'));
     assert.ok(!status.providers.some(provider => provider.id === 'mock'));
     const drivings = await (await fetch(`${app.base}/api/animate/drivings`)).json();
-    assert.deepEqual(drivings, { drivings: [] });
+    assert.deepEqual(drivings, { drivings: [], hiddenExamples: 0 });
     const response = await json(app.base, 'POST', '/api/animate/jobs', { drivingId: 'x', routeId: 'mock/local-demo' });
     assert.equal((await response.json()).code, 'unknown_route');
   } finally {

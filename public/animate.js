@@ -36,7 +36,6 @@ const AnimateHelpers = (() => {
     ffmpeg_unavailable: 'ffmpeg가 필요합니다',
     not_confirmed: '확인이 필요합니다',
     fetch_in_progress: '이미 받는 중입니다',
-    example_readonly: '예시 영상은 지울 수 없습니다',
     not_ready: '아직 완료되지 않았습니다',
     already_added: '이미 추가했습니다',
     interrupted: '서버 재시작으로 중단됐습니다',
@@ -281,6 +280,7 @@ if (typeof document !== 'undefined') (() => {
   const globalStatus = $('globalStatus');
   const exampleBar = $('exampleBar');
   const fetchExamplesBtn = $('fetchExamplesBtn');
+  const restoreExamplesBtn = $('restoreExamplesBtn');
   const drivingList = $('drivingList');
   const drivingDrop = $('drivingDrop');
   const drivingDropTitle = $('drivingDropTitle');
@@ -313,13 +313,14 @@ if (typeof document !== 'undefined') (() => {
     selectedCharacterId: null,
     idle: null, // the idle-image character view from /status, used while the library is empty
     drivings: [],
+    hiddenExamples: 0,
     drivingShown: 0,
     drivingId: null,
     routeId: null,
     options: {}, // routeId -> { key: value }
     jobs: [],
     libraryIds: null,
-    busy: { fetch: false, driving: false, character: false, create: false },
+    busy: { fetch: false, restore: false, driving: false, character: false, create: false },
   };
 
   // ---- Small DOM helpers ----
@@ -496,6 +497,10 @@ if (typeof document !== 'undefined') (() => {
     exampleBar.hidden = !missing;
     fetchExamplesBtn.disabled = state.busy.fetch;
     fetchExamplesBtn.textContent = state.busy.fetch ? '받는 중…' : '예시 영상 받기';
+    // Deleted examples are hidden, not gone: offer to bring them back.
+    restoreExamplesBtn.hidden = !(state.hiddenExamples > 0);
+    restoreExamplesBtn.disabled = state.busy.restore;
+    restoreExamplesBtn.textContent = `숨긴 예시 ${state.hiddenExamples}개 되돌리기`;
 
     // Keep a valid selection: the current one if still available, else the first available.
     if (!state.drivings.some(d => d.id === state.drivingId && d.available)) {
@@ -559,16 +564,15 @@ if (typeof document !== 'undefined') (() => {
         ? el('a', { className: 'driving-credit', href, target: '_blank', rel: 'noopener noreferrer', text })
         : el('span', { className: 'driving-credit', text }));
     }
-    if (driving.kind === 'upload') {
-      card.append(el('button', {
-        type: 'button',
-        className: 'driving-delete',
-        'aria-label': `${driving.label} 삭제`,
-        title: '삭제',
-        text: '×',
-        onclick: () => deleteDriving(driving),
-      }));
-    }
+    // Uploads are deleted; examples are hidden (restorable from the strip).
+    card.append(el('button', {
+      type: 'button',
+      className: 'driving-delete',
+      'aria-label': `${driving.label} 삭제`,
+      title: '삭제',
+      text: '×',
+      onclick: () => deleteDriving(driving),
+    }));
     return card;
   }
 
@@ -604,9 +608,25 @@ if (typeof document !== 'undefined') (() => {
   async function loadDrivings() {
     const data = await api('GET', '/api/animate/drivings');
     state.drivings = Array.isArray(data?.drivings) ? data.drivings : [];
+    state.hiddenExamples = Number(data?.hiddenExamples) || 0;
     renderDrivings();
     renderRoutes();
   }
+
+  restoreExamplesBtn.addEventListener('click', async () => {
+    if (state.busy.restore) return;
+    state.busy.restore = true;
+    renderDrivings();
+    setStatus(drivingStatus, '');
+    try {
+      await api('POST', '/api/animate/examples/restore', { json: {} });
+    } catch (error) {
+      setStatus(drivingStatus, `되돌리기 실패: ${error.message}`, 'error');
+    } finally {
+      state.busy.restore = false;
+    }
+    try { await loadDrivings(); } catch (error) { setStatus(drivingStatus, error.message, 'error'); }
+  });
 
   fetchExamplesBtn.addEventListener('click', async () => {
     state.busy.fetch = true;

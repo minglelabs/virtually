@@ -3,6 +3,7 @@
 
 // Download the example driving videos listed in examples/driving.json into the
 // data dir, exactly like POST /api/animate/examples/fetch, without a server.
+// Examples hidden on the page (data/animate/drivings/hidden-examples.json) are skipped.
 //
 //   pnpm run fetch-examples [-- --data-dir <dir>] [--manifest <file>]
 //
@@ -45,10 +46,13 @@ async function main(argv = process.argv.slice(2), options = {}) {
     log('No examples in the manifest.');
     return { results: [] };
   }
+  // Examples deleted on the page (hidden-examples.json) are skipped.
   const results = await store.fetchExamples();
-  const skipped = store.examples.length - results.length;
+  const hidden = store.hiddenCount();
+  const skipped = store.visibleExamples().length - results.length;
   for (const result of results) log(result.ok ? `ok      ${result.id}` : `failed  ${result.id}: ${result.error}`);
   if (skipped > 0) log(`${skipped} already downloaded.`);
+  if (hidden > 0) log(`${hidden} hidden (deleted on the page), skipped.`);
   return { results };
 }
 
