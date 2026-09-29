@@ -273,22 +273,58 @@ test('animate page: drop zones replace the upload button', () => {
   assert.match(js, /이 캐릭터를 지울까요\?/);
 });
 
-test('controller previews a true-scale 1920 x 1080 canvas', () => {
+test('controller previews a true-scale canvas at the reported OBS source size', () => {
   const fs = require('node:fs');
   const path = require('node:path');
   const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
-  assert.match(html, /<h2 id="previewTitle">캔버스<\/h2>/);
-  assert.match(html, /1920 × 1080 · 체크무늬 부분은 투명하게 송출됩니다\./);
-  assert.match(html, /<h1 id="controlTitle">Virtually<\/h1>\s*<p class="subtitle">컨트롤러<\/p>/);
+  // Both pane titles are h2 with one shared class, and each section is labelled by its h2.
+  assert.match(html, /<section class="pane pane-control" aria-labelledby="controlTitle">\s*<div class="brand-row">\s*<h1 class="brand">Virtually<\/h1>\s*<\/div>\s*<h2 id="controlTitle" class="pane-title">컨트롤러<\/h2>/);
+  assert.match(html, /<section class="pane pane-preview" aria-labelledby="previewTitle">/);
+  assert.match(html, /<div class="pane-title-row">\s*<h2 id="previewTitle" class="pane-title">캔버스<\/h2>\s*<button type="button" id="refreshOverlayBtn"/);
+  assert.equal((html.match(/<h2 [^>]*class="pane-title"/g) || []).length, 2);
+  assert.doesNotMatch(html, /class="subtitle"/);
+  assert.match(html, /<p class="caption" id="canvasCaption">1920 × 1080 \(OBS 연결 전\) · 체크무늬 부분은 투명하게 송출됩니다\.<\/p>/);
   assert.match(html,
     /<div class="stage">\s*<div class="canvas" id="canvasBox">\s*<iframe id="overlayPreviewFrame" src="\.\/overlay" title="OBS 캔버스 미리보기"><\/iframe>\s*<\/div>\s*<\/div>/);
+  // OBS guide: the source matches the OBS canvas instead of a fixed 1920 x 1080.
+  assert.match(html, /<dt>너비 \/ 높이<\/dt><dd><strong>OBS 캔버스와 같게<\/strong> <span class="note">\(설정 → 비디오 → 기본 \(캔버스\) 해상도\)<\/span><\/dd>/);
+  assert.match(html, /<li>소스 우클릭 → '변환' → '화면에 맞추기'<\/li>/);
+  assert.doesNotMatch(html, /1920 \/ 1080|캔버스가 1920/);
 
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.css'), 'utf8');
+  const title = css.match(/\.pane-title \{([^}]*)\}/);
+  assert.ok(title, 'app.css has a .pane-title rule');
+  assert.match(title[1], /font-size:\s*18px;/);
+  assert.match(title[1], /font-weight:\s*700;/);
+  assert.match(title[1], /color:\s*var\(--text\);/);
+  // One brand-row height drives the left brand row and the right pane's top spacing.
+  assert.match(css, /--brand-row-h:\s*\d+px;/);
+  assert.match(css, /\.brand-row \{[^}]*height:\s*var\(--brand-row-h\);/);
+  assert.match(css, /\.pane-preview \{[^}]*padding-top:\s*calc\(var\(--pane-pad\) \+ var\(--brand-row-h\) \+ var\(--pane-gap\)\);/);
+
+  const box = css.match(/\.canvas \{([^}]*)\}/);
+  assert.ok(box, 'app.css has a .canvas rule');
+  assert.match(box[1], /--canvas-w:\s*1920px;/);
+  assert.match(box[1], /--canvas-h:\s*1080px;/);
+  assert.match(box[1], /width:\s*calc\(var\(--canvas-w\) \* var\(--canvas-scale\)\);/);
+  assert.match(box[1], /height:\s*calc\(var\(--canvas-h\) \* var\(--canvas-scale\)\);/);
   const rule = css.match(/\.stage iframe \{([^}]*)\}/);
   assert.ok(rule, 'app.css has a .stage iframe rule');
-  assert.match(rule[1], /width:\s*1920px;/);
-  assert.match(rule[1], /height:\s*1080px;/);
+  assert.match(rule[1], /width:\s*var\(--canvas-w\);/);
+  assert.match(rule[1], /height:\s*var\(--canvas-h\);/);
   assert.match(rule[1], /transform-origin:\s*0 0;/);
   assert.match(rule[1], /transform:\s*scale\(var\(--canvas-scale\)\);/);
   assert.match(rule[1], /color-scheme:\s*normal;/);
+  assert.doesNotMatch(css, /1920px \*|1080px \*/);
+
+  const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  assert.match(app, /data\?\.type === 'obs-source'/);
+  assert.match(app, /setProperty\('--canvas-w'/);
+  assert.match(app, /setProperty\('--canvas-h'/);
+  assert.match(app, /OBS 소스 \$\{canvasSize\.width\} × \$\{canvasSize\.height\}/);
+
+  // Only the overlay running inside OBS reports its size.
+  const overlay = fs.readFileSync(path.join(__dirname, '..', 'public', 'overlay.js'), 'utf8');
+  assert.match(overlay, /typeof window\.obsstudio === 'object'/);
+  assert.match(overlay, /if \(!IS_OBS_SOURCE\) return;/);
 });

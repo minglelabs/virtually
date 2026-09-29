@@ -6,6 +6,11 @@
   --muted: #9aa3b2;
   --accent: #6c8cff;
   --danger: #ff8a8a;
+  /* Layout rhythm shared by both panes so their titles line up. */
+  --pane-pad: 20px;
+  --pane-gap: 16px;
+  --brand-row-h: 30px;
+  --pane-title-h: 28px;
   color-scheme: dark;
 }
 
@@ -26,19 +31,34 @@ body {
   height: 100vh;
 }
 
-.pane { min-width: 0; padding: 20px; }
+.pane { min-width: 0; padding: var(--pane-pad); }
 .pane-control {
   border-right: 1px solid var(--border);
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--pane-gap);
 }
-.pane-preview { display: flex; flex-direction: column; gap: 12px; }
+/* No brand row here: the same top spacing puts 캔버스 level with 컨트롤러. */
+.pane-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: calc(var(--pane-pad) + var(--brand-row-h) + var(--pane-gap));
+}
 
-h1 { margin: 0; font-size: 20px; }
-/* Small caption right under the h1; cancels most of the control pane's 16px flex gap. */
-.subtitle { margin: -14px 0 0; font-size: 12px; color: var(--muted); }
+/* "Virtually" brand row above the 컨트롤러 title. */
+.brand-row { flex: none; display: flex; align-items: center; height: var(--brand-row-h); }
+.brand { margin: 0; font-size: 20px; line-height: var(--brand-row-h); }
+/* The two pane titles, 컨트롤러 and 캔버스. */
+.pane-title {
+  flex: none;
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: var(--pane-title-h);
+  color: var(--text);
+}
 h2 { margin: 0 0 8px; font-size: 15px; }
 h3 { margin: 16px 0 6px; font-size: 13px; color: var(--text); }
 
@@ -237,9 +257,19 @@ h3 { margin: 16px 0 6px; font-size: 13px; color: var(--text); }
 .link { color: var(--accent); }
 
 /* ---- Preview ---- */
-.preview-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.preview-header h2 { margin: 0; }
-.preview-header .caption { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
+.preview-header { flex: none; }
+/*
+ * Fixed at the title height so the taller 새로고침 button (centered, overflowing a few
+ * pixels) cannot push 캔버스 below 컨트롤러.
+ */
+.pane-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: var(--pane-title-h);
+}
+.preview-header .caption { margin: 8px 0 0; font-size: 12px; color: var(--muted); }
 
 /* The stage is the free space the canvas preview is fitted into. */
 .stage {
@@ -252,15 +282,18 @@ h3 { margin: 16px 0 6px; font-size: 13px; color: var(--text); }
 }
 /*
  * True-scale OBS canvas: the overlay is laid out at the real browser-source size
- * (1920 x 1080) and scaled down, so the preview matches what OBS shows.
- * app.js sets --canvas-scale from the stage size; the border sits outside the scaled box.
+ * (--canvas-w x --canvas-h, reported by OBS; 1920 x 1080 until then) and scaled down,
+ * so the preview matches what OBS shows. app.js sets the size and --canvas-scale;
+ * the border sits outside the scaled box.
  */
 .canvas {
+  --canvas-w: 1920px;
+  --canvas-h: 1080px;
   --canvas-scale: 0.4;
   flex: none;
   box-sizing: content-box;
-  width: calc(1920px * var(--canvas-scale));
-  height: calc(1080px * var(--canvas-scale));
+  width: calc(var(--canvas-w) * var(--canvas-scale));
+  height: calc(var(--canvas-h) * var(--canvas-scale));
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -280,8 +313,8 @@ h3 { margin: 16px 0 6px; font-size: 13px; color: var(--text); }
    */
   color-scheme: normal;
   display: block;
-  width: 1920px;
-  height: 1080px;
+  width: var(--canvas-w);
+  height: var(--canvas-h);
   border: 0;
   background: transparent;
   transform: scale(var(--canvas-scale));
@@ -299,6 +332,8 @@ h3 { margin: 16px 0 6px; font-size: 13px; color: var(--text); }
 @media (max-width: 800px) {
   .layout { grid-template-columns: 1fr; grid-template-rows: auto; height: auto; }
   .pane-control { border-right: 0; border-bottom: 1px solid var(--border); overflow-y: visible; }
+  /* Stacked panes: nothing to line up with, so drop the brand-row spacing. */
+  .pane-preview { padding-top: var(--pane-pad); }
   .pane-control .motion-header { top: 0; }
   .pane-control .motion-footer { bottom: 0; }
   /* The page scrolls here, so the stage has no fixed height to fit into. */

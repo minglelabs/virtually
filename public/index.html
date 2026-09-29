@@ -11,8 +11,10 @@
   <main class="layout">
     <!-- Left: controls -->
     <section class="pane pane-control" aria-labelledby="controlTitle">
-      <h1 id="controlTitle">Virtually</h1>
-      <p class="subtitle">컨트롤러</p>
+      <div class="brand-row">
+        <h1 class="brand">Virtually</h1>
+      </div>
+      <h2 id="controlTitle" class="pane-title">컨트롤러</h2>
 
       <details class="card obs-toggle" id="obsToggle">
         <summary class="obs-summary">OBS에 연동하기!</summary>
@@ -31,14 +33,14 @@
             <li>'새 소스 생성'에 이름 입력(예: Virtually) → '소스를 표시' 켜기 → '새로 만들기'</li>
             <li>속성 창에서 아래처럼 설정 → '확인'</li>
             <li>'소스 목록'에서 카메라 소스보다 위로 올리기</li>
-            <li>캔버스가 1920 × 1080이 아니면 우클릭 → '변환' → '화면에 맞추기'</li>
+            <li>소스 우클릭 → '변환' → '화면에 맞추기'</li>
           </ol>
 
           <h3>속성 창 설정</h3>
           <dl class="settings">
             <div class="setting"><dt>로컬 파일</dt><dd><strong>끄기</strong></dd></div>
             <div class="setting"><dt>URL</dt><dd><strong><code id="settingUrl" class="setting-url"></code></strong></dd></div>
-            <div class="setting"><dt>너비 / 높이</dt><dd><strong>1920 / 1080</strong></dd></div>
+            <div class="setting"><dt>너비 / 높이</dt><dd><strong>OBS 캔버스와 같게</strong> <span class="note">(설정 → 비디오 → 기본 (캔버스) 해상도)</span></dd></div>
             <div class="setting"><dt>OBS를 통해 오디오 조절</dt><dd><strong>끄기</strong></dd></div>
             <div class="setting"><dt>사용자가 임의로 설정한 프레임 레이트 사용</dt><dd><strong>끄기</strong></dd></div>
             <div class="setting"><dt>사용자 지정 CSS</dt><dd><strong>그대로 두기</strong> <span class="note">(투명 배경용)</span></dd></div>
@@ -72,14 +74,14 @@
       </article>
     </section>
 
-    <!-- Right: true-scale 1920 x 1080 OBS canvas preview -->
+    <!-- Right: true-scale preview at the reported OBS browser-source size -->
     <section class="pane pane-preview" aria-labelledby="previewTitle">
       <header class="preview-header">
-        <div>
-          <h2 id="previewTitle">캔버스</h2>
-          <p class="caption">1920 × 1080 · 체크무늬 부분은 투명하게 송출됩니다.</p>
+        <div class="pane-title-row">
+          <h2 id="previewTitle" class="pane-title">캔버스</h2>
+          <button type="button" id="refreshOverlayBtn" class="btn btn-ghost">새로고침</button>
         </div>
-        <button type="button" id="refreshOverlayBtn" class="btn btn-ghost">새로고침</button>
+        <p class="caption" id="canvasCaption">1920 × 1080 (OBS 연결 전) · 체크무늬 부분은 투명하게 송출됩니다.</p>
       </header>
       <div class="stage">
         <div class="canvas" id="canvasBox">

@@ -225,3 +225,90 @@ test('an mp4 library motion is served, and deleting it removes the .mp4 file', a
     await fs.rm(dataDir, { recursive: true, force: true });
   }
 });
+
+// Yields parsed `data:` messages from an SSE response, one at a time.
+function sseMessages(response) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const queue = [];
+  let buffered = '';
+  return {
+    async next() {
+      while (!queue.length) {
+        const { value, done } = await reader.read();
+        if (done) throw new Error('SSE stream ended');
+        buffered += decoder.decode(value, { stream: true });
+        const events = buffered.split('\n\n');
+        buffered = events.pop();
+        for (const event of events) if (event.startsWith('data: ')) queue.push(JSON.parse(event.slice(6)));
+      }
+      return queue.shift();
+    },
+    async nextOfType(type) {
+      for (;;) {
+        const message = await this.next();
+        if (message.type === type) return message;
+      }
+    },
+    cancel: () => reader.cancel().catch(() => {}),
+  };
+}
+
+test('OBS source size: validation, persistence, and live + on-connect SSE delivery', async () => {
+  const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'virtually-obs-source-'));
+  const post = (base, body, contentType = 'application/json') => fetch(`${base}/api/obs-source`, {
+    method: 'POST', headers: { 'Content-Type': contentType }, body: typeof body === 'string' ? body : JSON.stringify(body),
+  });
+  const first = await start(dataDir);
+  try {
+    assert.equal(await (await fetch(`${first.base}/api/obs-source`)).json(), null);
+
+    const events = sseMessages(await fetch(`${first.base}/api/events`));
+    assert.equal((await events.next()).type, 'library');
+    assert.deepEqual(await events.next(), { type: 'obs-source', width: null, height: null });
+
+    assert.equal((await post(first.base, { width: 800, height: 600 }, 'text/plain')).status, 415);
+    for (const bad of [
+      { width: 800 }, { width: 800.5, height: 600 }, { width: '800', height: 600 },
+      { width: 15, height: 600 }, { width: 800, height: 8193 }, [], null,
+    ]) {
+      assert.equal((await post(first.base, bad)).status, 400, JSON.stringify(bad));
+    }
+    assert.equal((await post(first.base, 'not json')).status, 400);
+    const crossOrigin = await fetch(`${first.base}/api/obs-source`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Origin: 'https://example.com' }, body: '{"width":800,"height":600}',
+    });
+    assert.equal(crossOrigin.status, 403);
+    assert.equal(await (await fetch(`${first.base}/api/obs-source`)).json(), null);
+
+    const accepted = await post(first.base, { width: 800, height: 600 });
+    assert.equal(accepted.status, 200);
+    assert.deepEqual(await accepted.json(), { width: 800, height: 600 });
+    assert.deepEqual(await events.next(), { type: 'obs-source', width: 800, height: 600 });
+
+    // Bounds are inclusive; the latest value wins.
+    assert.equal((await post(first.base, { width: 16, height: 8192 })).status, 200);
+    assert.deepEqual(await events.next(), { type: 'obs-source', width: 16, height: 8192 });
+    assert.equal((await post(first.base, { width: 1600, height: 1080 })).status, 200);
+    assert.deepEqual(await events.next(), { type: 'obs-source', width: 1600, height: 1080 });
+    assert.deepEqual(await (await fetch(`${first.base}/api/obs-source`)).json(), { width: 1600, height: 1080 });
+    assert.deepEqual(JSON.parse(await fs.readFile(path.join(dataDir, 'obs-source.json'), 'utf8')), { width: 1600, height: 1080 });
+    assert.deepEqual((await fs.readdir(dataDir)).filter(name => name.endsWith('.tmp')), []);
+    await events.cancel();
+    await stop(first.server);
+
+    // A new server instance on the same dataDir restores the value and sends it on connect.
+    const second = await start(dataDir);
+    try {
+      assert.deepEqual(await (await fetch(`${second.base}/api/obs-source`)).json(), { width: 1600, height: 1080 });
+      const again = sseMessages(await fetch(`${second.base}/api/events`));
+      assert.deepEqual(await again.nextOfType('obs-source'), { type: 'obs-source', width: 1600, height: 1080 });
+      await again.cancel();
+    } finally {
+      await stop(second.server);
+    }
+  } finally {
+    if (first.server.listening) await stop(first.server);
+    await fs.rm(dataDir, { recursive: true, force: true });
+  }
+});

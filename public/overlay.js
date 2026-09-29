@@ -343,6 +343,31 @@
     }
   }
 
+  // Report this page's viewport as the OBS browser-source size, so the controller can
+  // preview the real canvas. Only inside OBS (window.obsstudio): the controller's own
+  // preview iframe and a normal browser tab must never overwrite it.
+  const IS_OBS_SOURCE = typeof window.obsstudio === 'object' && window.obsstudio !== null;
+  const OBS_REPORT_DEBOUNCE_MS = 300;
+  let obsReportTimer = null;
+
+  function reportObsSourceSize() {
+    if (!IS_OBS_SOURCE) return;
+    fetch('/api/obs-source', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ width: window.innerWidth, height: window.innerHeight })
+    }).catch((err) => {
+      console.warn('Could not report the OBS source size:', err);
+    });
+  }
+
+  if (IS_OBS_SOURCE) {
+    window.addEventListener('resize', () => {
+      clearTimeout(obsReportTimer);
+      obsReportTimer = setTimeout(reportObsSourceSize, OBS_REPORT_DEBOUNCE_MS);
+    });
+  }
+
   // Connect SSE
   let eventSource = null;
   function connectSSE() {
@@ -355,6 +380,8 @@
     eventSource.onopen = () => {
       // Reconnected / connected: refresh library immediately
       fetchLibrary();
+      // A restarted server may have lost or never seen the size: report it again.
+      reportObsSourceSize();
     };
 
     eventSource.onmessage = (event) => {

@@ -59,13 +59,13 @@ The controller's collapsible **OBS에 연동하기!** section (closed by default
 3. In **Add a new Browser**, enter a name (for example `Virtually`), keep **Make source visible** checked, and click **Create New**.
 4. In the properties window, apply the settings below and click **OK**.
 5. In **Sources**, place this source above your camera source. Sources higher in the list are drawn in front.
-6. If your OBS canvas is not 1920 × 1080, right-click the source and choose **Transform → Fit to screen**.
+6. Right-click the source and choose **Transform → Fit to screen**.
 
 Recommended properties, in OBS order:
 
 - **Local file**: off.
 - **URL**: the overlay URL printed by the server (default `http://127.0.0.1:8787/overlay`).
-- **Width** / **Height**: 1920 / 1080 (defaults are 800 / 600).
+- **Width** / **Height**: the same as your OBS canvas (**Settings → Video → Base (Canvas) Resolution**; the source defaults to 800 / 600). The overlay reports this size to the controller, whose 캔버스 preview then shows the same size.
 - **Control audio via OBS**: off — motion clips have no audio.
 - **Use custom frame rate**: off — follow the OBS output frame rate.
 - **Custom CSS**: leave the default — it is what makes the background transparent.

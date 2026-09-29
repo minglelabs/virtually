@@ -34,23 +34,38 @@
   });
 
   // ---- True-scale canvas preview ----
-  // The overlay renders at the OBS browser-source size and is scaled to fit the stage.
-  const CANVAS_W = 1920;
-  const CANVAS_H = 1080;
+  // The overlay renders at the OBS browser-source size (reported by the overlay running
+  // inside OBS; 1920 x 1080 until then) and is scaled to fit the stage.
+  const DEFAULT_CANVAS = { width: 1920, height: 1080 };
   const CANVAS_BORDER = 2; // 1px border on each side, outside the scaled box
+  const CAPTION_TAIL = ' · 체크무늬 부분은 투명하게 송출됩니다.';
   const stage = document.querySelector('.stage');
   const canvasBox = document.getElementById('canvasBox');
+  const canvasCaption = document.getElementById('canvasCaption');
   // Mirrors the narrow layout in app.css, where the stage has no fixed height.
   const narrowQuery = window.matchMedia('(max-width: 800px)');
+  let canvasSize = DEFAULT_CANVAS;
 
   function fitCanvas() {
-    const byWidth = Math.max(0, stage.clientWidth - CANVAS_BORDER) / CANVAS_W;
-    const byHeight = Math.max(0, stage.clientHeight - CANVAS_BORDER) / CANVAS_H;
+    const byWidth = Math.max(0, stage.clientWidth - CANVAS_BORDER) / canvasSize.width;
+    const byHeight = Math.max(0, stage.clientHeight - CANVAS_BORDER) / canvasSize.height;
     const scale = narrowQuery.matches ? byWidth : Math.min(byWidth, byHeight);
     canvasBox.style.setProperty('--canvas-scale', String(scale));
   }
 
-  fitCanvas(); // initial pass before first paint
+  // size: {width, height} from the server, or null before OBS has reported one.
+  function setCanvasSize(size) {
+    const reported = Boolean(size && Number.isInteger(size.width) && Number.isInteger(size.height));
+    canvasSize = reported ? { width: size.width, height: size.height } : DEFAULT_CANVAS;
+    canvasBox.style.setProperty('--canvas-w', `${canvasSize.width}px`);
+    canvasBox.style.setProperty('--canvas-h', `${canvasSize.height}px`);
+    canvasCaption.textContent = reported
+      ? `OBS 소스 ${canvasSize.width} × ${canvasSize.height}${CAPTION_TAIL}`
+      : `${DEFAULT_CANVAS.width} × ${DEFAULT_CANVAS.height} (OBS 연결 전)${CAPTION_TAIL}`;
+    fitCanvas();
+  }
+
+  setCanvasSize(null); // initial pass before first paint
   if (typeof ResizeObserver === 'function') new ResizeObserver(fitCanvas).observe(stage);
   else window.addEventListener('resize', fitCanvas);
   narrowQuery.addEventListener('change', fitCanvas);
@@ -211,7 +226,8 @@
 
   render();
 
-  // The server sends the library on connect and after every change; EventSource reconnects itself.
+  // The server sends the library and the OBS source size on connect and after every
+  // change; EventSource reconnects itself.
   const events = new EventSource('/api/events');
   events.addEventListener('open', () => {
     if (motionStatus.dataset.kind === 'connection') setStatus('');
@@ -229,6 +245,8 @@
     if (data?.type === 'library') {
       items = buildMotionItems(data.library);
       render();
+    } else if (data?.type === 'obs-source') {
+      setCanvasSize(data);
     }
   });
 })();
