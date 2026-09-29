@@ -2,7 +2,7 @@
 
 const assert = require('node:assert/strict');
 const test = require('node:test');
-const { PRESET_MOTIONS, buildMotionItems, MOTION_BATCH_SIZE, motionRenderCount } = require('../public/app.js');
+const { PRESET_MOTIONS, buildMotionItems, MOTION_BATCH_SIZE, motionRenderCount, isWebmFileName, motionItemIndex } = require('../public/app.js');
 
 const motion = (id, name) => ({ id, name, kind: 'motion', mime: 'video/webm', url: `/api/media/${id}` });
 
@@ -63,4 +63,21 @@ test('motionRenderCount renders batches of 30 and never shrinks below what is sh
   assert.equal(motionRenderCount(Number.NaN, 5), 5);
   assert.equal(motionRenderCount(-3, 0), 0);
   assert.equal(motionRenderCount(0, 100, { batchSize: 7 }), 7);
+});
+
+test('isWebmFileName accepts only .webm names, case-insensitively', () => {
+  assert.equal(isWebmFileName('wink.webm'), true);
+  assert.equal(isWebmFileName('윙크.WEBM'), true);
+  assert.equal(isWebmFileName('bad.png'), false);
+  assert.equal(isWebmFileName('webm'), false);
+  assert.equal(isWebmFileName('clip.webm.mov'), false);
+  assert.equal(isWebmFileName(undefined), false);
+});
+
+test('motionItemIndex finds the linked preset or the motion button', () => {
+  const items = buildMotionItems({ motions: [motion('a', 'extra'), motion('b', '윙크')] });
+  assert.equal(items[motionItemIndex(items, 'b')].key, 'preset:wink');
+  assert.equal(items[motionItemIndex(items, 'a')].key, 'motion:a');
+  assert.equal(motionItemIndex(items, 'missing'), -1);
+  assert.equal(motionItemIndex(items, 'demo'), -1);
 });

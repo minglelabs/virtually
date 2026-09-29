@@ -265,6 +265,17 @@ async function createAppServer({ dataDir = path.join(__dirname, 'data') } = {}) 
         broadcast({ type: 'play', id: body.id, seq });
         return sendJson(res, 200, { ok: true, seq });
       }
+      if (req.method === 'POST' && pathname === '/api/idle') {
+        if (String(req.headers['content-type'] || '').split(';')[0].toLowerCase() !== 'application/json') {
+          return sendJson(res, 415, { error: 'Expected application/json.' });
+        }
+        // The body (usually {}) is drained with the usual size limit; its contents are ignored,
+        // so an empty or non-JSON body is accepted too.
+        await readBody(req).catch(error => { if (error.status !== 400) throw error; });
+        const seq = ++sequence;
+        broadcast({ type: 'idle', seq });
+        return sendJson(res, 200, { ok: true, seq });
+      }
       if (req.method === 'DELETE' && pathname.startsWith('/api/media/')) {
         const id = pathname.slice('/api/media/'.length);
         if (!/^[0-9a-f-]{36}$/.test(id)) return sendJson(res, 404, { error: 'Media not found.' });

@@ -336,6 +336,10 @@
       updateLibrary(data.library);
     } else if (data.type === 'play') {
       playMotion(data.id, data.seq);
+    } else if (data.type === 'idle') {
+      // Stop button: invalidate any in-flight playback, then show the idle state.
+      ++activeTriggerToken;
+      returnToIdle();
     }
   }
 

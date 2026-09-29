@@ -78,8 +78,22 @@ function motionRenderCount(shown, total, { grow = false, batchSize = MOTION_BATC
   return Math.min(safeTotal, target);
 }
 
+/** True for a file name the add button accepts (.webm, case-insensitive). */
+function isWebmFileName(name) {
+  return /\.webm$/i.test(String(name ?? '').trim());
+}
+
+/**
+ * Index of the button that plays library motion `motionId`: the preset it links to,
+ * or its own button. -1 when this snapshot does not contain the motion yet.
+ */
+function motionItemIndex(items, motionId) {
+  if (typeof motionId !== 'string' || motionId === 'demo') return -1;
+  return items.findIndex(item => item.triggerId === motionId);
+}
+
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { PRESET_MOTIONS, buildMotionItems, MOTION_BATCH_SIZE, motionRenderCount };
+  module.exports = { PRESET_MOTIONS, buildMotionItems, MOTION_BATCH_SIZE, motionRenderCount, isWebmFileName, motionItemIndex };
 }
 
 if (typeof document !== 'undefined') (() => {
@@ -93,6 +107,14 @@ if (typeof document !== 'undefined') (() => {
   const motionList = document.getElementById('motionList');
   const motionStatus = document.getElementById('motionStatus');
   const motionSentinel = document.getElementById('motionSentinel');
+  const motionHeader = document.querySelector('.motion-header');
+  const motionFooter = document.querySelector('.motion-footer');
+  const idleBtn = document.getElementById('idleBtn');
+  const addMotionBtn = document.getElementById('addMotionBtn');
+  const addMotionInput = document.getElementById('addMotionInput');
+  const uploadStatus = document.getElementById('uploadStatus');
+  const NEW_HIGHLIGHT_MS = 1500;
+  const UPLOAD_SUCCESS_CLEAR_MS = 4000;
 
   const overlayUrl = new URL('/overlay', window.location.origin).href;
   urlInput.value = overlayUrl;
@@ -120,6 +142,11 @@ if (typeof document !== 'undefined') (() => {
   let playingKey = null;
   let playingTimer = null;
   let lastOverlayIdleAt = 0;
+  // Just-added motion: its button key gets the brief highlight (survives re-renders).
+  let highlightKey = null;
+  let highlightTimer = null;
+  // Uploaded motion ids waiting for the library update that contains them.
+  const pendingReveal = new Set();
 
   function setStatus(text, kind) {
     motionStatus.textContent = text;
@@ -132,6 +159,7 @@ if (typeof document !== 'undefined') (() => {
       const playing = button.dataset.key === playingKey;
       button.classList.toggle('is-playing', playing);
       button.setAttribute('aria-pressed', playing ? 'true' : 'false');
+      button.classList.toggle('is-new', button.dataset.key === highlightKey);
     }
   }
 
@@ -238,6 +266,108 @@ if (typeof document !== 'undefined') (() => {
     if (item) trigger(item);
   });
 
+  async function errorMessage(response) {
+    try {
+      const body = await response.json();
+      if (body && typeof body.error === 'string') return body.error;
+    } catch { /* keep the status text */ }
+    return `HTTP ${response.status}`;
+  }
+
+  // ---- Back to idle ----
+  idleBtn.addEventListener('click', async () => {
+    setStatus('');
+    try {
+      const response = await fetch('/api/idle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+      if (!response.ok) throw new Error(await errorMessage(response));
+      // The playing mark clears through the preview's 'idle' message.
+    } catch (error) {
+      setStatus(`대기 전환 실패: ${error.message}`);
+    }
+  });
+
+  // ---- Add motions ----
+  let uploadClearTimer = null;
+  function setUploadStatus(text, kind) {
+    clearTimeout(uploadClearTimer);
+    uploadClearTimer = null;
+    uploadStatus.textContent = text;
+    if (kind) uploadStatus.dataset.kind = kind;
+    else delete uploadStatus.dataset.kind;
+    if (kind === 'success') {
+      uploadClearTimer = setTimeout(() => setUploadStatus(''), UPLOAD_SUCCESS_CLEAR_MS);
+    }
+  }
+
+  // Render, scroll to and briefly highlight the button that plays `motionId`.
+  // Returns false when the current snapshot does not contain it yet.
+  function reveal(motionId) {
+    const index = motionItemIndex(items, motionId);
+    if (index < 0) return false;
+    const key = items[index].key;
+    clearTimeout(highlightTimer);
+    highlightKey = key;
+    highlightTimer = setTimeout(() => {
+      highlightKey = null;
+      applyPlayingState();
+    }, NEW_HIGHLIGHT_MS);
+    if (index >= shownCount) shownCount = index + 1;
+    render();
+    const button = [...motionList.children].find(el => el.dataset.key === key);
+    if (button) {
+      // Keep the button clear of the sticky header and footer.
+      button.style.scrollMarginTop = `${motionHeader.offsetHeight + 8}px`;
+      button.style.scrollMarginBottom = `${motionFooter.offsetHeight + 8}px`;
+      button.scrollIntoView({ block: 'nearest' });
+    }
+    return true;
+  }
+
+  addMotionBtn.addEventListener('click', () => addMotionInput.click());
+
+  addMotionInput.addEventListener('change', async () => {
+    const files = [...addMotionInput.files];
+    // Reset so picking the same file again fires 'change'.
+    addMotionInput.value = '';
+    if (files.length === 0) return;
+    addMotionBtn.disabled = true;
+    let lastError = null;
+    try {
+      for (const [index, file] of files.entries()) {
+        if (!isWebmFileName(file.name)) {
+          lastError = `WebM 파일만 추가할 수 있습니다: ${file.name}`;
+          setUploadStatus(lastError, 'error');
+          continue;
+        }
+        setUploadStatus(`추가하는 중 (${index + 1}/${files.length}): ${file.name}`);
+        try {
+          const response = await fetch('/api/upload?kind=motion&name=' + encodeURIComponent(file.name), {
+            method: 'POST',
+            // Always video/webm: some systems label .webm as audio/webm, which the server rejects.
+            headers: { 'Content-Type': 'video/webm' },
+            body: file,
+          });
+          if (!response.ok) throw new Error(await errorMessage(response));
+          const motion = await response.json();
+          setUploadStatus(`추가했습니다: ${motion.name}`, 'success');
+          // The library broadcast may arrive before or after this response.
+          if (!reveal(motion.id)) pendingReveal.add(motion.id);
+        } catch (error) {
+          lastError = `추가 실패: ${file.name} · ${error.message}`;
+          setUploadStatus(lastError, 'error');
+        }
+      }
+      // With several files, keep the last failure visible instead of a later success.
+      if (lastError && files.length > 1) setUploadStatus(lastError, 'error');
+    } finally {
+      addMotionBtn.disabled = false;
+    }
+  });
+
   window.addEventListener('message', (event) => {
     if (event.origin !== window.location.origin) return;
     if (event.data?.source !== 'virtually-overlay') return;
@@ -267,6 +397,9 @@ if (typeof document !== 'undefined') (() => {
     if (data?.type === 'library') {
       items = buildMotionItems(data.library);
       render();
+      for (const id of [...pendingReveal]) {
+        if (reveal(id)) pendingReveal.delete(id);
+      }
     }
   });
 })();

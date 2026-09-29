@@ -51,12 +51,25 @@
         </div>
       </details>
 
-      <article class="card" aria-labelledby="motionsTitle">
-        <h2 id="motionsTitle">동작</h2>
+      <article class="card motion-card" aria-labelledby="motionsTitle">
+        <header class="motion-header">
+          <div class="motion-header-row">
+            <h2 id="motionsTitle">동작</h2>
+            <button type="button" id="idleBtn" class="btn btn-ghost btn-sm">대기로 돌아가기</button>
+          </div>
+          <p id="motionStatus" class="status" aria-live="polite"></p>
+        </header>
         <p class="hint">영상이 없는 동작은 기본 아바타 데모로 재생됩니다.</p>
-        <p id="motionStatus" class="status" aria-live="polite"></p>
         <div id="motionList" class="motion-list" role="group" aria-labelledby="motionsTitle"></div>
         <div id="motionSentinel" class="motion-sentinel" aria-hidden="true"></div>
+        <div class="motion-footer">
+          <button type="button" id="addMotionBtn" class="motion-add-btn">
+            <span class="motion-label">+ 동작 추가하기</span>
+            <span class="motion-sub">투명 WebM (예: 윙크.webm → 윙크 버튼)</span>
+          </button>
+          <input type="file" id="addMotionInput" accept=".webm,video/webm" multiple hidden>
+          <p id="uploadStatus" class="status upload-status" aria-live="polite"></p>
+        </div>
       </article>
     </section>
 
