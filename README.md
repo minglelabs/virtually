@@ -97,6 +97,8 @@ Download them with the page's **예시 영상 받기** button, or without the se
 pnpm run fetch-examples
 ```
 
+Deleting an example on the page (×) hides it for this install: its downloaded files are removed, its id is kept in `data/animate/drivings/hidden-examples.json`, and neither the button nor `fetch-examples` downloads it again. **숨긴 예시 N개 되돌리기** under the strip clears that list; press **예시 영상 받기** afterwards to download them again.
+
 Only the manifest's `https:` URLs are fetched (redirects must stay on `https:`), each file is limited to 100 MB and 60 seconds.
 
 ### API keys
@@ -131,10 +133,11 @@ All errors are JSON `{ "error", "code"?, "detail"? }`. JSON bodies need `Content
 | `DELETE /api/animate/characters/<id>` | Delete one; deleting the selected one selects the next most recently selected |
 | `GET /api/animate/characters/<id>/image` | One character image |
 | `POST`, `DELETE /api/animate/character`, `GET /api/animate/character/image` | Legacy aliases: upload, delete the selected one, the image in use (selected or idle) |
-| `GET /api/animate/drivings` | Examples (manifest order), then uploads (newest first) |
-| `POST /api/animate/examples/fetch` | Download missing example videos (`{}`) |
+| `GET /api/animate/drivings` | Visible examples (manifest order), then uploads (newest first); `hiddenExamples` is the number of hidden examples |
+| `POST /api/animate/examples/fetch` | Download missing example videos, skipping hidden ones (`{}`) |
+| `POST /api/animate/examples/restore` | Un-hide all deleted examples (`{}`); returns `{ drivings, hidden: [] }`. They stay unavailable until fetched again |
 | `POST /api/animate/drivings?name=<file>` | Upload a driving video (raw body) |
-| `DELETE /api/animate/drivings/<id>` | Delete an upload (examples are read-only) |
+| `DELETE /api/animate/drivings/<id>` | Delete an upload, or hide an example for this install (its downloaded files are removed) |
 | `GET /api/animate/drivings/<id>/video`, `/poster` | Driving video (byte ranges) and poster |
 | `GET /api/animate/jobs`, `POST /api/animate/jobs` | List jobs; start one: `{ "drivingId", "routeId", "options"?, "confirmed": true }` |
 | `GET /api/animate/jobs/<id>`, `POST .../cancel` | One job; cancel it |
