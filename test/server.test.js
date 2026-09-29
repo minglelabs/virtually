@@ -128,6 +128,50 @@ test('SSE delivers a live play event to the overlay', async () => {
   }
 });
 
+test('SSE delivers an idle event after POST /api/idle', async () => {
+  const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'virtually-idle-'));
+  const { server, base } = await start(dataDir);
+  const stream = await fetch(`${base}/api/events`);
+  const reader = stream.body.getReader();
+  try {
+    assert.equal(stream.status, 200);
+    const initial = new TextDecoder().decode((await reader.read()).value);
+    assert.match(initial, /"type":"library"/);
+
+    const wrongType = await fetch(`${base}/api/idle`, {
+      method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: '{}',
+    });
+    assert.equal(wrongType.status, 415);
+
+    const crossOrigin = await fetch(`${base}/api/idle`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Origin: 'https://example.com' }, body: '{}',
+    });
+    assert.equal(crossOrigin.status, 403);
+
+    const idle = await fetch(`${base}/api/idle`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    });
+    assert.equal(idle.status, 200);
+    const result = await idle.json();
+    assert.equal(result.ok, true);
+    assert.equal(result.seq, 1);
+
+    const next = new TextDecoder().decode((await reader.read()).value);
+    const event = JSON.parse(next.replace(/^data: /, '').trim());
+    assert.deepEqual(event, { type: 'idle', seq: 1 });
+
+    // Shares the play sequence counter.
+    const play = await fetch(`${base}/api/trigger`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: 'demo' }),
+    });
+    assert.equal((await play.json()).seq, 2);
+  } finally {
+    await reader.cancel().catch(() => {});
+    await stop(server);
+    await fs.rm(dataDir, { recursive: true, force: true });
+  }
+});
+
 test('rotates to the next free port when the starting port is occupied', async (t) => {
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'virtually-ports-'));
   const blocker = http.createServer((request, response) => response.end('occupied'));

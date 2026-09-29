@@ -2,7 +2,7 @@
 
 A local proof of concept for putting a pre-rendered character over a live camera feed in OBS. The camera remains an ordinary OBS source. Virtually supplies a **separate transparent Browser Source** for the character and a controller with motion buttons, an OBS setup guide, and a large live preview. A button plays one motion once, then the overlay returns to the idle character.
 
-This is a small first step toward the broader [Virtually presentation](https://translator.minglelabs.xyz/xr-virtually). It does not generate animations from an image during a stream. Prepare the character and clips in a separate tool, then add them through the HTTP API (see [Add clips](#add-clips)).
+This is a small first step toward the broader [Virtually presentation](https://translator.minglelabs.xyz/xr-virtually). It does not generate animations from an image during a stream. Prepare the character and clips in a separate tool, then add them with the controller's **+ 동작 추가하기** button or the HTTP API (see [Add clips](#add-clips)).
 
 ## Run
 
@@ -17,7 +17,7 @@ By default, the server attempts to bind to port 8787 (or the port set by `PORT`)
 - Controller: `http://127.0.0.1:8787/` (or rotated port)
 - OBS overlay: `http://127.0.0.1:8787/overlay` (or rotated port)
 
-Open the printed controller URL in your browser. It works before you add any files: every button falls back to an original illustrated demo avatar. The controller has no upload UI; clips and the library index live in `data/`, which Git ignores. The server binds to `127.0.0.1` by default; it has no authentication and is intended for local use.
+Open the printed controller URL in your browser. It works before you add any files: every button falls back to an original illustrated demo avatar. Clips and the library index live in `data/`, which Git ignores. The server binds to `127.0.0.1` by default; it has no authentication and is intended for local use.
 
 ## Motion buttons
 
@@ -43,6 +43,10 @@ The **동작** (Motions) card sits at the bottom of the controller, below the **
 **Linking rule:** a preset is linked to the first library motion whose name, trimmed and compared case-insensitively, equals the preset key or its label. A linked preset plays that clip ("영상"). An unlinked preset plays the demo avatar reaction ("영상 없음 · 데모 재생"). The list updates live when the library changes; no reload is needed.
 
 A new trigger replaces a motion that is already playing. The OBS source and the controller's preview receive the same event.
+
+The card header, which stays visible at the top while the list scrolls, has a **대기로 돌아가기** (Back to idle) button. It stops the current motion and returns the overlay to the idle character (`POST /api/idle`).
+
+The **+ 동작 추가하기** (Add motion) button stays visible at the bottom of the list while it scrolls and rests under the last row at the end. It opens a file picker for transparent WebM clips (several at once is fine) and uploads them through `POST /api/upload`. The file name decides the link: `wink.webm` or `윙크.webm` becomes the video of the **윙크** button, and any other name becomes a new button with that name. After an upload, the list scrolls to the new or linked button and highlights it briefly.
 
 ## Set up OBS
 
@@ -72,7 +76,7 @@ Do not add a camera feed to the overlay page. Audio stays with your regular micr
 
 ## Add clips
 
-Clips are added with `POST /api/upload`, sending the raw file as the request body. The display name is the file name without its extension, so `wink.webm` becomes a motion named `wink`, which links to the **윙크** button.
+The **+ 동작 추가하기** button adds motion clips from the controller. Without it (or for the idle asset), use `POST /api/upload`, sending the raw file as the request body. The display name is the file name without its extension, so `wink.webm` becomes a motion named `wink`, which links to the **윙크** button.
 
 ```bash
 # Motion clip (transparent WebM)
@@ -89,6 +93,9 @@ curl 'http://127.0.0.1:8787/api/library'
 # Trigger a motion by id (or "demo") without the controller
 curl -H 'Content-Type: application/json' -d '{"id":"demo"}' \
   'http://127.0.0.1:8787/api/trigger'
+
+# Stop the current motion and return to idle
+curl -H 'Content-Type: application/json' -d '{}' 'http://127.0.0.1:8787/api/idle'
 
 # Remove a motion or the idle asset
 curl -X DELETE 'http://127.0.0.1:8787/api/media/<id>'
