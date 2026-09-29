@@ -5,6 +5,7 @@
   --text: #e6e8ee;
   --muted: #9aa3b2;
   --accent: #6c8cff;
+  --danger: #ff8a8a;
   color-scheme: dark;
 }
 
@@ -24,11 +25,18 @@ body {
 }
 
 .pane { min-width: 0; padding: 20px; }
-.pane-control { border-right: 1px solid var(--border); overflow-y: auto; }
+.pane-control {
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
 .pane-preview { display: flex; flex-direction: column; gap: 12px; }
 
-h1 { margin: 0 0 16px; font-size: 20px; }
+h1 { margin: 0; font-size: 20px; }
 h2 { margin: 0 0 8px; font-size: 15px; }
+h3 { margin: 16px 0 6px; font-size: 13px; color: var(--text); }
 
 .card {
   background: var(--panel);
@@ -38,6 +46,53 @@ h2 { margin: 0 0 8px; font-size: 15px; }
 }
 .card p { margin: 0 0 12px; color: var(--muted); }
 
+/* ---- Motion buttons ---- */
+.motion-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  max-height: 45vh;
+  overflow-y: auto;
+  padding: 2px 4px 2px 2px; /* room for the focus ring */
+  overscroll-behavior: contain;
+}
+
+.motion-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+  min-height: 52px;
+  padding: 8px 10px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.motion-btn:hover { border-color: var(--accent); }
+.motion-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.motion-btn.is-playing {
+  border-color: var(--accent);
+  background: rgba(108, 140, 255, 0.18);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.motion-label {
+  max-width: 100%;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.motion-sub { font-size: 12px; color: var(--muted); }
+.motion-btn.is-linked .motion-sub { color: var(--accent); }
+
+.card .hint { margin: 10px 0 0; font-size: 12px; }
+.card .status { margin: 4px 0 0; font-size: 12px; color: var(--danger); min-height: 1.5em; }
+
+/* ---- OBS guide ---- */
 .url-box { display: flex; gap: 8px; }
 .url-box input {
   flex: 1;
@@ -51,6 +106,25 @@ h2 { margin: 0 0 8px; font-size: 15px; }
   font-size: 12px;
 }
 
+.steps { margin: 0; padding-left: 20px; color: var(--muted); }
+.steps li + li { margin-top: 4px; }
+
+.settings { margin: 0 0 12px; }
+.setting {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+.setting:last-child { border-bottom: 0; }
+.setting dt { font-size: 13px; color: var(--muted); }
+.setting dd { margin: 0; display: flex; flex-direction: column; }
+.setting strong { font-weight: 600; color: var(--text); }
+.setting .reason { font-size: 12px; color: var(--muted); }
+.setting-url {
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
 .btn {
   padding: 8px 12px;
   border: 0;
@@ -59,15 +133,17 @@ h2 { margin: 0 0 8px; font-size: 15px; }
   color: #fff;
   font: inherit;
   cursor: pointer;
+  white-space: nowrap;
 }
 .btn-ghost { background: transparent; color: var(--text); border: 1px solid var(--border); }
 .btn:focus-visible, .link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-.tips { margin: 12px 0; padding-left: 18px; color: var(--muted); }
 .link { color: var(--accent); }
 
-.preview-header { display: flex; align-items: center; justify-content: space-between; }
+/* ---- Preview ---- */
+.preview-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .preview-header h2 { margin: 0; }
+.preview-header .caption { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
 
 /* Checkerboard shows transparency; keep a 16:9 box that fills the pane. */
 .stage {
@@ -78,6 +154,12 @@ h2 { margin: 0 0 8px; font-size: 15px; }
   justify-content: center;
 }
 .stage iframe {
+  /*
+   * The page uses a dark color scheme while the overlay document has none (light).
+   * When an iframe's used color scheme differs from its document's, Chrome paints an
+   * opaque canvas backdrop that hides the checkerboard; matching them keeps it transparent.
+   */
+  color-scheme: normal;
   width: 100%;
   max-height: 100%;
   aspect-ratio: 16 / 9;
@@ -101,5 +183,5 @@ h2 { margin: 0 0 8px; font-size: 15px; }
 
 @media (max-width: 800px) {
   .layout { grid-template-columns: 1fr; height: auto; }
-  .pane-control { border-right: 0; border-bottom: 1px solid var(--border); }
+  .pane-control { border-right: 0; border-bottom: 1px solid var(--border); overflow-y: visible; }
 }

@@ -4,35 +4,99 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Virtually 컨트롤러</title>
+  <link rel="icon" href="data:,">
   <link rel="stylesheet" href="./app.css">
 </head>
 <body>
   <main class="layout">
-    <!-- 왼쪽: 컨트롤 영역 -->
+    <!-- Left: controls -->
     <section class="pane pane-control" aria-labelledby="controlTitle">
       <h1 id="controlTitle">Virtually</h1>
 
-      <article class="card">
-        <h2>OBS 브라우저 소스 연동</h2>
-        <p>OBS에서 <strong>소스 추가 → 브라우저</strong>를 고르고 아래 URL을 넣으세요.</p>
+      <article class="card" aria-labelledby="motionsTitle">
+        <h2 id="motionsTitle">동작</h2>
+        <div id="motionList" class="motion-list" role="group" aria-labelledby="motionsTitle"></div>
+        <p class="hint">영상이 없는 동작은 기본 아바타 데모로 재생됩니다.</p>
+        <p id="motionStatus" class="status" aria-live="polite"></p>
+      </article>
+
+      <article class="card" aria-labelledby="obsTitle">
+        <h2 id="obsTitle">OBS 브라우저 소스 연동</h2>
         <div class="url-box">
           <label for="overlayUrlInput" class="visually-hidden">OBS 오버레이 URL</label>
           <input type="text" id="overlayUrlInput" readonly>
           <button type="button" id="copyUrlBtn" class="btn">URL 복사</button>
         </div>
-        <ul class="tips">
-          <li>너비 × 높이: 1920 × 1080</li>
-          <li>'표시되지 않을 때 소스 종료'는 끄기</li>
-          <li>배경은 투명합니다. 카메라 소스 위에 배치하세요.</li>
-        </ul>
+
+        <h3>연결 순서</h3>
+        <ol class="steps">
+          <li>OBS 아래쪽 '소스 목록'에서 + 버튼(소스 추가)을 누릅니다.</li>
+          <li>'소스 유형'에서 '브라우저'를 고릅니다.</li>
+          <li>'새 소스 생성'에 이름(예: Virtually)을 적고, '소스를 표시'가 켜진 채로 '새로 만들기'를 누릅니다.</li>
+          <li>속성 창이 열리면 아래 설정대로 바꾸고 '확인'을 누릅니다.</li>
+          <li>'소스 목록'에서 이 소스를 카메라 소스보다 위에 둡니다. 목록 위쪽에 있을수록 화면 앞에 보입니다.</li>
+          <li>OBS 캔버스가 1920 × 1080이 아니면 소스를 우클릭하고 '변환' → '화면에 맞추기'를 누릅니다.</li>
+        </ol>
+
+        <h3>속성 창 권장 설정</h3>
+        <dl class="settings">
+          <div class="setting">
+            <dt>로컬 파일</dt>
+            <dd><strong>끄기</strong></dd>
+          </div>
+          <div class="setting">
+            <dt>URL</dt>
+            <dd><strong><code id="settingUrl" class="setting-url"></code></strong></dd>
+          </div>
+          <div class="setting">
+            <dt>너비</dt>
+            <dd><strong>1920</strong><span class="reason">기본값 800에서 바꾸기</span></dd>
+          </div>
+          <div class="setting">
+            <dt>높이</dt>
+            <dd><strong>1080</strong><span class="reason">기본값 600에서 바꾸기</span></dd>
+          </div>
+          <div class="setting">
+            <dt>OBS를 통해 오디오 조절</dt>
+            <dd><strong>끄기</strong><span class="reason">모션 영상에는 소리가 없습니다.</span></dd>
+          </div>
+          <div class="setting">
+            <dt>사용자가 임의로 설정한 프레임 레이트 사용</dt>
+            <dd><strong>끄기</strong><span class="reason">OBS 출력 프레임 레이트를 그대로 따릅니다.</span></dd>
+          </div>
+          <div class="setting">
+            <dt>사용자 지정 CSS</dt>
+            <dd><strong>기본값 그대로</strong><span class="reason">배경을 투명하게 만드는 줄이니 지우지 마세요.</span></dd>
+          </div>
+          <div class="setting">
+            <dt>소스가 보이지 않는 경우 종료</dt>
+            <dd><strong>끄기</strong><span class="reason">켜면 소스가 숨겨질 때마다 오버레이가 꺼지고, 다시 보일 때 새로 불러와집니다.</span></dd>
+          </div>
+          <div class="setting">
+            <dt>장면이 활성화되면 브라우저를 새로고침</dt>
+            <dd><strong>끄기</strong><span class="reason">오버레이는 새로고침 없이 실시간으로 바뀝니다.</span></dd>
+          </div>
+          <div class="setting">
+            <dt>페이지 권한</dt>
+            <dd><strong>OBS에 접근 권한 없음</strong><span class="reason">오버레이는 OBS 기능을 쓰지 않습니다. 기본값으로 둬도 동작합니다.</span></dd>
+          </div>
+          <div class="setting">
+            <dt>현재 페이지의 캐시를 새로고침 (버튼)</dt>
+            <dd><strong>평소에는 누르지 않습니다</strong><span class="reason">virtually를 업데이트했는데 OBS 화면이 예전 그대로면 누르세요.</span></dd>
+          </div>
+        </dl>
+
         <a href="./overlay" target="_blank" rel="noopener noreferrer" class="link">오버레이 새 창으로 열기</a>
       </article>
     </section>
 
-    <!-- 오른쪽: 오버레이 실시간 미리보기 -->
+    <!-- Right: live overlay preview -->
     <section class="pane pane-preview" aria-labelledby="previewTitle">
       <header class="preview-header">
-        <h2 id="previewTitle">오버레이 실시간 미리보기</h2>
+        <div>
+          <h2 id="previewTitle">오버레이 실시간 미리보기</h2>
+          <p class="caption">체크무늬 부분은 투명하게 송출됩니다.</p>
+        </div>
         <button type="button" id="refreshOverlayBtn" class="btn btn-ghost">새로고침</button>
       </header>
       <div class="stage">
