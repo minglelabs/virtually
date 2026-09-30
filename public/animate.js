@@ -218,12 +218,12 @@ const AnimateHelpers = (() => {
 
   /**
    * One short note when the job's chroma-key background is not green (the
-   * character itself has green in it), else ''. Jobs without keyColor are green.
+   * character's colours would be keyed or despilled with green), else ''. Jobs without keyColor are green.
    */
   function keyColorNote(job) {
     const name = job?.keyColor?.name;
-    if (name === 'blue') return '캐릭터에 초록색이 있어 파란 배경으로 만들었습니다';
-    if (name === 'magenta') return '캐릭터에 초록·파란색이 있어 분홍 배경으로 만들었습니다';
+    if (name === 'blue') return '캐릭터 색과 겹치지 않게 파란 배경으로 만들었습니다';
+    if (name === 'magenta') return '캐릭터 색과 겹치지 않게 분홍 배경으로 만들었습니다';
     return '';
   }
 

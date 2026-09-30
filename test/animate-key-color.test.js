@@ -71,23 +71,57 @@ function alphaFrame(filePath) {
 
 // --- the pure decision ----------------------------------------------------------
 
-test('rgbToHsv and decideFromRgba thresholds', () => {
-  assert.deepEqual(keyColors.rgbToHsv(0, 255, 0), { h: 120, s: 1, v: 1 });
-  assert.equal(Math.round(keyColors.rgbToHsv(255, 0, 255).h), 300);
-  const px = (rgb, a = 255, n = 1) => Array.from({ length: n }, () => [...rgb, a]).flat();
+const px = (rgb, a = 255, n = 1) => Array.from({ length: n }, () => [...rgb, a]).flat();
+const decide = (...groups) => keyColors.decideFromRgba(Buffer.from(groups.flat()));
+
+test('decideFromRgba thresholds', () => {
+  assert.equal(keyColors.MIN_SAFE_DISTANCE, 200); // ceil((0.30 + 0.12) * sqrt(3) * 255) + 14
   // 1000 red pixels + 4 green (0.4 %) -> still green; 5 green (0.5 %) -> blue.
-  assert.equal(keyColors.decideFromRgba(Buffer.from([...px([255, 0, 0], 255, 996), ...px([0, 255, 0], 255, 4)])).name, 'green');
-  assert.equal(keyColors.decideFromRgba(Buffer.from([...px([255, 0, 0], 255, 995), ...px([0, 255, 0], 255, 5)])).name, 'blue');
-  // Transparent green does not count; dark (V < 0.25) or grey (S < 0.35) green does not either.
-  assert.equal(keyColors.decideFromRgba(Buffer.from([...px([255, 0, 0], 255, 10), ...px([0, 255, 0], 127, 10)])).name, 'green');
-  assert.equal(keyColors.decideFromRgba(Buffer.from([...px([255, 0, 0], 255, 10), ...px([0, 60, 0], 255, 10)])).name, 'green');
-  assert.equal(keyColors.decideFromRgba(Buffer.from([...px([255, 0, 0], 255, 10), ...px([150, 200, 150], 255, 10)])).name, 'green');
-  // Every candidate conflicts -> the smallest share wins.
-  const all = keyColors.decideFromRgba(Buffer.from([...px([0, 255, 0], 255, 5), ...px([0, 0, 255], 255, 3), ...px([255, 0, 255], 255, 4)]));
-  assert.equal(all.name, 'blue');
-  assert.deepEqual(all.shares, { green: 5 / 12, blue: 3 / 12, magenta: 4 / 12 });
+  assert.equal(decide(px([255, 0, 0], 255, 996), px([0, 255, 0], 255, 4)).name, 'green');
+  assert.equal(decide(px([255, 0, 0], 255, 995), px([0, 255, 0], 255, 5)).name, 'blue');
+  // Transparent green does not count.
+  assert.equal(decide(px([255, 0, 0], 255, 10), px([0, 255, 0], 127, 10)).name, 'green');
+  // Distance: [120,160,120] is 194.6 from green (despill 40, not > 40) -> conflict;
+  // [130,160,130] is 207 away (despill 30) -> no conflict.
+  assert.equal(keyColors.conflicts(keyColors.KEY_COLORS.green, 120, 160, 120), true);
+  assert.equal(keyColors.conflicts(keyColors.KEY_COLORS.green, 130, 160, 130), false);
+  // Despill: [0,40,0] (214 away, change 40) is fine, [0,41,0] (change 41) conflicts.
+  assert.equal(keyColors.conflicts(keyColors.KEY_COLORS.green, 0, 40, 0), false);
+  assert.equal(keyColors.conflicts(keyColors.KEY_COLORS.green, 0, 41, 0), true);
+  assert.equal(keyColors.despillChange('blue', 100, 150, 200), 75);
+  assert.equal(keyColors.despillChange('blue', 250, 215, 50), 0);
+  assert.equal(keyColors.despillChange(null, 0, 0, 255), 0);
+  // Every candidate conflicts -> the smallest share wins (pure magenta also
+  // fails blue despill: 255 - 127.5).
+  const all = decide(px([0, 255, 0], 255, 5), px([0, 0, 255], 255, 3), px([255, 0, 255], 255, 4));
+  assert.equal(all.name, 'magenta');
+  assert.deepEqual(all.shares, { green: 5 / 12, blue: 7 / 12, magenta: 4 / 12 });
+  // Ties go to the earlier candidate: 1/2 each.
+  const tie = decide(px([0, 255, 0], 255, 4), px([255, 0, 255], 255, 4));
+  assert.deepEqual([tie.name, tie.shares], ['green', { green: 0.5, blue: 0.5, magenta: 0.5 }]);
   // No opaque pixel at all: judge every pixel.
-  assert.equal(keyColors.decideFromRgba(Buffer.from(px([0, 255, 0], 0, 10))).name, 'blue');
+  assert.equal(decide(px([0, 255, 0], 0, 10)).name, 'blue');
+});
+
+test('decideFromRgba on character palettes', () => {
+  const SHIRT = [40, 160, 60];
+  const SKIN = [230, 190, 160];
+  // Bunny: cyan fails green despill (3 %), but blue and magenta conflict with the body.
+  const bunny = decide(px([120, 130, 240], 255, 60), px([240, 120, 150], 255, 20), px([240, 240, 250], 255, 17), px([30, 200, 230], 255, 3));
+  assert.equal(bunny.name, 'green', JSON.stringify(bunny));
+  assert.equal(bunny.shares.green, 0.03);
+  assert.ok(bunny.shares.blue >= 0.6 && bunny.shares.magenta >= 0.6, JSON.stringify(bunny.shares));
+  assert.equal(decide(px(SHIRT, 255, 40), px(SKIN, 255, 40), px([40, 30, 30], 255, 20)).name, 'blue');
+  // Bright yellow is 258 from green but green despill would take 65 off G.
+  const yellow = decide(px([250, 215, 50], 255, 70), px(SKIN, 255, 30));
+  assert.deepEqual([yellow.name, yellow.hex], ['blue', '#0000FF'], JSON.stringify(yellow));
+  assert.equal(yellow.shares.green, 0.7);
+  assert.equal(decide(px(SHIRT, 255, 40), px([60, 90, 150], 255, 30), px(SKIN, 255, 30)).name, 'magenta');
+  // Lavender is 183 from blue and 149 from magenta: both conflict with 60 %.
+  const lavender = decide(px([150, 90, 200], 255, 60), px(SHIRT, 255, 20), px(SKIN, 255, 20));
+  assert.equal(lavender.name, 'green', JSON.stringify(lavender));
+  assert.deepEqual(lavender.shares, { green: 0.2, blue: 0.6, magenta: 0.6 });
+  assert.equal(decide(px(SKIN, 255, 50), px([255, 0, 0], 255, 50)).name, 'green');
 });
 
 test('resolveKeyColor: missing / unknown -> green', () => {
@@ -205,8 +239,8 @@ test('page note: only for a non-green key colour', () => {
   const H = require('../public/animate.js');
   assert.equal(H.keyColorNote({ keyColor: { name: 'green', hex: '#00FF00' } }), '');
   assert.equal(H.keyColorNote({}), '');
-  assert.equal(H.keyColorNote({ keyColor: { name: 'blue', hex: '#0000FF' } }), '캐릭터에 초록색이 있어 파란 배경으로 만들었습니다');
-  assert.match(H.keyColorNote({ keyColor: { name: 'magenta', hex: '#FF00FF' } }), /분홍 배경/);
+  assert.equal(H.keyColorNote({ keyColor: { name: 'blue', hex: '#0000FF' } }), '캐릭터 색과 겹치지 않게 파란 배경으로 만들었습니다');
+  assert.equal(H.keyColorNote({ keyColor: { name: 'magenta', hex: '#FF00FF' } }), '캐릭터 색과 겹치지 않게 분홍 배경으로 만들었습니다');
 });
 
 // --- E2E with the mock route --------------------------------------------------------

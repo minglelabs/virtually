@@ -83,7 +83,7 @@ test('keyFilter uses the detected colour, not a hardcoded one', () => {
     'format=rgba,colorkey=0x10E020:0.3:0.12,despill=type=green:mix=0.5:expand=0,format=yuva420p');
   assert.equal(key.keyFilter('#10E020', 'green'), key.keyFilter('#10E020'));
   assert.equal(key.keyFilter('#0A1EF0', 'blue'),
-    'format=rgba,colorkey=0x0A1EF0:0.3:0.12,despill=type=blue:mix=0.5:expand=0,format=yuva420p');
+    'format=rgba,colorkey=0x0A1EF0:0.3:0.12,despill=type=blue:mix=0.5:expand=0:green=0:blue=-1,format=yuva420p');
   assert.equal(key.keyFilter('#F00AE6', null), 'format=rgba,colorkey=0xF00AE6:0.3:0.12,format=yuva420p');
 });
 

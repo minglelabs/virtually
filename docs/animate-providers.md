@@ -272,10 +272,14 @@ during keying re-runs only the keying.
 The key colour is chosen automatically per job (`lib/animate/key-color.js`), when the job is
 created, from the source character image: green `#00FF00`, else blue `#0000FF`, else magenta
 `#FF00FF`. The image is decoded to RGBA at most 128 px; pixels with alpha >= 128 count (all
-pixels when none do). A pixel conflicts with a candidate when its HSV saturation is >= 0.35, its
-value >= 0.25 and its hue lies in the candidate's band (green 75-165°, blue 195-265°, magenta
-275-335°). The first candidate whose conflict share is below 0.5 % wins; otherwise the one with
-the smallest share. It is stored as `job.keyColor = { name, hex }` (jobs without it are green)
+pixels when none do). A pixel conflicts with a candidate when (a) its RGB distance to the pure
+candidate is < 200 — colorkey 0.30 / 0.12 is fully opaque only from
+`(0.30 + 0.12) * sqrt(3) * 255` = 185.5 (measured: alpha 0 up to ~132, 42 at 141, 178 at 170,
+253 at 185), plus a margin for a rendered key colour that is not exactly pure — or (b) the
+candidate's despill would change it by more than 40 (green lowers G by `g - (r + b) / 2`, blue
+lowers B by `b - (r + g) / 2`; magenta has no despill), which catches e.g. bright yellow, far from
+green but turned orange by green despill. The first candidate whose conflict share is below 0.5 %
+wins; otherwise the smallest share. It is stored as `job.keyColor = { name, hex }` (jobs without it are green)
 and used for the character canvas, the mock canvas, Animate 2's background prompt, the default
 `promptSuffix` wording (only while the config still holds the default) and keying. With green,
 every request body and keyed output is the same as before the colour was chosen. The page notes
@@ -296,7 +300,9 @@ Keying (measured on a real Animate 2 result, 800x1136, 2.97 s: clean edges, 1.1 
 -c:v libvpx-vp9 -pix_fmt yuva420p -auto-alt-ref 0 -b:v 0 -crf 30 -row-mt 1 -an
 ```
 
-`despill=type=blue` for a blue key colour; no despill for magenta (ffmpeg's despill only has green
+`despill=type=blue:mix=0.5:expand=0:green=0:blue=-1` for a blue key colour (despill's `green` /
+`blue` options default to -1 / 0 for either type, so `type=blue` alone would subtract the spill
+from the green channel: `[100,150,200]` -> `[100,75,200]` instead of `[100,150,125]`); no despill for magenta (ffmpeg's despill only has green
 and blue). Only the green filter was measured on a real result; blue and magenta were checked on
 the mock route only.
 
