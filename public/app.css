@@ -282,13 +282,13 @@ h3 { margin: 16px 0 6px; font-size: 13px; color: var(--text); }
 }
 /*
  * True-scale OBS canvas: the overlay is laid out at the real browser-source size
- * (--canvas-w x --canvas-h, reported by OBS; 1920 x 1080 until then) and scaled down,
+ * (--canvas-w x --canvas-h, reported by OBS; 800 x 600, the OBS default, until then) and scaled down,
  * so the preview matches what OBS shows. app.js sets the size and --canvas-scale;
  * the border sits outside the scaled box.
  */
 .canvas {
-  --canvas-w: 1920px;
-  --canvas-h: 1080px;
+  --canvas-w: 800px;
+  --canvas-h: 600px;
   --canvas-scale: 0.4;
   flex: none;
   box-sizing: content-box;
