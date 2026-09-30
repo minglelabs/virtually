@@ -12,7 +12,6 @@ const { promptFor, motionPromptFor } = require('../lib/animate/pipeline');
 const presets = require('../lib/animate/presets');
 
 const A2_ID = 'wavespeed/wan-2.2-animate-2';
-const V1_ID = 'wavespeed/wan-2.2-animate';
 const BACKGROUND = 'Background description: plain solid pure green (#00FF00) chroma-key background, '
   + 'flat even lighting, no shadows, no objects, no text.';
 const CAMERA = ' Static camera, no zoom, no camera movement.';
@@ -74,7 +73,6 @@ test('Animate 2 is the first route/family and the default with only a WaveSpeed 
   assert.equal(ROUTES[0].id, A2_ID);
   assert.equal(Object.keys(FAMILIES)[0], 'wan-animate-2');
   assert.equal(FAMILIES['wan-animate-2'], 'Wan 2.2 Animate 2');
-  assert.equal(FAMILIES['wan-animate'], 'Wan 2.2 Animate (v1)');
 
   const registry = await new Registry(waveSpeedOnlyStore()).load();
   assert.equal(registry.list()[0].id, A2_ID);
@@ -82,26 +80,24 @@ test('Animate 2 is the first route/family and the default with only a WaveSpeed 
   const view = registry.routeViews()[0];
   assert.equal(view.familyLabel, 'Wan 2.2 Animate 2');
   assert.equal(view.keepsImageBackground, false);
-  assert.equal(registry.routeViews().find(v => v.id === V1_ID).familyLabel, 'Wan 2.2 Animate (v1)');
 });
 
-test('v1 WaveSpeed Animate body is unchanged (mode + composed prompt, no motion_prompt)', () => {
-  const body = bodyFor(route(V1_ID), 'hi', undefined);
-  assert.deepEqual(body, {
-    image: 'https://cdn.example/char.png',
-    video: 'https://cdn.example/ref.mp4',
-    prompt: `The character waves hello with one hand and smiles warmly. ${presets.DEFAULT_PROMPT_SUFFIX}`,
-    resolution: '720p',
-    mode: 'animate',
-  });
-  // Byte-identical key order to the pre-Animate-2 builder.
-  assert.equal(JSON.stringify(body), JSON.stringify({
-    image: 'https://cdn.example/char.png',
-    video: 'https://cdn.example/ref.mp4',
-    prompt: `The character waves hello with one hand and smiles warmly. ${presets.DEFAULT_PROMPT_SUFFIX}`,
-    resolution: '720p',
-    mode: 'animate',
-  }));
+test('Wan 2.2 Animate v1 is gone: no wan-animate family, route or DashScope provider', async () => {
+  const { FAMILY_FALLBACK } = require('../lib/animate/registry');
+  assert.equal('wan-animate' in FAMILIES, false);
+  assert.equal('wan-animate' in FAMILY_FALLBACK, false);
+  assert.deepEqual(ROUTES.filter(r => r.family === 'wan-animate').map(r => r.id), []);
+  for (const id of ['wavespeed/wan-2.2-animate', 'fal/wan-2.2-animate-move',
+    'replicate/wan-2.2-animate-animation', 'dashscope/wan2.2-animate-move']) {
+    assert.equal(route(id), undefined, id);
+  }
+  const providers = require('../lib/animate/providers');
+  assert.equal('dashscope' in providers, false);
+  assert.equal(ROUTES.some(r => r.provider === 'dashscope'), false);
+  // Every remaining route's provider still has an adapter.
+  for (const r of ROUTES) assert.ok(providers[r.provider], `${r.id} has an adapter`);
+  const registry = await new Registry(waveSpeedOnlyStore()).load();
+  assert.equal(registry.routeViews().some(v => v.family === 'wan-animate'), false);
 });
 
 test('no route other than Animate 2 gets a motion prompt or a fixed background prompt', () => {
@@ -120,8 +116,8 @@ test('Animate 2 estimates round up to whole seconds with a 3 s floor', async () 
   assert.equal(registry.estimateUsd(r, 3.0, { resolution: '720p' }), 0.24);
   assert.equal(registry.estimateUsd(r, 3.4, { resolution: '720p' }), 0.32);
   assert.equal(registry.estimateUsd(r, 2.5, { resolution: '480p' }), 0.12);
-  // v1 keeps fractional billing.
-  assert.equal(registry.estimateUsd(route(V1_ID), 3.4, { resolution: '720p' }), 0.272);
+  // Routes without roundUpSeconds keep fractional billing.
+  assert.equal(registry.estimateUsd({ pricing: { usdPerSecond: 0.08, minSeconds: 3 } }, 3.4), 0.272);
 });
 
 test('the page estimate mirrors the Animate 2 round-up', () => {
@@ -131,5 +127,30 @@ test('the page estimate mirrors the Animate 2 round-up', () => {
   assert.equal(page.estimateUsd(r, 3.0, { resolution: '720p' }), 0.24);
   assert.equal(page.estimateUsd(r, 3.4, { resolution: '720p' }), 0.32);
   assert.equal(page.estimateUsd(r, 2.5, { resolution: '480p' }), 0.12);
-  assert.equal(page.estimateUsd(route(V1_ID), 3.4, { resolution: '720p' }), 0.272);
+  assert.equal(page.estimateUsd({ pricing: { usdPerSecond: 0.08, minSeconds: 3 } }, 3.4), 0.272);
+});
+
+test('a config saved before the v1 removal loads and falls back to the first available route', async () => {
+  const os = require('node:os');
+  const path = require('node:path');
+  const fs = require('node:fs/promises');
+  const { ConfigStore } = require('../lib/animate/config');
+  const providers = require('../lib/animate/providers');
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'virtually-config-'));
+  const file = path.join(dir, 'config.json');
+  try {
+    await fs.writeFile(file, JSON.stringify({
+      version: 1,
+      providers: { dashscope: { apiKey: 'old-dashscope-key-5678' }, wavespeed: { apiKey: 'ws-key-not-real-1234' } },
+      defaults: { routeId: 'wavespeed/wan-2.2-animate', options: {} },
+    }));
+    const store = await new ConfigStore(file, providers).load();
+    assert.equal(store.isConfigured('dashscope'), false);
+    assert.equal(store.providerViews().some(v => v.id === 'dashscope'), false);
+    const registry = await new Registry(store).load();
+    assert.equal(registry.get('wavespeed/wan-2.2-animate'), null);
+    assert.equal(registry.defaultRouteId(), A2_ID);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
 });

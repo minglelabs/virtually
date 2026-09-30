@@ -62,6 +62,15 @@ anywhere (global `fetch`/`FormData`/`Blob`, Node `crypto`/`fs`).
 
 Verification used the vendors' public docs and the research notes from 2026-09-27.
 
+**Removed 2026-09-30:** every Wan 2.2 Animate (v1) route — `wavespeed/wan-2.2-animate`,
+`fal/wan-2.2-animate-move`, `replicate/wan-2.2-animate-animation` and
+`dashscope/wan2.2-animate-move` — and the `wan-animate` family. DashScope (Alibaba Model Studio)
+had no other route, so its adapter, key panel entry and `DASHSCOPE_API_KEY`/`DASHSCOPE_REGION`
+variables were removed too. Wan 2.2 Animate 2 stays the default. A saved config that still names a
+removed route or stores a DashScope key loads normally (the entry is ignored and the first
+available route becomes the default), and old jobs on a removed route still list, view and serve
+their result; one still polling a removed route ends as failed.
+
 ---
 
 ## WaveSpeed (`wavespeed.js`)
@@ -79,7 +88,7 @@ endpoint → `cancel: null`.
 failed, cancelled→canceled.
 
 **Verified:** base/auth, upload API (endpoint, request/response, 200 MB / 7-day TTL), submit/poll
-shape, output URL location; Wan 2.2 Animate + Wan 2.2 Animate 2 + DreamActor V2 input schemas &
+shape, output URL location; Wan 2.2 Animate 2 + DreamActor V2 input schemas &
 pricing; Kling v3 std motion-control model path.
 
 **Wan 2.2 Animate 2** (`wavespeed-ai/wan-2.2/animate-2`, the default route): body `image`, `video`,
@@ -91,7 +100,6 @@ minimum. Billing: duration rounded up to whole seconds, clamped 3-120 s; 480p $0
 $0.08/s.
 Sources: <https://wavespeed.ai/docs/submit-task>, <https://wavespeed.ai/docs/upload-files-api>,
 <https://wavespeed.ai/docs/what-are-predictions>,
-<https://wavespeed.ai/docs/docs-api/wavespeed-ai/wan-2.2-animate>,
 <https://wavespeed.ai/docs/docs-api/wavespeed-ai/wan-2.2-animate-2>,
 <https://wavespeed.ai/docs/docs-api/bytedance/bytedance-dreamactor-v2>,
 <https://wavespeed.ai/kling-3-motion-control-api>.
@@ -130,10 +138,6 @@ Sources: <https://replicate.com/docs/reference/http>,
   reference page (it is wrapped by the SDK); the multipart field name `content` and the
   `urls.get` response field are taken from the SDK's documented behaviour, not a primary HTTP doc.
   The adapter also accepts `url` / `download_url` response shapes defensively.
-- **`wan-video/wan-2.2-animate-animation` input schema.** The per-field names (`image`, `video`,
-  `prompt`) could not be confirmed from a primary OpenAPI schema in this session → the route is
-  `verified: false`. Confirm via `GET /v1/models/wan-video/wan-2.2-animate-animation` →
-  `latest_version.openapi_schema.components.schemas.Input` before relying on it.
 
 ---
 
@@ -149,11 +153,10 @@ on success `GET {response_url}` → `video.url`. Cancel `PUT {cancel_url}`. Outp
 **Status map:** IN_QUEUE→queued, IN_PROGRESS→running, COMPLETED→succeeded (or failed when the
 completed payload carries `error`/`error_type`; `nsfw`/safety `error_type` → `moderated`).
 
-**Verified:** queue base/auth, submit/poll/result/cancel lifecycle, `fal.media` output; Wan
-Animate move, DreamActor V2, Kling v3 std/pro + v2.6 pro motion-control endpoint ids and their
+**Verified:** queue base/auth, submit/poll/result/cancel lifecycle, `fal.media` output;
+DreamActor V2, Kling v3 std/pro + v2.6 pro motion-control endpoint ids and their
 `image_url`/`video_url`/`character_orientation`/`keep_original_sound` fields.
 Sources: <https://docs.fal.ai/model-endpoints/queue>,
-<https://fal.ai/models/fal-ai/wan/v2.2-14b/animate/move/api>,
 <https://fal.ai/models/fal-ai/bytedance/dreamactor/v2/api>,
 <https://fal.ai/models/fal-ai/kling-video/v3/standard/motion-control/api>,
 <https://fal.ai/docs/platform-apis/v1/serverless/files/file/upload-local>.
@@ -191,42 +194,6 @@ Sources: <https://docs.higgsfield.ai/docs/authentication>,
 Pro+Std exist; the precise path segment was not confirmed → no v2.6 Higgsfield route is shipped);
 DreamActor is **absent** from Higgsfield's catalog (use fal); fixed pricing (Higgsfield exposes an
 `/estimate` endpoint instead); output codec/fps; watermark behaviour.
-
----
-
-## DashScope — Alibaba Wan direct (`dashscope.js`)
-
-**Protocol.** Region base: `intl` → `https://dashscope-intl.aliyuncs.com`, `cn` →
-`https://dashscope.aliyuncs.com` (keys and endpoints are **region-isolated**). Auth
-`Authorization: Bearer <apiKey>`. Three-step temp upload (works entirely from localhost):
-1. `GET /api/v1/uploads?action=getPolicy&model=<model>` → `data.{policy, signature, upload_dir,
-   upload_host, oss_access_key_id, x_oss_object_acl, x_oss_forbid_overwrite}`.
-2. `POST` multipart/form-data to `data.upload_host` with `OSSAccessKeyId`, `Signature`, `policy`,
-   `x-oss-object-acl`, `x-oss-forbid-overwrite`, `key` (= `upload_dir/<filename>`),
-   `success_action_status=200`, and **`file` as the LAST field** (one file per request). 200, no body.
-3. Input URL = `oss://<upload_dir>/<filename>`.
-
-Submit `POST /api/v1/services/aigc/image2video/video-synthesis` with header
-`X-DashScope-Async: enable` (and `X-DashScope-OssResourceResolve: enable` whenever any input is an
-`oss://` URL) → `output.task_id`. Poll `GET /api/v1/tasks/{task_id}` → `output.task_status` ∈
-`PENDING|RUNNING|SUCCEEDED|FAILED|CANCELED|UNKNOWN`, output at `output.results.video_url` (24-h TTL).
-No cancel endpoint → `cancel: null`.
-
-**Status map:** PENDING→queued, RUNNING→running, SUCCEEDED→succeeded, FAILED/UNKNOWN→failed,
-CANCELED→canceled. `code` matching `Infringement|DataInspection|moderat` on a failed task →
-`moderated`.
-
-**Verified:** model ids + move/mix semantics, region bases & isolation, async create/poll flow &
-states, request bodies, the three-step upload flow + `file`-last ordering + 48-h upload TTL +
-`OssResourceResolve` header, input limits, MP4/H.264 output + 24-h URL, pricing, error codes.
-Sources: <https://help.aliyun.com/en/model-studio/wan-animate-move-api>,
-<https://help.aliyun.com/en/model-studio/get-temporary-file-url>,
-<https://www.alibabacloud.com/help/en/model-studio/model-pricing>,
-<https://help.aliyun.com/en/model-studio/error-code>.
-
-**Unverified:** pixel-exact green-background preservation under `move`; whether a Wan 2.5/2.6/3.x
-animate successor is unreleased; async webhook payload; per-model create-task concurrency; whether
-`move` emits audio.
 
 ---
 
@@ -273,10 +240,7 @@ Sources: <https://github.com/aself101/kling-api>,
 
 | Route id | verified |
 |---|---|
-| `wavespeed/wan-2.2-animate` | true |
-| `fal/wan-2.2-animate-move` | true |
-| `replicate/wan-2.2-animate-animation` | **false** (input schema unconfirmed) |
-| `dashscope/wan2.2-animate-move` | true |
+| `wavespeed/wan-2.2-animate-2` | true |
 | `wavespeed/dreamactor-v2` | true |
 | `fal/dreamactor-v2` | true |
 | `replicate/dreamactor-m2.0` | true |
@@ -290,10 +254,9 @@ Sources: <https://github.com/aself101/kling-api>,
 | `kling/v3-motion-control` | **false** (path + auth regime unconfirmed) |
 | `kling/v2.6-motion-control` | **false** (path + auth regime unconfirmed) |
 
-`keepsImageBackground` is `true` for WaveSpeed/DashScope Wan, all DreamActor and all Kling
-motion-control routes (docs claim the image background is kept), and **`null`** for the two Wan
-"move" style routes on fal/Replicate whose docs do not promise background preservation. In every
-case pixel-exact #00FF00 survival under motion is unverified; it matters for the later
+`keepsImageBackground` is `false` for Wan 2.2 Animate 2 (it generates the background from its
+prompt) and `true` for all DreamActor and all Kling motion-control routes (docs claim the image
+background is kept). In every case pixel-exact #00FF00 survival under motion is unverified; it matters for the later
 background-removal feature, not for viewing or adding results today.
 
 ## Contract notes / open risks
@@ -307,5 +270,5 @@ background-removal feature, not for viewing or adding results today.
 - **Kling media relay dependency.** The `kling/*` routes have `needsPublicVideoUrl: true`; without a
   configured relay (WaveSpeed/fal/Higgsfield) the route is listed as unavailable with
   `unavailableCode: "no_media_relay"`.
-- **Replicate Files API and Wan-animate schema** are the two remaining primary-source gaps; both
-  are marked and defended defensively in code.
+- **Replicate Files API** is the remaining Replicate primary-source gap; it is marked and handled
+  defensively in code.
