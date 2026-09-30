@@ -9,6 +9,9 @@ const AnimateHelpers = (() => {
   const motions = typeof window !== 'undefined' && window.VirtuallyMotions
     ? window.VirtuallyMotions
     : require('./motions.js');
+  // The shared credit formula (credits.js, loaded before this script). Without it the
+  // page cannot price anything in credits (prices then read 가격 정보 없음).
+  const credits = typeof window !== 'undefined' ? window.VirtuallyCredits || null : require('./credits.js');
 
   const JOB_STATE_LABELS = Object.freeze({
     queued: '대기',
@@ -49,6 +52,9 @@ const AnimateHelpers = (() => {
     download_failed: '결과 받기 실패',
     not_refetchable: '다시 받을 수 없는 작업입니다',
     result_expired: '결과 보관 기간이 지나 받을 수 없습니다',
+    insufficient_credits: '크레딧이 부족합니다',
+    price_unknown: '이 모델은 가격 정보가 없어 크레딧으로 만들 수 없습니다',
+    billing_misconfigured: '결제 설정에 문제가 있어 지금은 만들 수 없습니다',
   });
 
   /** Korean text for an API error `{ code, error|message, detail }`. */
@@ -60,6 +66,10 @@ const AnimateHelpers = (() => {
     }
     if (code === 'driving_too_short' && error.detail) {
       const text = tooShortText(error.detail.duration, error.detail.minSec);
+      if (text) return text;
+    }
+    if (code === 'insufficient_credits' && error.detail) {
+      const text = insufficientText(error.detail.needed, error.detail.balance);
       if (text) return text;
     }
     if (code && ERROR_TEXT[code]) return ERROR_TEXT[code];
@@ -103,8 +113,134 @@ const AnimateHelpers = (() => {
     return Number((rate * billed).toFixed(4));
   }
 
+  /** A model cost in dollars, '$0.30'; '' when it is unknown. Shown only inside the 원가 note. */
   function formatUsd(usd) {
-    return Number.isFinite(usd) ? `약 $${usd.toFixed(2)}` : '';
+    return Number.isFinite(usd) ? `$${usd.toFixed(2)}` : '';
+  }
+
+  // ---- Credits (GET /api/billing, via window.VirtuallyBilling from auth.js) ----
+  // Prices are credits in every billing mode (1 credit = 1 KRW). The dollar model
+  // cost is shown only to admins, and to everyone while billing is off.
+
+  /** A credit count as every page shows it: '1,234', '-50'; '' when it is not a number. */
+  function formatCredits(value) {
+    return typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString('ko-KR') : '';
+  }
+
+  /** True when paid jobs take credits from this account: billing on and working, not a free account. */
+  function billingActive(billing) {
+    return Boolean(billing && typeof billing === 'object' && billing.enabled === true
+      && billing.mode === 'enabled' && billing.free !== true);
+  }
+
+  /** True when prices also show the dollar model cost: admins, and everyone while billing is off. */
+  function showsModelCost(billing) {
+    if (!billing || typeof billing !== 'object') return false;
+    return billing.enabled === false || (billing.mode === 'enabled' && billing.isAdmin === true);
+  }
+
+  /**
+   * Credits for a USD estimate at the payload's creditsPerUsd (credits.js falls back to
+   * its default without one, e.g. before GET /api/billing answers); null when unknown.
+   */
+  function creditsForEstimate(usd, billing) {
+    if (!credits) return null;
+    return credits.creditsFor(usd, billing && typeof billing === 'object' ? billing.creditsPerUsd : undefined);
+  }
+
+  /** '약 600 크레딧', plus ' (원가 $0.30)' for admins and while billing is off; '가격 정보 없음' when unknown. */
+  function priceText(usd, billing) {
+    const needed = creditsForEstimate(usd, billing);
+    if (needed == null) return '가격 정보 없음';
+    const text = `약 ${formatCredits(needed)} 크레딧`;
+    return showsModelCost(billing) ? `${text} (원가 ${formatUsd(usd)})` : text;
+  }
+
+  /** A route's price: '무료' for the free route, '' until the driving length is known, else priceText. */
+  function routeCostText(route, seconds, options, billing) {
+    if (isFreeRoute(route)) return '무료';
+    if (typeof seconds !== 'number' || !Number.isFinite(seconds)) return '';
+    return priceText(estimateUsd(route, seconds, options), billing);
+  }
+
+  /** Credits a job on this route takes from this account, or null (free route, unknown price, billing not active). */
+  function jobCredits(route, seconds, options, billing) {
+    if (isFreeRoute(route) || !billingActive(billing)) return null;
+    return creditsForEstimate(estimateUsd(route, seconds, options), billing);
+  }
+
+  /** The paid confirmation's credit line, or '' without both numbers. */
+  function confirmCreditsText(needed, balance) {
+    if (!Number.isFinite(needed) || !Number.isFinite(balance)) return '';
+    return `${formatCredits(needed)} 크레딧이 차감됩니다 (보유 ${formatCredits(balance)}).`;
+  }
+
+  /** "크레딧이 부족합니다 (필요 40, 보유 12)", or '' without both numbers. */
+  function insufficientText(needed, balance) {
+    if (!Number.isFinite(needed) || !Number.isFinite(balance)) return '';
+    return `크레딧이 부족합니다 (필요 ${formatCredits(needed)}, 보유 ${formatCredits(balance)})`;
+  }
+
+  /** A job row's "40 크레딧" / "40 크레딧 돌려받음": only for a charged job (billing record, not free, known credits). */
+  function jobCreditsText(job) {
+    const billing = job?.billing;
+    if (!billing || typeof billing !== 'object' || billing.free === true) return '';
+    if (typeof billing.credits !== 'number' || !Number.isFinite(billing.credits)) return '';
+    const text = `${formatCredits(billing.credits)} 크레딧`;
+    return billing.refunded === true ? `${text} 돌려받음` : text;
+  }
+
+  /** True when `next` (a job update) shows a refund that `previous` (the same job before, if any) did not. */
+  function refundTurnedOn(previous, next) {
+    return next?.billing?.refunded === true && previous?.billing?.refunded !== true;
+  }
+
+  /** True for a job that took credits from this account and has not given them back. */
+  function jobCharged(job) {
+    const billing = job?.billing;
+    return Boolean(billing && typeof billing === 'object' && billing.free !== true && billing.refunded !== true
+      && typeof billing.credits === 'number' && Number.isFinite(billing.credits) && billing.credits > 0);
+  }
+
+  /**
+   * The question before canceling a charged job: the credits come back only while
+   * no provider task exists (billing.cancelRefund). '' for any other job (no question).
+   */
+  function cancelConfirmText(job) {
+    if (!jobCharged(job)) return '';
+    return job.billing.cancelRefund === true
+      ? `취소하면 ${formatCredits(job.billing.credits)} 크레딧을 돌려받습니다. 취소할까요?`
+      : '이미 생성이 시작되어 취소해도 크레딧은 돌려받지 못합니다. 취소할까요?';
+  }
+
+  /**
+   * Credits a 다시 받기 of this job takes from the viewer: billing.refetchCredits (the
+   * job's charge was given back, and a delivered result is paid once), 0 for nothing
+   * or a free account (the server charges it nothing). An unknown account (no GET
+   * /api/billing answer yet) counts as paying.
+   */
+  function refetchChargeCredits(job, billing) {
+    const needed = job?.billing?.refetchCredits;
+    if (typeof needed !== 'number' || !Number.isFinite(needed) || needed <= 0) return 0;
+    if (billing && typeof billing === 'object' && billing.free === true) return 0;
+    return needed;
+  }
+
+  /**
+   * The question before 다시 받기 when it takes credits again, worded like the paid
+   * confirmation's credit line. '' for no question (refetchChargeCredits is 0).
+   */
+  function refetchConfirmText(job, billing) {
+    const needed = refetchChargeCredits(job, billing);
+    if (!needed) return '';
+    const line = confirmCreditsText(needed, billing?.balance) || `${formatCredits(needed)} 크레딧이 차감됩니다.`;
+    return `다시 받으면 ${line}`;
+  }
+
+  /** A refused 다시 받기 on its job row: a short balance reads as it does for a new job. */
+  function refetchErrorText(error) {
+    const message = typeof error?.message === 'string' && error.message ? error.message : '알 수 없는 오류';
+    return error?.code === 'insufficient_credits' ? message : `다시 받기 실패: ${message}`;
   }
 
   /** "2.5초" below 10 s (one decimal, no trailing .0), "12초" from 10 s, '' when unknown. */
@@ -138,8 +274,14 @@ const AnimateHelpers = (() => {
     return length && min ? `영상(${length})이 이 모델의 최소 길이(${min})보다 짧습니다` : '';
   }
 
-  function isMockRoute(route) {
-    return route?.provider === 'mock';
+  /**
+   * The server's verdict on a route (route view `free`: only the local demo route): no
+   * paid confirmation, no `confirmed`, no credits and the price '무료'. Every other
+   * route is paid, mock-provider custom routes included, and so is a route without
+   * the flag (a server from before it).
+   */
+  function isFreeRoute(route) {
+    return route?.free === true;
   }
 
   /**
@@ -212,9 +354,17 @@ const AnimateHelpers = (() => {
     return (job?.state === 'failed' || job?.state === 'canceled') && job.canRefetch === true;
   }
 
-  /** The 다시 받기 button's tooltip, naming the job's provider. */
-  function refetchTitle(job) {
-    return `${job?.providerLabel || 'AI 서비스'}에 남아 있는 결과를 다시 받아 옵니다. 새로 만들지 않아 요금이 더 나가지 않습니다.`;
+  /**
+   * The 다시 받기 button's tooltip, naming the job's provider. When the re-fetch takes
+   * the given-back credits again (refetchChargeCredits), it says so instead of
+   * promising no new cost.
+   */
+  function refetchTitle(job, billing) {
+    const provider = `${job?.providerLabel || 'AI 서비스'}에 남아 있는 결과를 다시 받아 옵니다.`;
+    const needed = refetchChargeCredits(job, billing);
+    return needed
+      ? `${provider} 돌려받은 ${formatCredits(needed)} 크레딧이 다시 차감됩니다.`
+      : `${provider} 새로 만들지 않아 요금이 더 나가지 않습니다.`;
   }
 
   /**
@@ -281,11 +431,14 @@ const AnimateHelpers = (() => {
     return '';
   }
 
-  /** The POST /api/animate/jobs body. `margin` is sent only when the server offers margins. */
-  function jobPayload({ drivingId, route, options, margin, margins, mock }) {
+  /**
+   * The POST /api/animate/jobs body. `margin` is sent only when the server offers margins;
+   * `confirmed` for every route but the free one (the page asked first).
+   */
+  function jobPayload({ drivingId, route, options, margin, margins }) {
     const payload = { drivingId, routeId: route?.id, options: options || {} };
     if (Array.isArray(margins) && margins.some(m => m.value === margin)) payload.margin = margin;
-    if (!mock) payload.confirmed = true;
+    if (!isFreeRoute(route)) payload.confirmed = true;
     return payload;
   }
 
@@ -444,12 +597,28 @@ const AnimateHelpers = (() => {
     effectiveOptions,
     estimateUsd,
     formatUsd,
+    formatCredits,
+    billingActive,
+    showsModelCost,
+    creditsForEstimate,
+    priceText,
+    routeCostText,
+    jobCredits,
+    confirmCreditsText,
+    insufficientText,
+    jobCreditsText,
+    refundTurnedOn,
+    jobCharged,
+    cancelConfirmText,
+    refetchChargeCredits,
+    refetchConfirmText,
+    refetchErrorText,
     formatSeconds,
     LENGTH_TOLERANCE_SEC,
     routeMaxSeconds,
     routeMinSeconds,
     tooShortText,
-    isMockRoute,
+    isFreeRoute,
     routeState,
     groupRoutes,
     defaultMotionName,
@@ -510,6 +679,7 @@ if (typeof document !== 'undefined') (() => {
   const jobsEmpty = $('jobsEmpty');
   const jobList = $('jobList');
   const confirmDialog = $('confirmDialog');
+  const confirmCredits = $('confirmCredits');
 
   const state = {
     ffmpeg: null,
@@ -529,6 +699,7 @@ if (typeof document !== 'undefined') (() => {
     marginRouteId: null, // the route `margin` was last reset for
     jobs: [],
     libraryIds: null,
+    billing: null, // GET /api/billing payload (auth.js VirtuallyBilling); null until known
     busy: { fetch: false, restore: false, driving: false, character: false, create: false },
   };
 
@@ -1096,9 +1267,7 @@ if (typeof document !== 'undefined') (() => {
   }
 
   function routeCost(route) {
-    if (H.isMockRoute(route)) return '무료';
-    const seconds = selectedDriving()?.duration;
-    return H.formatUsd(H.estimateUsd(route, seconds, routeOptionsFor(route)));
+    return H.routeCostText(route, selectedDriving()?.duration, routeOptionsFor(route), state.billing);
   }
 
   function renderRoutes() {
@@ -1388,6 +1557,10 @@ if (typeof document !== 'undefined') (() => {
     $('confirmModel').textContent = `${route.label} · ${route.providerLabel}`;
     $('confirmLength').textContent = H.formatSeconds(driving.duration) || '알 수 없음';
     $('confirmCost').textContent = routeCost(route) || '알 수 없음';
+    const needed = H.jobCredits(route, driving.duration, routeOptionsFor(route), state.billing);
+    const creditLine = H.confirmCreditsText(needed, state.billing?.balance);
+    confirmCredits.textContent = creditLine;
+    confirmCredits.hidden = !creditLine;
     return new Promise((resolve) => {
       confirmDialog.returnValue = '';
       confirmDialog.addEventListener('close', () => resolve(confirmDialog.returnValue === 'ok'), { once: true });
@@ -1395,12 +1568,32 @@ if (typeof document !== 'undefined') (() => {
     });
   }
 
+  // ---- Credits (auth.js fills the chip and shares the GET /api/billing payload) ----
+  const sharedBilling = window.VirtuallyBilling || null;
+
+  function applyBilling(billing) {
+    // A failed request (null) keeps the last payload: the server still charges.
+    if (!billing) return;
+    state.billing = billing;
+    // Before the routes arrive there is no price to redraw (their first render reads state.billing).
+    if (state.routes.length > 0) renderRoutes();
+    // The 다시 받기 tooltips depend on the account (a free one pays nothing).
+    if (state.jobs.length > 0) renderJobs();
+  }
+
+  /** Redraw the credits chip and the credit prices from a fresh GET /api/billing. */
+  function refreshBilling() {
+    if (!sharedBilling || typeof sharedBilling.refresh !== 'function') return;
+    sharedBilling.refresh().then(applyBilling).catch(() => {});
+  }
+
   createBtn.addEventListener('click', async () => {
     if (createBlocker()) return;
     const route = selectedRoute();
     const driving = selectedDriving();
-    const mock = H.isMockRoute(route);
-    if (!mock && !(await confirmCreate(route, driving))) return;
+    // The server's verdict: only its free route skips the paid confirmation.
+    const free = H.isFreeRoute(route);
+    if (!free && !(await confirmCreate(route, driving))) return;
     state.busy.create = true;
     renderCreate();
     setStatus(createStatus, '');
@@ -1411,7 +1604,6 @@ if (typeof document !== 'undefined') (() => {
         options: routeOptionsFor(route),
         margin: state.margin,
         margins: state.margins,
-        mock,
       });
       const data = await api('POST', '/api/animate/jobs', { json: payload });
       if (data?.job) upsertJob(data.job);
@@ -1419,9 +1611,14 @@ if (typeof document !== 'undefined') (() => {
       jobList.firstElementChild?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     } catch (error) {
       setStatus(createStatus, error.message, 'error');
+      if (error.code === 'insufficient_credits') {
+        createStatus.append(' ', el('a', { className: 'link', href: '/billing', text: '크레딧 충전' }));
+      }
     } finally {
       state.busy.create = false;
       renderCreate();
+      // A charge (or a refused one) changes what the chip should say.
+      refreshBilling();
     }
   });
 
@@ -1480,11 +1677,15 @@ if (typeof document !== 'undefined') (() => {
   function updateRow(row, job) {
     const stateLabel = H.JOB_STATE_LABELS[job.state] || String(job.state ?? '');
     row.li.dataset.state = String(job.state ?? '');
-    row.head.replaceChildren(
+    const creditsLabel = H.jobCreditsText(job);
+    row.head.replaceChildren(...[
       el('span', { className: `badge badge-state state-${job.state}`, text: stateLabel }),
       el('span', { className: 'job-title', text: `${job.routeLabel || job.routeId || ''} · ${job.drivingLabel || ''}` }),
+      creditsLabel
+        ? el('span', { className: 'badge job-credits' + (job.billing.refunded === true ? ' is-refunded' : ''), text: creditsLabel })
+        : null,
       el('time', { className: 'job-time', dateTime: String(job.createdAt ?? ''), text: H.formatTime(job.createdAt) }),
-    );
+    ].filter(Boolean));
 
     let info = '';
     let infoKind = null;
@@ -1542,7 +1743,7 @@ if (typeof document !== 'undefined') (() => {
 
     const added = H.isAdded(job, state.libraryIds);
     const actionsKey = JSON.stringify([job.state, added, addBusy.has(job.id), addErrors.get(job.id) || null,
-      keyBusy.has(job.id), keyErrors.get(job.id) || null,
+      keyBusy.has(job.id), keyErrors.get(job.id) || null, H.offersRefetch(job) ? H.refetchTitle(job, state.billing) : null,
       job.canRefetch === true, refetchBusy.has(job.id), refetchErrors.get(job.id) || null]);
     if (actionsKey !== row.actionsKey) {
       row.actionsKey = actionsKey;
@@ -1557,6 +1758,9 @@ if (typeof document !== 'undefined') (() => {
         className: 'btn btn-ghost btn-sm',
         text: '취소',
         onclick: async () => {
+          // A charged job says whether its credits come back; read the newest view of it.
+          const question = H.cancelConfirmText(state.jobs.find(item => item.id === job.id) || job);
+          if (question && !window.confirm(question)) return;
           cancel.disabled = true;
           try {
             upsertJob(await api('POST', `/api/animate/jobs/${encodeURIComponent(job.id)}/cancel`, { json: {} }));
@@ -1578,8 +1782,13 @@ if (typeof document !== 'undefined') (() => {
           className: 'btn btn-ghost btn-sm',
           disabled: refetchBusyNow,
           text: refetchBusyNow ? '다시 받는 중…' : '다시 받기',
-          title: H.refetchTitle(job),
-          onclick: () => refetch(job),
+          title: H.refetchTitle(job, state.billing),
+          onclick: () => {
+            // Taking the credits again asks first; read the newest view of the job.
+            const question = H.refetchConfirmText(state.jobs.find(item => item.id === job.id) || job, state.billing);
+            if (question && !window.confirm(question)) return;
+            refetch(job);
+          },
         }),
         refetchError ? el('span', { className: 'status', dataset: { kind: 'error' }, text: refetchError }) : null,
       ];
@@ -1644,7 +1853,8 @@ if (typeof document !== 'undefined') (() => {
     }
   }
 
-  // 다시 받기: the server polls the saved provider task again (no new submit).
+  // 다시 받기: the server polls the saved provider task again (no new submit). A job
+  // whose credits were given back takes them again first.
   async function refetch(job) {
     refetchBusy.add(job.id);
     refetchErrors.delete(job.id);
@@ -1652,10 +1862,12 @@ if (typeof document !== 'undefined') (() => {
     try {
       upsertJob(await api('POST', `/api/animate/jobs/${encodeURIComponent(job.id)}/refetch`, { json: {} }));
     } catch (error) {
-      refetchErrors.set(job.id, `다시 받기 실패: ${error.message}`);
+      refetchErrors.set(job.id, H.refetchErrorText(error));
     } finally {
       refetchBusy.delete(job.id);
       renderJobs();
+      // A charge (or a refused one) changes what the chip should say.
+      refreshBilling();
     }
   }
 
@@ -1689,10 +1901,13 @@ if (typeof document !== 'undefined') (() => {
 
   async function loadJobs() {
     const data = await api('GET', '/api/animate/jobs');
+    const before = new Map(state.jobs.map(job => [job.id, job]));
     // Replace wholesale (newest first) so jobs removed on the server disappear too.
     state.jobs = [];
     for (const job of Array.isArray(data?.jobs) ? data.jobs : []) state.jobs = H.upsertJob(state.jobs, job);
     renderJobs();
+    // A reload after a reconnect may bring refunds made while disconnected.
+    if (before.size > 0 && state.jobs.some(job => H.refundTurnedOn(before.get(job.id), job))) refreshBilling();
   }
 
   // ---- Live updates ----
@@ -1712,7 +1927,10 @@ if (typeof document !== 'undefined') (() => {
     let data;
     try { data = JSON.parse(event.data); } catch { return; }
     if (data?.type === 'animate-job' && data.job) {
+      const previous = state.jobs.find(job => job.id === data.job.id);
       upsertJob(data.job);
+      // A failed or canceled job gave its credits back.
+      if (H.refundTurnedOn(previous, data.job)) refreshBilling();
     } else if (data?.type === 'library') {
       const list = Array.isArray(data.library?.motions) ? data.library.motions : [];
       state.libraryIds = new Set(list.filter(m => m && typeof m.id === 'string').map(m => m.id));
@@ -1725,6 +1943,9 @@ if (typeof document !== 'undefined') (() => {
   renderCharacters();
   renderDrivings();
   renderCreate();
+  if (sharedBilling && sharedBilling.ready && typeof sharedBilling.ready.then === 'function') {
+    sharedBilling.ready.then(applyBilling).catch(() => {});
+  }
   (async () => {
     const results = await Promise.allSettled([
       api('GET', '/api/animate/status').then(applyStatus),

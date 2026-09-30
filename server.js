@@ -10,6 +10,7 @@ const { once } = require('node:events');
 const { createAnimateApi } = require('./lib/animate/api');
 const { measureFit } = require('./lib/animate/fit');
 const { createAuth } = require('./lib/auth');
+const { WEBHOOK_PATH, createBilling } = require('./lib/billing');
 
 const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -32,6 +33,13 @@ const STATIC_FILES = new Map([
   ['/login.js', ['login.js', 'text/javascript; charset=utf-8']],
   ['/auth.css', ['auth.css', 'text/css; charset=utf-8']],
   ['/auth.js', ['auth.js', 'text/javascript; charset=utf-8']],
+  ['/billing', ['billing.html', 'text/html; charset=utf-8']],
+  ['/billing.css', ['billing.css', 'text/css; charset=utf-8']],
+  ['/billing.js', ['billing.js', 'text/javascript; charset=utf-8']],
+  ['/credits.js', ['credits.js', 'text/javascript; charset=utf-8']],
+  ['/admin', ['admin.html', 'text/html; charset=utf-8']],
+  ['/admin.css', ['admin.css', 'text/css; charset=utf-8']],
+  ['/admin.js', ['admin.js', 'text/javascript; charset=utf-8']],
 ]);
 
 // With login on, anyone may load the non-HTML static files (the repo is public anyway).
@@ -197,6 +205,9 @@ async function createAppServer({
   // Google login (off unless <dataDir>/auth/config.json exists). Tests inject
   // { endpoints: { authorize, token, jwks }, now: () => ms, configCheckIntervalMs, log }.
   auth: authOptions = {},
+  // Credit billing (off unless <dataDir>/billing/config.json exists). Tests inject
+  // { apiBase, now: () => ms, configCheckIntervalMs, log }.
+  billing: billingOptions = {},
 } = {}) {
   const mediaDir = path.join(dataDir, 'media');
   const manifestPath = path.join(dataDir, 'library.json');
@@ -269,12 +280,14 @@ async function createAppServer({
 
   // Before the animate API, so a failing auth setup cannot leave its jobs running.
   const auth = await createAuth({ ...authOptions, dataDir, sendJson, readBody, isPublicStatic });
+  // Before the animate API too: jobs are charged and refunded through it.
+  const billing = await createBilling({ ...billingOptions, dataDir, auth, sendJson, readBody });
 
   const animate = await createAnimateApi({
     dataDir, mediaDir, ffmpegPath, ffprobePath, mock: animateMock, pollIntervalMs: animatePollIntervalMs,
     examplesManifestPath, allowHttpExamples, bundledDrivingsDir,
     getLibrary: () => library, mediaPathForItem, enqueue, save, broadcast,
-    sendJson, readBody, receiveFile, serveMedia, sanitizeName,
+    sendJson, readBody, receiveFile, serveMedia, sanitizeName, billing,
   });
 
   const server = http.createServer((req, res) => {
@@ -283,6 +296,7 @@ async function createAppServer({
       const pathname = url.pathname;
       // Picks up config.json edits (checked at most once per configCheckIntervalMs).
       await auth.refresh();
+      await billing.refresh();
       const listeningAddress = server.address();
       if (listeningAddress && ['127.0.0.1', '::1'].includes(listeningAddress.address)) {
         const allowedHosts = new Set([`127.0.0.1:${listeningAddress.port}`, `localhost:${listeningAddress.port}`, `[::1]:${listeningAddress.port}`]);
@@ -299,11 +313,15 @@ async function createAppServer({
       if (!['GET', 'HEAD'].includes(req.method) && req.headers['sec-fetch-site'] && !['same-origin', 'none'].includes(req.headers['sec-fetch-site'])) {
         return sendJson(res, 403, { error: 'Cross-site changes are not allowed.' });
       }
+      // The Polar webhook comes without a session: before the login routes and the gate
+      // (it verifies its own signature).
+      if (await billing.handleWebhook(req, res, url)) return;
       // Login routes, then the access gate (sends the refusal itself), then the app.
       if (await auth.handleRoute(req, res, url)) return;
       const access = auth.gate(req, res, url);
       if (!access) return;
       if (await auth.handleApi(req, res, url, access)) return;
+      if (await billing.handleApi(req, res, url, access)) return;
       if (req.method === 'GET' && pathname === '/api/library') return sendJson(res, 200, library);
       if (req.method === 'GET' && pathname === '/api/events') {
         res.writeHead(200, {
@@ -416,7 +434,7 @@ async function createAppServer({
         if (!item) return sendJson(res, 404, { error: 'Media not found.' });
         return serveMedia(req, res, mediaPathForItem(item), item.mime);
       }
-      if (await animate.handle(req, res, url)) return;
+      if (await animate.handle(req, res, url, access)) return;
       if ((req.method === 'GET' || req.method === 'HEAD') && STATIC_FILES.has(pathname)) {
         const [filename, mime] = STATIC_FILES.get(pathname);
         const content = await fsp.readFile(path.join(PUBLIC_DIR, filename));
@@ -468,10 +486,15 @@ async function createAppServer({
     });
   });
 
-  // Stop running jobs and downloads with the server (tests must not leak).
-  server.on('close', () => { closed = true; animate.close().catch(() => {}); });
+  // Stop running jobs and downloads with the server (tests must not leak), then
+  // let the ledger finish its pending writes and refuse new ones.
+  server.on('close', () => {
+    closed = true;
+    animate.close().catch(() => {}).finally(() => billing.close().catch(() => {}));
+  });
   server.animate = animate;
   server.auth = auth;
+  server.billing = billing;
   return server;
 }
 
@@ -538,6 +561,19 @@ if (require.main === module) {
       // "Google login: on (N allowed entries)" or the config problem line.
       console.log(login.text);
       console.log('OBS Browser Source: copy the keyed URL from the controller');
+    }
+    const billing = server.billing.summary();
+    if (billing.mode === 'enabled') {
+      // "Billing (Polar): on (sandbox)", or "Billing: on (admin top-ups; Polar off)"
+      console.log(billing.text);
+      if (billing.polar && login.publicUrl) {
+        console.log(`Polar webhook URL: ${login.publicUrl}${WEBHOOK_PATH}`);
+      } else if (billing.polar) {
+        console.log('Polar webhooks need a public URL (publicUrl in data/auth/config.json); without one the billing page\'s sync still grants credits.');
+      }
+    } else if (billing.mode === 'invalid') {
+      // "Billing config problem: <code> (data/billing/config.json) - paid generation stays locked until it is fixed"
+      console.log(billing.text);
     }
   }).catch(error => { console.error(error); process.exitCode = 1; });
 }
