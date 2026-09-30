@@ -93,7 +93,9 @@ const AnimateHelpers = (() => {
       }
     }
     if (!Number.isFinite(rate)) return null;
-    const billed = Math.max(Number(pricing.minSeconds) || 0, seconds);
+    // Routes billed per started second round up before the floor (mirrors the server).
+    const counted = pricing.roundUpSeconds ? Math.ceil(seconds - 1e-9) : seconds;
+    const billed = Math.max(Number(pricing.minSeconds) || 0, counted);
     return Number((rate * billed).toFixed(4));
   }
 
