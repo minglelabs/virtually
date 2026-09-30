@@ -9,6 +9,8 @@
 //
 // The videos come from the sources named in the manifest and their licenses
 // apply; they are stored under data/ (gitignored), never in the repository.
+// Bundled examples (manifest `file`, our own videos in assets/drivings/) are
+// already in the repository and are skipped: nothing is downloaded for them.
 
 const path = require('node:path');
 const { DrivingStore } = require('../lib/animate/drivings');
@@ -40,18 +42,22 @@ async function main(argv = process.argv.slice(2), options = {}) {
     manifestPath: path.resolve(args.manifest || path.join(ROOT, 'examples', 'driving.json')),
     ffmpegPath: process.env.FFMPEG_PATH || 'ffmpeg',
     ffprobePath: process.env.FFPROBE_PATH || 'ffprobe',
+    bundledDir: path.join(ROOT, 'assets', 'drivings'),
     allowHttpExamples: !!options.allowHttpExamples,
   }).init();
   if (store.examples.length === 0) {
     log('No examples in the manifest.');
     return { results: [] };
   }
-  // Examples deleted on the page (hidden-examples.json) are skipped.
+  // Examples deleted on the page (hidden-examples.json) and bundled ones are skipped.
   const results = await store.fetchExamples();
   const hidden = store.hiddenCount();
-  const skipped = store.visibleExamples().length - results.length;
+  const visible = store.visibleExamples();
+  const bundled = visible.filter(example => example.file).length;
+  const skipped = visible.length - bundled - results.length;
   for (const result of results) log(result.ok ? `ok      ${result.id}` : `failed  ${result.id}: ${result.error}`);
   if (skipped > 0) log(`${skipped} already downloaded.`);
+  if (bundled > 0) log(`${bundled} bundled with the repository (nothing to download).`);
   if (hidden > 0) log(`${hidden} hidden (deleted on the page), skipped.`);
   return { results };
 }

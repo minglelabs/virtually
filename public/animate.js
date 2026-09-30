@@ -43,12 +43,15 @@ const AnimateHelpers = (() => {
     not_ready: '아직 완료되지 않았습니다',
     already_added: '이미 추가했습니다',
     interrupted: '서버 재시작으로 중단됐습니다',
+    timeout: '시간 초과',
     canceled: '취소됐습니다',
     moderation: '콘텐츠 정책에 걸렸습니다',
     upload_failed: '파일 업로드 실패',
     submit_failed: '생성 요청 실패',
     generation_failed: 'AI 생성 실패',
     download_failed: '결과 받기 실패',
+    not_refetchable: '다시 받을 수 없는 작업입니다',
+    result_expired: '결과 보관 기간이 지나 받을 수 없습니다',
     insufficient_credits: '크레딧이 부족합니다',
     price_unknown: '이 모델은 가격 정보가 없어 크레딧으로 만들 수 없습니다',
     billing_misconfigured: '결제 설정에 문제가 있어 지금은 만들 수 없습니다',
@@ -310,6 +313,16 @@ const AnimateHelpers = (() => {
     return libraryIds == null || libraryIds.has(job.motionId);
   }
 
+  /** Whether a failed or canceled job shows 다시 받기 (the server's canRefetch decides). */
+  function offersRefetch(job) {
+    return (job?.state === 'failed' || job?.state === 'canceled') && job.canRefetch === true;
+  }
+
+  /** The 다시 받기 button's tooltip, naming the job's provider. */
+  function refetchTitle(job) {
+    return `${job?.providerLabel || 'AI 서비스'}에 남아 있는 결과를 다시 받아 옵니다. 새로 만들지 않아 요금이 더 나가지 않습니다.`;
+  }
+
   /**
    * One short note when a succeeded result could not be keyed (the original MP4
    * is used instead), else ''.
@@ -561,6 +574,8 @@ const AnimateHelpers = (() => {
     defaultMotionName,
     upsertJob,
     isAdded,
+    offersRefetch,
+    refetchTitle,
     keyNote,
     keyColorNote,
     marginOptions,
@@ -1565,6 +1580,8 @@ if (typeof document !== 'undefined') (() => {
   const addErrors = new Map();
   const keyBusy = new Set(); // job ids whose background removal is re-running
   const keyErrors = new Map();
+  const refetchBusy = new Set(); // job ids whose 다시 받기 request is in flight
+  const refetchErrors = new Map();
 
   function upsertJob(job) {
     state.jobs = H.upsertJob(state.jobs, job);
@@ -1674,7 +1691,8 @@ if (typeof document !== 'undefined') (() => {
 
     const added = H.isAdded(job, state.libraryIds);
     const actionsKey = JSON.stringify([job.state, added, addBusy.has(job.id), addErrors.get(job.id) || null,
-      keyBusy.has(job.id), keyErrors.get(job.id) || null]);
+      keyBusy.has(job.id), keyErrors.get(job.id) || null,
+      job.canRefetch === true, refetchBusy.has(job.id), refetchErrors.get(job.id) || null]);
     if (actionsKey !== row.actionsKey) {
       row.actionsKey = actionsKey;
       row.actions.replaceChildren(...jobActions(job, added).filter(node => node != null));
@@ -1702,7 +1720,22 @@ if (typeof document !== 'undefined') (() => {
       });
       return [cancel];
     }
-    if (job.state !== 'succeeded') return [];
+    if (job.state !== 'succeeded') {
+      if (!H.offersRefetch(job)) return [];
+      const refetchBusyNow = refetchBusy.has(job.id);
+      const refetchError = refetchErrors.get(job.id);
+      return [
+        el('button', {
+          type: 'button',
+          className: 'btn btn-ghost btn-sm',
+          disabled: refetchBusyNow,
+          text: refetchBusyNow ? '다시 받는 중…' : '다시 받기',
+          title: H.refetchTitle(job),
+          onclick: () => refetch(job),
+        }),
+        refetchError ? el('span', { className: 'status', dataset: { kind: 'error' }, text: refetchError }) : null,
+      ];
+    }
     const keyBusyNow = keyBusy.has(job.id);
     const keyError = keyErrors.get(job.id);
     const rekeyButton = el('button', {
@@ -1759,6 +1792,21 @@ if (typeof document !== 'undefined') (() => {
       keyErrors.set(job.id, `배경 제거 실패: ${error.message}`);
     } finally {
       keyBusy.delete(job.id);
+      renderJobs();
+    }
+  }
+
+  // 다시 받기: the server polls the saved provider task again (no new submit).
+  async function refetch(job) {
+    refetchBusy.add(job.id);
+    refetchErrors.delete(job.id);
+    renderJobs();
+    try {
+      upsertJob(await api('POST', `/api/animate/jobs/${encodeURIComponent(job.id)}/refetch`, { json: {} }));
+    } catch (error) {
+      refetchErrors.set(job.id, `다시 받기 실패: ${error.message}`);
+    } finally {
+      refetchBusy.delete(job.id);
       renderJobs();
     }
   }

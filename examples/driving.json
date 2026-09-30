@@ -2,6 +2,39 @@
   "version": 1,
   "examples": [
     {
+      "id": "human-idle-neutral",
+      "label": "사람 대기 (idle · 무표정)",
+      "presetKey": null,
+      "downloadUrl": "https://videos.pexels.com/video-files/6322765/6322765-hd_720_1366_30fps.mp4",
+      "sourcePage": "https://www.pexels.com/video/man-looking-at-camera-6322765/",
+      "author": "Pexels contributor",
+      "license": "Pexels License",
+      "licenseUrl": "https://www.pexels.com/license/",
+      "trim": { "start": 16.4, "duration": 5.033 },
+      "notes": "single person, static camera, plain grey background; man standing still, front-facing, framed head to thighs, arms down with both hands in frame, mouth closed, natural blink. Loop cut: source frames 492-642 (151 frames at 30 fps). Measured on the normalized clip: last->first frame has no global shift, mean |diff| 1.0/255, 0.16 % of pixels differ by > 20 (hair, hands), so it loops near-seamlessly. Real 720x1366 portrait, ~26s source. Frames verified."
+    },
+    {
+      "id": "human-idle-smile",
+      "label": "사람 대기 (idle · 옅은 미소)",
+      "presetKey": null,
+      "downloadUrl": "https://videos.pexels.com/video-files/6321879/6321879-hd_720_1366_30fps.mp4",
+      "sourcePage": "https://www.pexels.com/video/man-looking-at-camera-6321879/",
+      "author": "Pexels contributor",
+      "license": "Pexels License",
+      "licenseUrl": "https://www.pexels.com/license/",
+      "trim": { "start": 0.333, "duration": 4 },
+      "notes": "single person, static camera, light marble wall; man standing still with a slight closed-mouth smile, front-facing, framed head to thighs, arms down with both hands in frame. Loop cut: source frames 10-129 (120 frames at 30 fps). Measured on the normalized clip: last->first frame has no global shift, mean |diff| 0.8/255, 0.35 % of pixels differ by > 20 (face, hands), so it loops near-seamlessly. Real 720x1366 portrait, ~11.6s source. Frames verified."
+    },
+    {
+      "id": "demo-idle",
+      "label": "기본 캐릭터 대기 (idle)",
+      "presetKey": null,
+      "file": "demo-idle.mp4",
+      "author": "Virtually",
+      "license": null,
+      "notes": "rendered by scripts/render-demo-idle.js; 3.8 s seamless loop; non-human character, pose-based models may not track it"
+    },
+    {
       "id": "hi-wave",
       "label": "인사 (손 흔들기)",
       "presetKey": "hi",
