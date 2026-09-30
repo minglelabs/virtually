@@ -19,6 +19,8 @@ const {
 const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const EXAMPLES_MANIFEST = path.join(__dirname, 'examples', 'driving.json');
+// Bundled example driving videos (the manifest's `file` entries): our own, committed assets.
+const BUNDLED_DRIVINGS_DIR = path.join(__dirname, 'assets', 'drivings');
 const STATIC_FILES = new Map([
   ['/', ['characters.html', 'text/html; charset=utf-8']],
   ['/broadcast', ['index.html', 'text/html; charset=utf-8']],
@@ -229,6 +231,7 @@ async function createAppServer({
   animateMock = process.env.VIRTUALLY_ANIMATE_MOCK === '1',
   animatePollIntervalMs = null,
   examplesManifestPath = EXAMPLES_MANIFEST,
+  bundledDrivingsDir = BUNDLED_DRIVINGS_DIR,
   // Test-only: lets example downloads use plain http fixture servers.
   allowHttpExamples = false,
   // Google login (off unless <dataDir>/auth/config.json exists). Tests inject
@@ -356,7 +359,7 @@ async function createAppServer({
 
   const animate = await createAnimateApi({
     dataDir, mediaDir, ffmpegPath, ffprobePath, mock: animateMock, pollIntervalMs: animatePollIntervalMs,
-    examplesManifestPath, allowHttpExamples,
+    examplesManifestPath, allowHttpExamples, bundledDrivingsDir,
     getLibrary: () => library, mediaPathForItem, enqueue, save, broadcast,
     getPhoto: id => characters.getPhoto(id),
     sendJson, readBody, receiveFile, serveMedia, sanitizeName,

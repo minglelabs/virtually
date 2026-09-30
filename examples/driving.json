@@ -2,6 +2,15 @@
   "version": 1,
   "examples": [
     {
+      "id": "demo-idle",
+      "label": "기본 캐릭터 대기 (idle)",
+      "presetKey": null,
+      "file": "demo-idle.mp4",
+      "author": "Virtually",
+      "license": null,
+      "notes": "rendered by scripts/render-demo-idle.js; 3.8 s seamless loop; non-human character, pose-based models may not track it"
+    },
+    {
       "id": "hi-wave",
       "label": "인사 (손 흔들기)",
       "presetKey": "hi",
