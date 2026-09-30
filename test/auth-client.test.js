@@ -256,7 +256,7 @@ test('controller and animate pages hold #authSlot and load auth.css and auth.js 
   assert.match(readPublic('index.html'),
     /<div class="brand-row">\s*<h1 class="brand">Virtually<\/h1>\s*<div id="authSlot" class="auth-slot" hidden><\/div>\s*<\/div>/);
   assert.match(readPublic('animate.html'),
-    /<header class="page-header">\s*<a href="\.\/" class="back-link">← 메인으로<\/a>\s*<h1>동작 만들기<\/h1>\s*<div id="authSlot" class="auth-slot" hidden><\/div>\s*<\/header>/);
+    /<header class="page-header">\s*<nav class="page-links" aria-label="다른 화면">\s*<a href="\/" class="back-link">← 캐릭터 목록<\/a>\s*<a href="\/broadcast" class="back-link">방송 화면<\/a>\s*<\/nav>\s*<h1>동작 만들기<\/h1>\s*<div id="authSlot" class="auth-slot" hidden><\/div>\s*<\/header>/);
   // A plain [hidden] must win over the chip's display: flex (app.css has no [hidden] rule).
   assert.match(readPublic('auth.css'), /\.auth-slot\[hidden\] \{ display: none; \}/);
 });
@@ -289,7 +289,8 @@ test('login page: its own CSS and script, the Google button and the message area
   assert.match(html, /<span class="gsi-label">Google 계정으로 로그인<\/span>/);
   for (const fill of ['#EA4335', '#4285F4', '#FBBC05', '#34A853']) assert.ok(html.includes(`fill="${fill}"`), fill);
   assert.match(html, /<div id="loginMessage" class="login-message" role="alert"><\/div>/);
-  assert.match(html, /<a id="controllerLink" class="login-link" href="\/" hidden>컨트롤러로 가기<\/a>/);
+  assert.match(html, /<a id="controllerLink" class="login-link" href="\/" hidden>캐릭터 목록으로 가기<\/a>/);
+  assert.doesNotMatch(html, /컨트롤러/);
   assert.match(html, /<div id="loginHelp" class="login-help" hidden><\/div>/);
 
   const css = readPublic('login.css');

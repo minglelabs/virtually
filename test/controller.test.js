@@ -94,12 +94,14 @@ test('main page links to the animate page instead of uploading', () => {
   const fs = require('node:fs');
   const path = require('node:path');
   const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
-  assert.match(html, /<a href="\.\/animate" class="motion-add-btn">/);
+  // app.js points it at /animate?photo=<on-air photo> while a photo is on air.
+  assert.match(html, /<a href="\.\/animate" id="motionAddLink" class="motion-add-btn">/);
   assert.match(html, /\+ 동작 추가하러 가기/);
-  assert.match(html, /예시 영상 \+ 캐릭터로 AI 동작 만들기/);
+  assert.match(html, /AI로 만들기 · 완성된 영상 올리기/);
   assert.doesNotMatch(html, /type="file"|addMotionInput|uploadStatus/);
   const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
   assert.doesNotMatch(app, /\/api\/upload/);
+  assert.match(app, /motionAddLink\.setAttribute\('href', view \? animateHref : '\.\/animate'\)/);
 });
 
 test('page scripts never assign innerHTML/outerHTML or use insertAdjacentHTML', () => {
@@ -301,21 +303,25 @@ test('stripWheelDelta maps vertical wheels to horizontal scroll until either end
   assert.equal(H.stripWheelDelta({ deltaY: 100, ctrlKey: true }, strip(0)), 0);
 });
 
-test('animate page: drop zones replace the upload button', () => {
+test('animate page: drop zones (per-character 사진 추가, driving videos, finished videos)', () => {
   const fs = require('node:fs');
   const path = require('node:path');
   const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'animate.html'), 'utf8');
-  assert.doesNotMatch(html, /이미지 올리기<\/button>|characterUploadBtn/);
-  assert.match(html, /<div class="strip-lead">\s*<button type="button" id="characterDrop" class="dropzone/);
-  assert.match(html, /이미지를 끌어다 놓으세요/);
-  assert.match(html, /클릭해서 고르기 · 붙여넣기\(⌘V \/ Ctrl\+V\) · PNG · JPG · WebP/);
+  assert.doesNotMatch(html, /이미지 올리기<\/button>|characterUploadBtn|id="characterDrop"/);
+  // Every character row clones this lead tile; the chosen row's says paste works too (animate.js).
+  assert.match(html, /<template id="photoDropTemplate">\s*<button type="button" class="dropzone dropzone-image dropzone-photo">/);
+  assert.match(html, /<span class="dropzone-title">\+ 사진 추가<\/span>/);
   assert.match(html, /<div class="strip-lead">\s*<button type="button" id="drivingDrop" class="dropzone/);
   assert.match(html, /id="drivingSentinel"/);
+  assert.match(html, /<button type="button" id="motionDrop" class="dropzone dropzone-video"/);
+  assert.match(html, /클릭해서 고르기 · WebM · MP4 · MOV · 60초 · 500MB까지/);
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'animate.js'), 'utf8');
   assert.match(js, /rootMargin: '0px 300px 0px 0px'/);
   assert.match(js, /이미지 파일만 올릴 수 있습니다/);
   assert.match(js, /영상 파일만 올릴 수 있습니다/);
-  assert.match(js, /이 캐릭터를 지울까요\?/);
+  assert.match(js, /'클릭 · 끌어다 놓기 · 붙여넣기\(⌘V \/ Ctrl\+V\)' : '클릭 · 끌어다 놓기'/);
+  assert.match(js, /acceptDrops\(node, drop, files => addPhotos\(characterId, files\)\)/);
+  assert.match(js, /acceptDrops\(motionUploadCard, motionDrop, chooseMotionFile\)/);
 });
 
 test('controller previews a true-scale canvas at the reported OBS source size', () => {

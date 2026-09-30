@@ -11,99 +11,156 @@
 <body>
   <main class="page">
     <header class="page-header">
-      <a href="./" class="back-link">← 메인으로</a>
+      <nav class="page-links" aria-label="다른 화면">
+        <a href="/" class="back-link">← 캐릭터 목록</a>
+        <a href="/broadcast" class="back-link">방송 화면</a>
+      </nav>
       <h1>동작 만들기</h1>
       <div id="authSlot" class="auth-slot" hidden></div>
     </header>
 
     <p id="globalStatus" class="bar bar-warn" role="alert" hidden></p>
 
-    <!-- 1. Driving video -->
-    <section class="card" aria-labelledby="drivingTitle">
-      <h2 id="drivingTitle">1. 동작 영상</h2>
-      <div id="exampleBar" class="bar" hidden>
-        <span>예시 영상이 아직 없습니다</span>
-        <button type="button" id="fetchExamplesBtn" class="btn btn-sm">예시 영상 받기</button>
-      </div>
-      <div class="strip" data-strip>
-        <div id="drivingList" class="strip-scroller" role="radiogroup" aria-labelledby="drivingTitle">
-          <div class="strip-lead">
-            <button type="button" id="drivingDrop" class="dropzone dropzone-video" aria-label="내 영상 올리기: 끌어다 놓거나 눌러서 고르기">
-              <svg class="dropzone-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                <rect x="3" y="5" width="13" height="14" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.6"/>
-                <path d="M16 10.2 21 7v10l-5-3.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
-                <path d="M9.5 9v6M6.5 12h6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
-              </svg>
-              <span class="dropzone-title" id="drivingDropTitle">+ 내 영상 올리기</span>
-              <span class="dropzone-sub">끌어다 놓기 · MP4 · MOV · WebM</span>
-            </button>
-          </div>
-          <span id="drivingSentinel" class="strip-sentinel" aria-hidden="true"></span>
-        </div>
-      </div>
-      <button type="button" id="restoreExamplesBtn" class="text-btn" hidden></button>
-      <input type="file" id="drivingInput" accept="video/mp4,video/quicktime,video/webm" multiple hidden>
-      <p id="drivingStatus" class="status" aria-live="polite"></p>
-      <video id="drivingPreview" class="driving-preview" muted loop autoplay playsinline controls hidden></video>
-    </section>
-
-    <!-- 2. Character -->
+    <!-- 1. Character photo: one row per character (animate.js), from GET /api/characters -->
     <section id="characterCard" class="card" aria-labelledby="characterTitle">
-      <h2 id="characterTitle">2. 캐릭터</h2>
-      <div class="strip" data-strip>
-        <div id="characterList" class="strip-scroller" role="list" aria-labelledby="characterTitle">
-          <div class="strip-lead">
-            <button type="button" id="characterDrop" class="dropzone dropzone-image" aria-label="캐릭터 이미지 올리기: 끌어다 놓거나, 눌러서 고르거나, 붙여넣기">
-              <svg class="dropzone-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                <path d="M7 17.5h-.5a4 4 0 0 1-.6-7.95A6 6 0 0 1 17.6 8.1 4.5 4.5 0 0 1 17.5 17.5H17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
-                <path d="M12 20v-8m0 0-3 3m3-3 3 3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-              <span class="dropzone-title" id="characterDropTitle">이미지를 끌어다 놓으세요</span>
-              <span class="dropzone-sub">클릭해서 고르기 · 붙여넣기(⌘V / Ctrl+V) · PNG · JPG · WebP</span>
-            </button>
-          </div>
-        </div>
+      <h2 id="characterTitle">1. 캐릭터 사진</h2>
+      <div id="characterEmpty" class="bar char-empty" hidden>
+        <span class="char-empty-text">
+          <strong>캐릭터를 먼저 만들어 주세요</strong>
+          <span class="char-empty-sub">이미지를 붙여넣으면(⌘V / Ctrl+V) 새 캐릭터로 만들 수도 있습니다</span>
+        </span>
+        <a href="/" class="btn btn-sm">캐릭터 만들러 가기</a>
       </div>
+      <div id="characterRows" class="char-rows"></div>
       <p id="characterMeta" class="muted character-meta"></p>
       <input type="file" id="characterInput" accept="image/png,image/jpeg,image/webp" multiple hidden>
       <p id="characterStatus" class="status" aria-live="polite"></p>
     </section>
 
-    <!-- 3. Model -->
-    <section class="card" aria-labelledby="modelTitle">
-      <h2 id="modelTitle">3. 모델</h2>
-      <div id="routeList" class="route-list"></div>
-      <div id="routeOptions" class="route-options"></div>
-      <div id="marginBox" class="route-margin" hidden>
-        <div class="route-option">
-          <label for="marginSelect">여백</label>
-          <select id="marginSelect" class="select-sm"></select>
-        </div>
-        <p class="muted route-margin-hint">캐릭터가 화면 밖으로 나가 잘리지 않게 동작 영상 둘레(아래 제외)에 여백을 붙입니다. 넓을수록 캐릭터가 작게 만들어집니다.</p>
-      </div>
-      <details id="keyPanel" class="key-panel">
-        <summary>API 키 설정</summary>
-        <div id="keyList" class="key-list"></div>
-      </details>
-    </section>
-
-    <div class="create-row">
-      <button type="button" id="createBtn" class="btn btn-primary" disabled>동작 만들기</button>
-      <p id="createStatus" class="status" aria-live="polite"></p>
+    <!-- How: AI generation (today's flow) or a finished video -->
+    <div class="path-choice" role="tablist" aria-label="동작 만드는 방법">
+      <button type="button" role="tab" id="pathAiTab" class="path-tab is-selected" data-path="ai" aria-selected="true" aria-controls="aiPath">
+        <span class="path-title">AI로 만들기</span>
+        <span class="path-sub">동작 영상을 골라 이 사진을 AI로 움직입니다</span>
+      </button>
+      <button type="button" role="tab" id="pathUploadTab" class="path-tab" data-path="upload" aria-selected="false" aria-controls="uploadPath" tabindex="-1">
+        <span class="path-title">완성된 영상 올리기</span>
+        <span class="path-sub">직접 만든 영상을 이 사진의 동작으로 넣습니다</span>
+      </button>
     </div>
 
-    <!-- 4. Results -->
-    <section class="card" aria-labelledby="resultTitle">
-      <h2 id="resultTitle">4. 결과</h2>
-      <p id="jobsEmpty" class="muted">아직 없습니다</p>
-      <ol id="jobList" class="job-list"></ol>
-    </section>
+    <div id="aiPath" class="path-panel" role="tabpanel" aria-labelledby="pathAiTab">
+      <!-- 2. Driving video -->
+      <section class="card" aria-labelledby="drivingTitle">
+        <h2 id="drivingTitle">2. 동작 영상</h2>
+        <div id="exampleBar" class="bar" hidden>
+          <span>예시 영상이 아직 없습니다</span>
+          <button type="button" id="fetchExamplesBtn" class="btn btn-sm">예시 영상 받기</button>
+        </div>
+        <div class="strip" data-strip>
+          <div id="drivingList" class="strip-scroller" role="radiogroup" aria-labelledby="drivingTitle">
+            <div class="strip-lead">
+              <button type="button" id="drivingDrop" class="dropzone dropzone-video" aria-label="내 영상 올리기: 끌어다 놓거나 눌러서 고르기">
+                <svg class="dropzone-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <rect x="3" y="5" width="13" height="14" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.6"/>
+                  <path d="M16 10.2 21 7v10l-5-3.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+                  <path d="M9.5 9v6M6.5 12h6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+                </svg>
+                <span class="dropzone-title" id="drivingDropTitle">+ 내 영상 올리기</span>
+                <span class="dropzone-sub">끌어다 놓기 · MP4 · MOV · WebM</span>
+              </button>
+            </div>
+            <span id="drivingSentinel" class="strip-sentinel" aria-hidden="true"></span>
+          </div>
+        </div>
+        <button type="button" id="restoreExamplesBtn" class="text-btn" hidden></button>
+        <input type="file" id="drivingInput" accept="video/mp4,video/quicktime,video/webm" multiple hidden>
+        <p id="drivingStatus" class="status" aria-live="polite"></p>
+        <video id="drivingPreview" class="driving-preview" muted loop autoplay playsinline controls hidden></video>
+      </section>
+
+      <!-- 3. Model -->
+      <section class="card" aria-labelledby="modelTitle">
+        <h2 id="modelTitle">3. 모델</h2>
+        <div id="routeList" class="route-list"></div>
+        <div id="routeOptions" class="route-options"></div>
+        <div id="marginBox" class="route-margin" hidden>
+          <div class="route-option">
+            <label for="marginSelect">여백</label>
+            <select id="marginSelect" class="select-sm"></select>
+          </div>
+          <p class="muted route-margin-hint">캐릭터가 화면 밖으로 나가 잘리지 않게 동작 영상 둘레(아래 제외)에 여백을 붙입니다. 넓을수록 캐릭터가 작게 만들어집니다.</p>
+        </div>
+        <details id="keyPanel" class="key-panel">
+          <summary>API 키 설정</summary>
+          <div id="keyList" class="key-list"></div>
+        </details>
+      </section>
+
+      <div class="create-row">
+        <button type="button" id="createBtn" class="btn btn-primary" disabled>동작 만들기</button>
+        <p id="createStatus" class="status" aria-live="polite"></p>
+      </div>
+
+      <!-- 4. Results -->
+      <section class="card" aria-labelledby="resultTitle">
+        <h2 id="resultTitle">4. 결과</h2>
+        <p id="jobsEmpty" class="muted">아직 없습니다</p>
+        <ol id="jobList" class="job-list"></ol>
+      </section>
+    </div>
+
+    <div id="uploadPath" class="path-panel" role="tabpanel" aria-labelledby="pathUploadTab" hidden>
+      <!-- 2. A finished video: POST /api/characters/<id>/photos/<photoId>/motions -->
+      <section id="motionUploadCard" class="card" aria-labelledby="motionUploadTitle">
+        <h2 id="motionUploadTitle">2. 완성된 영상 올리기</h2>
+        <p id="motionTarget" class="muted upload-target"></p>
+        <div class="upload-body">
+          <button type="button" id="motionDrop" class="dropzone dropzone-video" aria-label="완성된 영상 고르기: 끌어다 놓거나 눌러서 고르기">
+            <svg class="dropzone-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <rect x="3" y="5" width="13" height="14" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.6"/>
+              <path d="M16 10.2 21 7v10l-5-3.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+              <path d="M9.5 9v6M6.5 12h6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+            </svg>
+            <span class="dropzone-title" id="motionDropTitle">영상을 끌어다 놓으세요</span>
+            <span class="dropzone-sub">클릭해서 고르기 · WebM · MP4 · MOV · 60초 · 500MB까지</span>
+          </button>
+          <div class="upload-form">
+            <label for="motionName" class="upload-label">동작 이름</label>
+            <div class="row">
+              <input type="text" id="motionName" class="name-input" maxlength="100" list="presetNames" autocomplete="off" placeholder="비워 두면 파일 이름">
+              <button type="button" id="motionUploadBtn" class="btn" disabled>동작으로 추가하기</button>
+            </div>
+            <datalist id="presetNames"></datalist>
+            <p class="muted upload-hint">원영턴, BAD 챌린지 춤처럼 기본 동작 이름을 쓰면 방송 화면의 그 버튼으로 이 영상이 재생됩니다.</p>
+            <p class="muted upload-hint">투명 배경 영상은 그대로 쓰고, 초록·파랑·분홍 단색 배경은 자동으로 지웁니다.</p>
+            <progress id="motionProgress" class="upload-progress" max="100" value="0" hidden></progress>
+            <p id="motionUploadStatus" class="status" aria-live="polite"></p>
+          </div>
+        </div>
+        <div id="motionResult" class="job-media upload-result" hidden></div>
+        <input type="file" id="motionInput" accept="video/webm,video/mp4,video/quicktime,.webm,.mp4,.mov" hidden>
+      </section>
+    </div>
   </main>
+
+  <!-- The '+ 사진 추가' lead tile of each character row (animate.js clones it). -->
+  <template id="photoDropTemplate">
+    <button type="button" class="dropzone dropzone-image dropzone-photo">
+      <svg class="dropzone-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path d="M7 17.5h-.5a4 4 0 0 1-.6-7.95A6 6 0 0 1 17.6 8.1 4.5 4.5 0 0 1 17.5 17.5H17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M12 20v-8m0 0-3 3m3-3 3 3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <span class="dropzone-title">+ 사진 추가</span>
+      <span class="dropzone-sub"></span>
+    </button>
+  </template>
 
   <dialog id="confirmDialog" class="confirm" aria-labelledby="confirmTitle">
     <form method="dialog">
       <h2 id="confirmTitle">만들까요?</h2>
       <dl class="confirm-list">
+        <div><dt>캐릭터</dt><dd id="confirmPhoto"></dd></div>
         <div><dt>모델</dt><dd id="confirmModel"></dd></div>
         <div><dt>영상 길이</dt><dd id="confirmLength"></dd></div>
         <div><dt>예상 비용</dt><dd id="confirmCost"></dd></div>
