@@ -18,6 +18,18 @@ Routes with a prompt field get the preset prompt for the driving video's `preset
 configurable `promptSuffix`. Every non-mock route needs `confirmed: true` on
 `POST /api/animate/jobs`; the page asks for it in a cost dialog.
 
+Optional route fields for split-prompt models (used only by `wavespeed/wan-2.2-animate-2`; every
+other route leaves them unset and its request body is unchanged):
+
+- `fields.motionPrompt` — body path of a separate motion prompt. When set, the pipeline sends the
+  preset prompt (or the generic one) plus `' Static camera, no zoom, no camera movement.'`
+  (`presets.composeMotionPrompt`) there; the `promptSuffix` is not appended.
+- `backgroundPrompt` — fixed text sent at `fields.prompt` instead of the composed preset prompt;
+  `promptSuffix` is ignored. Animate 2 generates its output background from `prompt`, so it asks
+  for a plain `#00FF00` chroma-key background.
+- `pricing.roundUpSeconds` — bill the sent length rounded up to whole seconds before
+  `minSeconds` applies (server `registry.estimateUsd` and the page's estimate both honour it).
+
 `mock/local-demo` (provider `mock`, enabled with `VIRTUALLY_ANIMATE_MOCK=1` or
 `createAppServer({ animateMock: true })`) is not AI and never uses the network: it renders the
 prepared character bobbing over the green canvas with ffmpeg for the driving video's length
@@ -67,11 +79,20 @@ endpoint → `cancel: null`.
 failed, cancelled→canceled.
 
 **Verified:** base/auth, upload API (endpoint, request/response, 200 MB / 7-day TTL), submit/poll
-shape, output URL location; Wan 2.2 Animate + DreamActor V2 input schemas & pricing; Kling v3 std
-motion-control model path.
+shape, output URL location; Wan 2.2 Animate + Wan 2.2 Animate 2 + DreamActor V2 input schemas &
+pricing; Kling v3 std motion-control model path.
+
+**Wan 2.2 Animate 2** (`wavespeed-ai/wan-2.2/animate-2`, the default route): body `image`, `video`,
+`prompt` (character looks + output background), `motion_prompt`, `resolution` `480p|720p`
+(API default 480p; we send 720p unless chosen), optional `seed`; **no `mode` field**. The image's
+and the driving video's backgrounds are ignored — the background comes from `prompt`. Output is
+30 fps and follows the driving video's duration and aspect ratio; driving up to 120 s, no input
+minimum. Billing: duration rounded up to whole seconds, clamped 3-120 s; 480p $0.04/s, 720p
+$0.08/s.
 Sources: <https://wavespeed.ai/docs/submit-task>, <https://wavespeed.ai/docs/upload-files-api>,
 <https://wavespeed.ai/docs/what-are-predictions>,
 <https://wavespeed.ai/docs/docs-api/wavespeed-ai/wan-2.2-animate>,
+<https://wavespeed.ai/docs/docs-api/wavespeed-ai/wan-2.2-animate-2>,
 <https://wavespeed.ai/docs/docs-api/bytedance/bytedance-dreamactor-v2>,
 <https://wavespeed.ai/kling-3-motion-control-api>.
 
