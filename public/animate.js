@@ -16,11 +16,12 @@ const AnimateHelpers = (() => {
     submitting: '전송',
     running: '생성 중',
     downloading: '받는 중',
+    keying: '배경 지우는 중',
     succeeded: '완료',
     failed: '실패',
     canceled: '취소',
   });
-  const ACTIVE_STATES = new Set(['queued', 'preparing', 'submitting', 'running', 'downloading']);
+  const ACTIVE_STATES = new Set(['queued', 'preparing', 'submitting', 'running', 'downloading', 'keying']);
 
   // API error code -> short Korean text. Unknown codes fall back to the server message.
   const ERROR_TEXT = Object.freeze({
@@ -203,6 +204,18 @@ const AnimateHelpers = (() => {
     return libraryIds == null || libraryIds.has(job.motionId);
   }
 
+  /**
+   * One short note when a succeeded result could not be keyed (the original MP4
+   * is used instead), else ''.
+   */
+  function keyNote(job) {
+    const result = job?.result;
+    if (!result || result.keyedUrl) return '';
+    if (result.keySkipped) return '배경이 한 가지 색이 아니라서 원본 영상을 그대로 씁니다';
+    if (result.keyFailed) return '배경을 지우지 못해 원본 영상을 그대로 씁니다';
+    return '';
+  }
+
   /** "12:34" today, "9/28 12:34" otherwise. */
   function formatTime(value, now = Date.now()) {
     const t = timeValue(value);
@@ -298,6 +311,7 @@ const AnimateHelpers = (() => {
     defaultMotionName,
     upsertJob,
     isAdded,
+    keyNote,
     formatTime,
     progressText,
     videoContentType,
@@ -1209,6 +1223,7 @@ if (typeof document !== 'undefined') (() => {
   // not reset by unrelated updates.
   const rows = new Map(); // id -> { li, head, body, media, actions, mediaKey, actionsKey }
   const nameDrafts = new Map(); // job id -> typed motion name
+  const showOriginal = new Set(); // job ids viewing the original MP4 instead of the keyed WebM
   const addBusy = new Set();
   const addErrors = new Map();
 
@@ -1260,25 +1275,45 @@ if (typeof document !== 'undefined') (() => {
     let infoKind = null;
     if (H.ACTIVE_STATES.has(job.state)) info = H.progressText(job);
     else if (job.state === 'failed') { info = H.errorText(job.error); infoKind = 'error'; }
+    else if (job.state === 'succeeded') info = H.keyNote(job);
     row.info.textContent = info;
     row.info.hidden = !info;
     if (infoKind) row.info.dataset.kind = infoKind;
     else delete row.info.dataset.kind;
 
-    const mediaKey = job.state === 'succeeded' && job.result?.url ? job.result.url : null;
+    // The keyed WebM plays over the checkerboard; a toggle shows the original MP4.
+    const keyedUrl = job.state === 'succeeded' ? job.result?.keyedUrl || null : null;
+    const original = !keyedUrl || showOriginal.has(job.id);
+    const src = job.state === 'succeeded' && job.result?.url ? (original ? job.result.url : keyedUrl) : null;
+    const mediaKey = src ? JSON.stringify([src, keyedUrl]) : null;
     if (mediaKey !== row.mediaKey) {
       row.mediaKey = mediaKey;
-      row.media.replaceChildren(mediaKey
+      const video = src
         ? el('video', {
           className: 'job-video',
-          src: mediaKey,
-          poster: job.result.posterUrl || null,
+          src,
+          poster: original ? job.result.posterUrl || null : null,
           controls: true,
           playsInline: true,
           preload: 'metadata',
         })
-        : '');
-      row.media.hidden = !mediaKey;
+        : null;
+      const toggle = keyedUrl
+        ? el('button', {
+          type: 'button',
+          className: 'btn btn-ghost btn-sm job-toggle',
+          text: original ? '배경 지운 영상 보기' : '원본 보기',
+          onclick: () => {
+            if (showOriginal.has(job.id)) showOriginal.delete(job.id);
+            else showOriginal.add(job.id);
+            updateRow(row, state.jobs.find(item => item.id === job.id) || job);
+          },
+        })
+        : null;
+      row.media.replaceChildren(...(video
+        ? [el('div', { className: `job-frame${original ? '' : ' checkerboard'}` }, [video]), toggle].filter(Boolean)
+        : []));
+      row.media.hidden = !src;
     }
 
     const added = H.isAdded(job, state.libraryIds);

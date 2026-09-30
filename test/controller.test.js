@@ -220,7 +220,14 @@ test('job helpers: default name, newest-first upsert, added state, progress text
   assert.equal(H.progressText({ providerStatus: 'IN_PROGRESS', progress: 0.42 }), 'IN_PROGRESS · 42%');
   assert.equal(H.progressText({ providerStatus: null, progress: null }), '');
   assert.deepEqual(Object.keys(H.JOB_STATE_LABELS),
-    ['queued', 'preparing', 'submitting', 'running', 'downloading', 'succeeded', 'failed', 'canceled']);
+    ['queued', 'preparing', 'submitting', 'running', 'downloading', 'keying', 'succeeded', 'failed', 'canceled']);
+  assert.equal(H.JOB_STATE_LABELS.keying, '배경 지우는 중');
+  assert.ok(H.ACTIVE_STATES.has('keying'));
+  assert.equal(H.keyNote({ result: { keyedUrl: '/k', keySkipped: null, keyFailed: false } }), '');
+  assert.equal(H.keyNote({ result: { keyedUrl: null, keySkipped: 'not_uniform', keyFailed: false } }), '배경이 한 가지 색이 아니라서 원본 영상을 그대로 씁니다');
+  assert.equal(H.keyNote({ result: { keyedUrl: null, keySkipped: null, keyFailed: true } }), '배경을 지우지 못해 원본 영상을 그대로 씁니다');
+  assert.equal(H.keyNote({ result: { keyedUrl: null, keySkipped: null, keyFailed: false } }), '');
+  assert.equal(H.keyNote({ result: null }), '');
 });
 
 test('formatting helpers', () => {
