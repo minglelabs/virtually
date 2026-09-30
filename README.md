@@ -149,17 +149,28 @@ Fixing hard driving videos (several people, busy backgrounds) is not implemented
 
 ### Example driving videos
 
-`examples/driving.json` lists the example videos: label, preset, source page, author, license and trim. The videos themselves are **not** stored in this repository. They are downloaded from the sources listed in that file, trimmed and converted (H.264, height <= 720, no audio) into `data/animate/drivings/examples/`. The source's license applies to each video; see its `license` and `sourcePage`.
+`examples/driving.json` lists the example videos: label, preset, credit and one source, either a `downloadUrl` (with `trim`) or a bundled `file`.
 
-Download them with the page's **예시 영상 받기** button, or without the server:
+- **Downloaded** examples (third-party stock clips) are **not** stored in this repository. They are downloaded from the sources listed in that file, trimmed and converted (H.264, height <= 720, no audio) into `data/animate/drivings/examples/`. The source's license applies to each video; see its `license` and `sourcePage`.
+- **Bundled** examples are our own videos, committed in `assets/drivings/` (the `file` plus a poster with the same name and `.jpg`) and served from there as they are: available at once, never downloaded or converted.
+
+Download the downloaded ones with the page's **예시 영상 받기** button, or without the server:
 
 ```bash
 pnpm run fetch-examples
 ```
 
-Deleting an example on the page (×) hides it for this install: its downloaded files are removed, its id is kept in `data/animate/drivings/hidden-examples.json`, and neither the button nor `fetch-examples` downloads it again. **숨긴 예시 N개 되돌리기** under the strip clears that list; press **예시 영상 받기** afterwards to download them again.
+Deleting an example on the page (×) hides it for this install: its id is kept in `data/animate/drivings/hidden-examples.json`, a downloaded example's files are removed (a bundled example's files stay in the repository), and neither the button nor `fetch-examples` downloads it again. **숨긴 예시 N개 되돌리기** under the strip clears that list; bundled examples are back at once, press **예시 영상 받기** to download the others again.
 
 Only the manifest's `https:` URLs are fetched (redirects must stay on `https:`), each file is limited to 100 MB and 60 seconds.
+
+**기본 캐릭터 대기 (idle)** (`demo-idle`, listed first) is the idle loop of the overlay's demo avatar — 540x720 on white, 30 fps, a seamless 3.8 s loop — for animating a new character photo into an idle motion. `scripts/render-demo-idle.js` renders it from the `#demo-avatar` markup of `public/overlay.html` and `public/overlay.css` with headless Chrome (`CHROME_PATH`, default: Google Chrome on macOS) and ffmpeg, and fails unless the loop closes pixel-exactly. After changing the demo avatar, re-render it and commit both files:
+
+```bash
+node scripts/render-demo-idle.js
+```
+
+The demo avatar is not human-shaped, so pose-based models may not track it; for a human-shaped character, a human idle reference works better.
 
 ### API keys
 
@@ -193,10 +204,10 @@ All errors are JSON `{ "error", "code"?, "detail"? }`. JSON bodies need `Content
 | `GET /api/animate/characters/<id>/image` | One character image |
 | `POST`, `DELETE /api/animate/character`, `GET /api/animate/character/image` | Legacy aliases: upload, delete the selected one, the image in use (selected or idle) |
 | `GET /api/animate/drivings` | Visible examples (manifest order), then uploads (newest first); `hiddenExamples` is the number of hidden examples |
-| `POST /api/animate/examples/fetch` | Download missing example videos, skipping hidden ones (`{}`) |
-| `POST /api/animate/examples/restore` | Un-hide all deleted examples (`{}`); returns `{ drivings, hidden: [] }`. They stay unavailable until fetched again |
+| `POST /api/animate/examples/fetch` | Download missing example videos, skipping hidden and bundled ones (`{}`) |
+| `POST /api/animate/examples/restore` | Un-hide all deleted examples (`{}`); returns `{ drivings, hidden: [] }`. Downloaded ones stay unavailable until fetched again; bundled ones are available at once |
 | `POST /api/animate/drivings?name=<file>` | Upload a driving video (raw body) |
-| `DELETE /api/animate/drivings/<id>` | Delete an upload, or hide an example for this install (its downloaded files are removed) |
+| `DELETE /api/animate/drivings/<id>` | Delete an upload, or hide an example for this install (its downloaded files are removed; a bundled example's files are kept) |
 | `GET /api/animate/drivings/<id>/video`, `/poster` | Driving video (byte ranges) and poster |
 | `GET /api/animate/jobs`, `POST /api/animate/jobs` | List jobs; start one: `{ "drivingId", "routeId", "options"?, "margin"?, "confirmed": true }`. `margin` = `none` / `normal` / `wide` (default: the route's `defaultMargin`; anything else is `400 bad_margin`); the job view echoes it (older jobs: `none`) |
 | `GET /api/animate/jobs/<id>`, `POST .../cancel` | One job; cancel it |
