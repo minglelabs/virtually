@@ -536,6 +536,36 @@ test('cancel confirmation: a charged job says whether its credits come back (bil
     /const question = H\.cancelConfirmText\(state\.jobs\.find\(item => item\.id === job\.id\) \|\| job\);\s*if \(question && !window\.confirm\(question\)\) return;\s*cancel\.disabled = true;/);
 });
 
+test('다시 받기 confirmation: asks only when it takes credits again (billing.refetchCredits), in the paid confirmation\'s words', () => {
+  const job = refetchCredits => ({ id: 'j1', state: 'failed', canRefetch: true,
+    billing: { credits: 600, free: false, refunded: true, cancelRefund: false, refetchCredits } });
+  assert.equal(H.refetchConfirmText(job(600), enabledPayload()), '다시 받으면 600 크레딧이 차감됩니다 (보유 1,234).');
+  assert.equal(H.refetchConfirmText(job(1500), enabledPayload({ balance: 20000 })), '다시 받으면 1,500 크레딧이 차감됩니다 (보유 20,000).');
+  assert.equal(`다시 받으면 ${H.confirmCreditsText(600, 1234)}`, H.refetchConfirmText(job(600), enabledPayload()), 'the paid confirmation\'s line');
+  // Still asked when the balance is unknown (the chip's request failed): the credits are taken either way.
+  assert.equal(H.refetchConfirmText(job(600), null), '다시 받으면 600 크레딧이 차감됩니다.');
+  assert.equal(H.refetchConfirmText(job(600), enabledPayload({ balance: null })), '다시 받으면 600 크레딧이 차감됩니다.');
+  // Nothing to take, or a free account: no question.
+  for (const none of [job(0), job(undefined), job(null), job('600'), job(Number.NaN), { id: 'j2', state: 'failed' }, null]) {
+    assert.equal(H.refetchConfirmText(none, enabledPayload()), '', JSON.stringify(none));
+  }
+  assert.equal(H.refetchConfirmText(job(600), enabledPayload({ free: true })), '');
+
+  // A refused 다시 받기 says a short balance the way job creation does; other errors keep their prefix.
+  const short = { message: H.errorText({ error: 'x', code: 'insufficient_credits', detail: { needed: 600, balance: 12 } }), code: 'insufficient_credits' };
+  assert.equal(H.refetchErrorText(short), '크레딧이 부족합니다 (필요 600, 보유 12)');
+  assert.equal(H.refetchErrorText({ message: '다시 받을 수 없는 작업입니다', code: 'not_refetchable' }), '다시 받기 실패: 다시 받을 수 없는 작업입니다');
+  assert.equal(H.refetchErrorText({ message: '결제 설정에 문제가 있어 지금은 만들 수 없습니다', code: 'billing_misconfigured' }),
+    '다시 받기 실패: 결제 설정에 문제가 있어 지금은 만들 수 없습니다');
+  assert.equal(H.refetchErrorText(null), '다시 받기 실패: 알 수 없는 오류');
+
+  // The button asks with the newest view of the job before it posts; the answer refreshes the chip.
+  const js = readPublic('animate.js');
+  assert.match(js,
+    /const question = H\.refetchConfirmText\(state\.jobs\.find\(item => item\.id === job\.id\) \|\| job, state\.billing\);\s*if \(question && !window\.confirm\(question\)\) return;\s*refetch\(job\);/);
+  assert.match(js, /refetchErrors\.set\(job\.id, H\.refetchErrorText\(error\)\);\s*\} finally \{\s*refetchBusy\.delete\(job\.id\);\s*renderJobs\(\);\s*\/\/[^\n]*\n\s*refreshBilling\(\);/);
+});
+
 test('job rows: credits, refunded credits, nothing for free or unbilled jobs; refunds wake the chip', () => {
   const job = (billingRecord, over = {}) => ({ id: 'j1', state: 'running', billing: billingRecord, ...over });
   assert.equal(H.jobCreditsText(job({ credits: 40, free: false, refunded: false })), '40 크레딧');

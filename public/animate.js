@@ -213,6 +213,26 @@ const AnimateHelpers = (() => {
       : '이미 생성이 시작되어 취소해도 크레딧은 돌려받지 못합니다. 취소할까요?';
   }
 
+  /**
+   * The question before 다시 받기 when it takes credits again (billing.refetchCredits:
+   * the job's charge was given back, and a delivered result is paid once), worded
+   * like the paid confirmation's credit line. '' for no question: nothing to take,
+   * or a free account (the server charges it nothing).
+   */
+  function refetchConfirmText(job, billing) {
+    const needed = job?.billing?.refetchCredits;
+    if (typeof needed !== 'number' || !Number.isFinite(needed) || needed <= 0) return '';
+    if (billing && typeof billing === 'object' && billing.free === true) return '';
+    const line = confirmCreditsText(needed, billing?.balance) || `${formatCredits(needed)} 크레딧이 차감됩니다.`;
+    return `다시 받으면 ${line}`;
+  }
+
+  /** A refused 다시 받기 on its job row: a short balance reads as it does for a new job. */
+  function refetchErrorText(error) {
+    const message = typeof error?.message === 'string' && error.message ? error.message : '알 수 없는 오류';
+    return error?.code === 'insufficient_credits' ? message : `다시 받기 실패: ${message}`;
+  }
+
   /** "2.5초" below 10 s (one decimal, no trailing .0), "12초" from 10 s, '' when unknown. */
   function formatSeconds(seconds) {
     if (!Number.isFinite(seconds) || seconds <= 0) return '';
@@ -563,6 +583,8 @@ const AnimateHelpers = (() => {
     refundTurnedOn,
     jobCharged,
     cancelConfirmText,
+    refetchConfirmText,
+    refetchErrorText,
     formatSeconds,
     LENGTH_TOLERANCE_SEC,
     routeMaxSeconds,
@@ -1731,7 +1753,12 @@ if (typeof document !== 'undefined') (() => {
           disabled: refetchBusyNow,
           text: refetchBusyNow ? '다시 받는 중…' : '다시 받기',
           title: H.refetchTitle(job),
-          onclick: () => refetch(job),
+          onclick: () => {
+            // Taking the credits again asks first; read the newest view of the job.
+            const question = H.refetchConfirmText(state.jobs.find(item => item.id === job.id) || job, state.billing);
+            if (question && !window.confirm(question)) return;
+            refetch(job);
+          },
         }),
         refetchError ? el('span', { className: 'status', dataset: { kind: 'error' }, text: refetchError }) : null,
       ];
@@ -1796,7 +1823,8 @@ if (typeof document !== 'undefined') (() => {
     }
   }
 
-  // 다시 받기: the server polls the saved provider task again (no new submit).
+  // 다시 받기: the server polls the saved provider task again (no new submit). A job
+  // whose credits were given back takes them again first.
   async function refetch(job) {
     refetchBusy.add(job.id);
     refetchErrors.delete(job.id);
@@ -1804,10 +1832,12 @@ if (typeof document !== 'undefined') (() => {
     try {
       upsertJob(await api('POST', `/api/animate/jobs/${encodeURIComponent(job.id)}/refetch`, { json: {} }));
     } catch (error) {
-      refetchErrors.set(job.id, `다시 받기 실패: ${error.message}`);
+      refetchErrors.set(job.id, H.refetchErrorText(error));
     } finally {
       refetchBusy.delete(job.id);
       renderJobs();
+      // A charge (or a refused one) changes what the chip should say.
+      refreshBilling();
     }
   }
 
