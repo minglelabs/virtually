@@ -296,6 +296,34 @@ motion-control routes (docs claim the image background is kept), and **`null`** 
 case pixel-exact #00FF00 survival under motion is unverified; it matters for the later
 background-removal feature, not for viewing or adding results today.
 
+## Background keying
+
+After `downloading`, the pipeline enters `keying` (`lib/animate/key.js`) and turns `result.mp4`
+into a transparent `result.webm` in the job directory. It never fails a job: on a skip or an
+ffmpeg error the MP4 stays the result and `job.result.keyed = null` with `keySkipped` (reason) or
+`keyError` (message). A cancel during keying kills ffmpeg and cancels the job as usual; a restart
+during keying re-runs only the keying.
+
+Detection (the colour is measured, never hardcoded):
+
+- 8 border patches — 4 corners and 4 edge midpoints, 16x16 px (smaller on tiny frames) — at 5
+  timestamps spread over the clip, each averaged to one RGB value: 40 samples.
+- The per-channel median is the key colour when it is green-dominant (`G >= 150` and
+  `G - max(R, B) >= 100`) and at least 75 % of the samples lie within RGB distance 40 of it.
+  Otherwise the clip is skipped with `not_green` or `not_uniform`.
+
+Keying (measured on a real Animate 2 result, 800x1136, 2.97 s: clean edges, 1.1 MB, ~4.9 s):
+
+```
+-vf "format=rgba,colorkey=0x<RRGGBB>:0.30:0.12,despill=type=green:mix=0.5:expand=0,format=yuva420p"
+-c:v libvpx-vp9 -pix_fmt yuva420p -auto-alt-ref 0 -b:v 0 -crf 30 -row-mt 1 -an
+```
+
+Written to a tmp file and renamed; timeout `max(120 s, 10 x duration)`. `chromakey` without
+despill was rejected (green/teal fringe on every edge). The alpha plane only decodes with the
+libvpx decoder (`ffmpeg -c:v libvpx-vp9 -i x.webm`); ffmpeg's native vp9 decoder drops it.
+Browsers and OBS play it with alpha.
+
 ## Contract notes / open risks
 
 - **Stub metas kept as seeded.** No provider id, credential key, env-var name, `credentialSets`,

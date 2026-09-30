@@ -39,8 +39,17 @@ function makeClip(filePath, { seconds = 4, size = '320x240', rate = 15, format =
     '-pix_fmt', 'yuv420p', '-c:v', 'libx264', '-preset', 'ultrafast', ...(format ? ['-f', format] : []), filePath]);
 }
 
+// A red body on a transparent canvas: composited onto the green key canvas it
+// leaves a green border, so mock results get keyed.
 function makeCharacter(filePath) {
-  ffmpeg(['-f', 'lavfi', '-i', 'color=c=red@0.5:s=64x96', '-frames:v', '1', '-vf', 'format=rgba', filePath]);
+  ffmpeg(['-f', 'lavfi', '-i', "nullsrc=s=64x96,format=rgba,geq=r=255:g=0:b=0:a='255*between(X\\,16\\,47)*between(Y\\,24\\,71)'",
+    '-frames:v', '1', filePath]);
+}
+
+// The alpha plane of the first frame of a VP9 WebM (libvpx keeps alpha).
+function alphaFrame(filePath) {
+  return execFileSync(FFMPEG, ['-hide_banner', '-loglevel', 'error', '-nostdin', '-c:v', 'libvpx-vp9', '-i', filePath,
+    '-vf', 'alphaextract,format=gray', '-frames:v', '1', '-f', 'rawvideo', 'pipe:1']);
 }
 
 async function makeFixtures() {
@@ -277,6 +286,10 @@ test('full flow: fetch examples -> character -> mock job -> result -> add as mot
     assert.equal(done.result.url, `/api/animate/jobs/${done.id}/result`);
     assert.equal(done.result.posterUrl, `/api/animate/jobs/${done.id}/poster`);
     assert.equal(done.result.mime, 'video/mp4');
+    assert.equal(done.result.keyedUrl, `/api/animate/jobs/${done.id}/result?variant=keyed`);
+    assert.match(done.result.keyColor, /^#[0-9A-F]{6}$/);
+    assert.equal(done.result.keySkipped, null);
+    assert.equal(done.result.keyFailed, false);
     assert.equal(done.result.width, 64);
     assert.equal(done.result.height, 96);
     assert.ok(done.result.duration > 2.5 && done.result.duration < 3.5, `result duration ${done.result.duration}`);
@@ -297,6 +310,16 @@ test('full flow: fetch examples -> character -> mock job -> result -> add as mot
     assert.equal(response.headers.get('content-type'), 'image/jpeg');
     await response.arrayBuffer();
 
+    // The keyed WebM is served with Range and is transparent around the character.
+    response = await fetch(`${app.base}${done.result.keyedUrl}`, { headers: { Range: 'bytes=0-3' } });
+    assert.equal(response.status, 206);
+    assert.equal(response.headers.get('content-type'), 'video/webm');
+    assert.deepEqual([...Buffer.from(await response.arrayBuffer())], [0x1a, 0x45, 0xdf, 0xa3]);
+    const alpha = alphaFrame(path.join(dataDir, 'animate', 'jobs', done.id, 'result.webm'));
+    assert.equal(alpha.length, 64 * 96);
+    assert.ok(alpha[0] < 10, `corner alpha ${alpha[0]}`);
+    assert.ok(alpha[48 * 64 + 32] > 245, `centre alpha ${alpha[48 * 64 + 32]}`);
+
     // Add as motion: the name defaults to the preset label.
     response = await json(app.base, 'POST', `/api/animate/jobs/${done.id}/motion`, undefined);
     assert.equal(response.status, 415);
@@ -305,7 +328,9 @@ test('full flow: fetch examples -> character -> mock job -> result -> add as mot
     const added = await response.json();
     assert.equal(added.motion.name, '인사 (Hi)');
     assert.equal(added.motion.kind, 'motion');
-    assert.equal(added.motion.mime, 'video/mp4');
+    assert.equal(added.motion.mime, 'video/webm');
+    assert.equal(added.keyed, true);
+    assert.equal(added.keyReason, null);
     assert.equal(added.motion.url, `/api/media/${added.motion.id}`);
     assert.deepEqual(added.motion.source, { jobId: done.id });
     assert.equal(added.job.motionId, added.motion.id);
@@ -313,13 +338,13 @@ test('full flow: fetch examples -> character -> mock job -> result -> add as mot
 
     const library = await (await fetch(`${app.base}/api/library`)).json();
     assert.equal(library.motions.length, 1);
-    assert.equal(library.motions[0].mime, 'video/mp4');
-    assert.ok(fsSync.existsSync(path.join(dataDir, 'media', `${added.motion.id}.mp4`)));
+    assert.equal(library.motions[0].mime, 'video/webm');
+    assert.ok(fsSync.existsSync(path.join(dataDir, 'media', `${added.motion.id}.webm`)));
 
     response = await fetch(`${app.base}/api/media/${added.motion.id}`, { headers: { Range: 'bytes=0-11' } });
     assert.equal(response.status, 206);
-    assert.equal(response.headers.get('content-type'), 'video/mp4');
-    assert.equal(Buffer.from(await response.arrayBuffer()).toString('ascii', 4, 8), 'ftyp');
+    assert.equal(response.headers.get('content-type'), 'video/webm');
+    assert.deepEqual([...Buffer.from(await response.arrayBuffer()).subarray(0, 4)], [0x1a, 0x45, 0xdf, 0xa3]);
 
     // The motion can be triggered like any other.
     response = await json(app.base, 'POST', '/api/trigger', { id: added.motion.id });
@@ -334,7 +359,7 @@ test('full flow: fetch examples -> character -> mock job -> result -> add as mot
     // After deleting the motion from the library it can be added again.
     response = await fetch(`${app.base}/api/media/${added.motion.id}`, { method: 'DELETE' });
     assert.equal(response.status, 200);
-    assert.equal(fsSync.existsSync(path.join(dataDir, 'media', `${added.motion.id}.mp4`)), false);
+    assert.equal(fsSync.existsSync(path.join(dataDir, 'media', `${added.motion.id}.webm`)), false);
     response = await json(app.base, 'POST', `/api/animate/jobs/${done.id}/motion`, { name: '  내\n인사  ' });
     assert.equal(response.status, 201);
     assert.equal((await response.json()).motion.name, '내 인사');
@@ -343,9 +368,9 @@ test('full flow: fetch examples -> character -> mock job -> result -> add as mot
     await new Promise(resolve => setTimeout(resolve, 100));
     const jobEvents = events.messages.filter(message => message.type === 'animate-job' && message.job.id === done.id);
     const states = jobEvents.map(message => message.job.state);
-    for (const state of ['queued', 'preparing', 'submitting', 'running', 'downloading', 'succeeded']) assert.ok(states.includes(state), `SSE saw ${state}`);
+    for (const state of ['queued', 'preparing', 'submitting', 'running', 'downloading', 'keying', 'succeeded']) assert.ok(states.includes(state), `SSE saw ${state}`);
     assert.ok(jobEvents.some(message => message.job.motionId === added.motion.id));
-    assert.ok(events.messages.some(message => message.type === 'library' && message.library.motions.some(item => item.mime === 'video/mp4')));
+    assert.ok(events.messages.some(message => message.type === 'library' && message.library.motions.some(item => item.mime === 'video/webm')));
   } finally {
     events.close();
     await stop(app.server);
@@ -642,6 +667,92 @@ test('jobs survive a restart: polling resumes, a mid-submit job becomes interrup
     const orphan = await (await fetch(`${app.base}/api/animate/jobs/${orphanId}`)).json();
     assert.equal(orphan.state, 'failed');
     assert.equal(orphan.error.code, 'interrupted');
+  } finally {
+    await stop(app.server);
+    await cleanup(dataDir, fixtures.dir);
+  }
+});
+
+test('keying: resume after a restart, on-demand keying, and the non-green skip path', { skip }, async () => {
+  const fixtures = await makeFixtures();
+  const fixtureServer = await startFixtureServer(fixtures.clip);
+  const manifestPath = await writeManifest(fixtures.dir, fixtureServer.base);
+  const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'virtually-animate-'));
+  const jobDir = id => path.join(dataDir, 'animate', 'jobs', id);
+  const rewriteJob = async (id, mutate) => {
+    const file = path.join(jobDir(id), 'job.json');
+    const stored = JSON.parse(await fs.readFile(file, 'utf8'));
+    mutate(stored);
+    await fs.writeFile(file, JSON.stringify(stored));
+  };
+  let app = await start(dataDir, manifestPath);
+  const ids = [];
+  try {
+    await upload(app.base, '/api/animate/character?name=c.png', fixtures.character);
+    const driving = await (await upload(app.base, '/api/animate/drivings?name=clip.mp4', fixtures.clip)).json();
+    for (let i = 0; i < 3; i += 1) {
+      const response = await json(app.base, 'POST', '/api/animate/jobs', { drivingId: driving.id, routeId: 'mock/local-demo' });
+      const done = await waitForJob(app.base, (await response.json()).job.id, ['succeeded', 'failed']);
+      assert.equal(done.state, 'succeeded', JSON.stringify(done.error));
+      assert.ok(done.result.keyedUrl, 'keyed during the run');
+      ids.push(done.id);
+    }
+  } finally {
+    await stop(app.server);
+    await new Promise(resolve => fixtureServer.server.close(resolve));
+  }
+  const [interruptedId, olderId, greyId] = ids;
+  // 1. Interrupted while keying: resumes keying only, never re-submits.
+  await fs.rm(path.join(jobDir(interruptedId), 'result.webm'));
+  await rewriteJob(interruptedId, job => { job.state = 'keying'; delete job.result.keyed; });
+  // 2. An older job from before keying existed: no result.webm, no key fields.
+  await fs.rm(path.join(jobDir(olderId), 'result.webm'));
+  await rewriteJob(olderId, job => { for (const field of ['keyed', 'keySkipped', 'keyError']) delete job.result[field]; });
+  // 3. A result whose background is not one colour.
+  await fs.rm(path.join(jobDir(greyId), 'result.webm'));
+  await fs.copyFile(fixtures.clip, path.join(jobDir(greyId), 'result.mp4'));
+  await rewriteJob(greyId, job => { for (const field of ['keyed', 'keySkipped', 'keyError']) delete job.result[field]; });
+  const submitsBefore = mockProvider._submitCount();
+
+  app = await start(dataDir, manifestPath);
+  try {
+    const resumed = await waitForJob(app.base, interruptedId, ['succeeded', 'failed']);
+    assert.equal(resumed.state, 'succeeded', JSON.stringify(resumed.error));
+    assert.ok(resumed.result.keyedUrl);
+    assert.equal(mockProvider._submitCount(), submitsBefore, 'keying resumed without a new submit');
+
+    let older = await (await fetch(`${app.base}/api/animate/jobs/${olderId}`)).json();
+    assert.equal(older.result.keyedUrl, null);
+    assert.equal(older.result.keySkipped, null);
+    let response = await fetch(`${app.base}/api/animate/jobs/${olderId}/result?variant=keyed`);
+    assert.equal(response.status, 404);
+    await response.arrayBuffer();
+    response = await json(app.base, 'POST', `/api/animate/jobs/${olderId}/motion`, {});
+    assert.equal(response.status, 201);
+    let added = await response.json();
+    assert.equal(added.keyed, true);
+    assert.equal(added.motion.mime, 'video/webm');
+    assert.ok(fsSync.existsSync(path.join(dataDir, 'media', `${added.motion.id}.webm`)));
+    assert.ok(fsSync.existsSync(path.join(jobDir(olderId), 'result.webm')), 'keyed on demand');
+    assert.ok(added.job.result.keyedUrl);
+    const alpha = alphaFrame(path.join(dataDir, 'media', `${added.motion.id}.webm`));
+    assert.ok(alpha[0] < 10 && alpha[48 * 64 + 32] > 245, `alpha corner ${alpha[0]} centre ${alpha[48 * 64 + 32]}`);
+
+    response = await json(app.base, 'POST', `/api/animate/jobs/${greyId}/motion`, {});
+    assert.equal(response.status, 201);
+    added = await response.json();
+    assert.equal(added.keyed, false);
+    assert.equal(added.keyReason, 'not_uniform');
+    assert.equal(added.motion.mime, 'video/mp4');
+    assert.ok(fsSync.existsSync(path.join(dataDir, 'media', `${added.motion.id}.mp4`)));
+    response = await fetch(`${app.base}/api/media/${added.motion.id}`, { headers: { Range: 'bytes=0-11' } });
+    assert.equal(response.headers.get('content-type'), 'video/mp4');
+    assert.equal(Buffer.from(await response.arrayBuffer()).toString('ascii', 4, 8), 'ftyp');
+    const grey = await (await fetch(`${app.base}/api/animate/jobs/${greyId}`)).json();
+    assert.equal(grey.state, 'succeeded');
+    assert.equal(grey.result.keyedUrl, null);
+    assert.equal(grey.result.keySkipped, 'not_uniform');
+    assert.equal(grey.motionId, added.motion.id);
   } finally {
     await stop(app.server);
     await cleanup(dataDir, fixtures.dir);

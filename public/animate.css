@@ -475,7 +475,10 @@ select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .job-time { font-size: 12px; color: var(--muted); }
 .job-info { margin: 0; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
 .job-info[data-kind="error"] { color: var(--danger); }
+.job-media { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.job-frame { display: inline-block; max-width: 100%; border-radius: 6px; overflow: hidden; }
 .job-video { display: block; max-width: 100%; max-height: 360px; background: #000; border-radius: 6px; }
+.job-frame.checkerboard .job-video { background: transparent; }
 .job-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .job-actions:empty { display: none; }
 .job-actions .status { margin: 0; }
