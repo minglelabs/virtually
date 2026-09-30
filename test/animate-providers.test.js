@@ -73,7 +73,7 @@ async function tmpFile(name, bytes) {
 // =====================================================================================
 
 test('every catalog route validates and has a buildRequest', () => {
-  assert.ok(ROUTES.length >= 15, `expected the full route table, got ${ROUTES.length}`);
+  assert.ok(ROUTES.length >= 13, `expected the full route table, got ${ROUTES.length}`);
   const ids = new Set();
   for (const route of ROUTES) {
     assert.doesNotThrow(() => validateRoute(route), `route ${route.id} should validate`);
@@ -105,7 +105,7 @@ function getPath(obj, dotted) {
 }
 
 test('buildRequest maps prompt only when the route supports it', () => {
-  const wave = ROUTES.find(r => r.id === 'wavespeed/wan-2.2-animate');
+  const wave = ROUTES.find(r => r.id === 'wavespeed/wan-2.2-animate-2');
   const withPrompt = buildRequest(wave, { imageUrl: 'i', videoUrl: 'v', prompt: 'p' });
   assert.equal(withPrompt.prompt, 'p');
   const dream = ROUTES.find(r => r.id === 'fal/dreamactor-v2'); // prompt field is null
@@ -126,12 +126,16 @@ test('buildRequest maps orientation and sound for Kling routes', () => {
 });
 
 test('buildRequest uses the option default when a supplied value is not allowed', () => {
-  const dash = ROUTES.find(r => r.id === 'dashscope/wan2.2-animate-move');
-  const bad = buildRequest(dash, { imageUrl: 'i', videoUrl: 'v', options: { mode: 'nonsense' } });
-  assert.equal(getPath(bad, 'parameters.mode'), 'wan-std');
-  const good = buildRequest(dash, { imageUrl: 'i', videoUrl: 'v', options: { mode: 'wan-pro' } });
-  assert.equal(getPath(good, 'parameters.mode'), 'wan-pro');
-  assert.equal(getPath(good, 'input.watermark'), false);
+  const kling = ROUTES.find(r => r.id === 'replicate/kling-v3-motion-control');
+  const bad = buildRequest(kling, { imageUrl: 'i', videoUrl: 'v', options: { mode: 'nonsense' } });
+  assert.equal(bad.mode, 'std');
+  const good = buildRequest(kling, { imageUrl: 'i', videoUrl: 'v', options: { mode: 'pro' } });
+  assert.equal(good.mode, 'pro');
+  // Dotted field paths still nest (no built-in route uses them since the DashScope removal).
+  const dotted = { ...kling, fields: { ...kling.fields, image: 'input.image_url' }, options: [], params: { 'input.watermark': false } };
+  const nested = buildRequest(dotted, { imageUrl: 'i', videoUrl: 'v' });
+  assert.equal(getPath(nested, 'input.image_url'), 'i');
+  assert.equal(getPath(nested, 'input.watermark'), false);
 });
 
 test('validateRoute rejects malformed routes', () => {
@@ -240,7 +244,7 @@ function wavespeedServer() {
       return json(res, 200, { data: { upload: { method: 'PUT', url: `http://${req.headers.host}/put/obj`, headers: {} }, download_url: `http://${req.headers.host}/dl/obj.png` } });
     }
     if (req.method === 'PUT' && req.url === '/put/obj') { res.statusCode = 200; return res.end(); }
-    if (req.method === 'POST' && req.url === '/wavespeed-ai/wan-2.2/animate') {
+    if (req.method === 'POST' && req.url === '/wavespeed-ai/wan-2.2/animate-2') {
       return json(res, 200, { data: { id: 'ws-1', urls: { get: `http://${req.headers.host}/predictions/ws-1/result` } } });
     }
     if (req.url === '/predictions/ws-1/result') {
@@ -254,7 +258,7 @@ function wavespeedServer() {
 test('wavespeed: upload -> submit -> poll(completed) -> download', async () => {
   const srv = await wavespeedServer();
   const ctx = makeCtx(srv.base, { credentials: { apiKey: 'ws-key' } });
-  const route = ROUTES.find(r => r.id === 'wavespeed/wan-2.2-animate');
+  const route = ROUTES.find(r => r.id === 'wavespeed/wan-2.2-animate-2');
   const file = await tmpFile('idle.png', Buffer.from('PNG'));
   try {
     const url = await providers.wavespeed.upload(ctx, file);
@@ -263,11 +267,11 @@ test('wavespeed: upload -> submit -> poll(completed) -> download', async () => {
     const put = srv.requests.find(r => r.method === 'PUT');
     assert.equal(put.headers.authorization, undefined);
 
-    const task = await providers.wavespeed.submit(ctx, route, { imageUrl: url, videoUrl: 'v', options: { resolution: '720p' } });
+    const task = await providers.wavespeed.submit(ctx, route, { imageUrl: url, videoUrl: 'v', motionPrompt: 'm', options: { resolution: '720p' } });
     assert.equal(task.id, 'ws-1');
-    const submitReq = srv.requests.find(r => r.url === '/wavespeed-ai/wan-2.2/animate');
+    const submitReq = srv.requests.find(r => r.url === '/wavespeed-ai/wan-2.2/animate-2');
     assert.equal(JSON.parse(submitReq.body).resolution, '720p');
-    assert.equal(JSON.parse(submitReq.body).mode, 'animate');
+    assert.equal('mode' in JSON.parse(submitReq.body), false);
 
     const state = await providers.wavespeed.poll(ctx, route, task);
     assert.equal(state.state, 'succeeded');
@@ -300,10 +304,10 @@ test('wavespeed: status mapping covers every documented value', async () => {
 test('replicate: files upload, version-resolved submit, poll(succeeded), delivery download with auth', async () => {
   const srv = await fakeServer((req, res, body) => {
     if (req.method === 'POST' && req.url === '/files') return json(res, 201, { urls: { get: `http://${req.headers.host}/f/abc` } });
-    if (req.method === 'GET' && req.url === '/models/wan-video/wan-2.2-animate-animation') return json(res, 200, { latest_version: { id: 'VER123' } });
+    if (req.method === 'GET' && req.url === '/models/bytedance/dreamactor-m2.0') return json(res, 200, { latest_version: { id: 'VER123' } });
     if (req.method === 'POST' && req.url === '/predictions') {
       const parsed = JSON.parse(body);
-      assert.equal(parsed.version, 'wan-video/wan-2.2-animate-animation:VER123');
+      assert.equal(parsed.version, 'bytedance/dreamactor-m2.0:VER123');
       return json(res, 201, { id: 'rp-1', status: 'starting', urls: { get: `http://${req.headers.host}/predictions/rp-1`, cancel: `http://${req.headers.host}/predictions/rp-1/cancel` } });
     }
     if (req.url === '/predictions/rp-1') return json(res, 200, { id: 'rp-1', status: 'succeeded', output: `http://${req.headers.host}/delivery/out.mp4` });
@@ -312,7 +316,7 @@ test('replicate: files upload, version-resolved submit, poll(succeeded), deliver
   });
   const deliveryHost = new URL(srv.base).host;
   const ctx = makeCtx(srv.base, { credentials: { apiToken: 'r8_secret' }, extra: { deliveryHost } });
-  const route = ROUTES.find(r => r.id === 'replicate/wan-2.2-animate-animation');
+  const route = ROUTES.find(r => r.id === 'replicate/dreamactor-m2.0');
   const file = await tmpFile('idle.png', Buffer.from('PNG'));
   try {
     const url = await providers.replicate.upload(ctx, file);
@@ -448,65 +452,6 @@ test('higgsfield: completed -> video.url', async () => {
   assert.equal(st.state, 'succeeded');
   assert.equal(st.outputUrl, 'http://x/o.mp4');
   await srv.close();
-});
-
-// =====================================================================================
-// DashScope (Wan direct)
-// =====================================================================================
-
-test('dashscope: getPolicy + OSS multipart (file field LAST) -> oss:// URL; async submit; poll', async () => {
-  const srv = await fakeServer((req, res) => {
-    if (req.url.startsWith('/api/v1/uploads')) {
-      return json(res, 200, { data: {
-        policy: 'POLICY', signature: 'SIG', upload_dir: 'dashscope-instant/xyz', upload_host: `http://${req.headers.host}/oss`,
-        oss_access_key_id: 'OSSAK', x_oss_object_acl: 'private', x_oss_forbid_overwrite: 'true',
-      } });
-    }
-    if (req.method === 'POST' && req.url === '/oss') { res.statusCode = 200; return res.end(); }
-    if (req.method === 'POST' && req.url === '/api/v1/services/aigc/image2video/video-synthesis') {
-      return json(res, 200, { output: { task_status: 'PENDING', task_id: 'ds-1' } });
-    }
-    if (req.url === '/api/v1/tasks/ds-1') {
-      return json(res, 200, { output: { task_status: 'SUCCEEDED', results: { video_url: `http://${req.headers.host}/out.mp4` } } });
-    }
-    return json(res, 404, { code: 'X', message: 'nope' });
-  });
-  const ctx = makeCtx(srv.base, { credentials: { apiKey: 'ds-key' }, settings: { region: 'intl' } });
-  const route = ROUTES.find(r => r.id === 'dashscope/wan2.2-animate-move');
-  const file = await tmpFile('idle.png', Buffer.from('PNG'));
-  try {
-    const url = await providers.dashscope.upload(ctx, file);
-    assert.equal(url, 'oss://dashscope-instant/xyz/idle.png');
-    // Verify multipart body ordering: `file` disposition must appear after `key`.
-    const ossReq = srv.requests.find(r => r.method === 'POST' && r.url === '/oss');
-    const bodyStr = ossReq.body.toString('latin1');
-    assert.ok(bodyStr.indexOf('name="key"') < bodyStr.indexOf('name="file"'), 'file field must be last');
-    assert.ok(bodyStr.includes('name="success_action_status"'));
-    // getPolicy carried no oss:// resolve header; submit must.
-    const task = await providers.dashscope.submit(ctx, route, { imageUrl: url, videoUrl: 'oss://dashscope-instant/xyz/ref.mp4', options: { mode: 'wan-std' } });
-    assert.equal(task.id, 'ds-1');
-    const submitReq = srv.requests.find(r => r.url.endsWith('/video-synthesis'));
-    assert.equal(submitReq.headers['x-dashscope-async'], 'enable');
-    assert.equal(submitReq.headers['x-dashscope-ossresourceresolve'], 'enable');
-    assert.equal(JSON.parse(submitReq.body).model, 'wan2.2-animate-move');
-    const st = await providers.dashscope.poll(ctx, route, task);
-    assert.equal(st.state, 'succeeded');
-    assert.ok(st.outputUrl.endsWith('/out.mp4'));
-  } finally {
-    await srv.close();
-    await fs.rm(file.dir, { recursive: true, force: true });
-  }
-});
-
-test('dashscope: task status mapping', async () => {
-  const map = { PENDING: 'queued', RUNNING: 'running', SUCCEEDED: 'succeeded', FAILED: 'failed', CANCELED: 'canceled', UNKNOWN: 'failed' };
-  for (const [provider, expected] of Object.entries(map)) {
-    const srv = await fakeServer((req, res) => json(res, 200, { output: { task_status: provider, results: provider === 'SUCCEEDED' ? { video_url: 'http://x/o.mp4' } : undefined, code: 'DataInspectionFailed' } }));
-    const ctx = makeCtx(srv.base, { credentials: { apiKey: 'k' }, settings: { region: 'intl' } });
-    const st = await providers.dashscope.poll(ctx, ROUTES.find(r => r.provider === 'dashscope'), { id: 'ds-1' });
-    assert.equal(st.state, expected, `${provider} -> ${expected}`);
-    await srv.close();
-  }
 });
 
 // =====================================================================================

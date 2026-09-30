@@ -112,12 +112,12 @@ test('animate page never assigns innerHTML/outerHTML or uses insertAdjacentHTML'
 });
 
 const route = (over = {}) => ({
-  id: 'wavespeed/wan-2.2-animate',
+  id: 'wavespeed/wan-2.2-animate-2',
   provider: 'wavespeed',
   providerLabel: 'WaveSpeed',
-  family: 'wan-animate',
-  familyLabel: 'Wan 2.2 Animate',
-  label: 'Wan 2.2 Animate',
+  family: 'wan-animate-2',
+  familyLabel: 'Wan 2.2 Animate 2',
+  label: 'Wan 2.2 Animate 2',
   options: [{ key: 'resolution', field: 'resolution', label: '해상도', values: ['480p', '720p'], default: '720p' }],
   limits: { videoMinSec: 3, videoMaxSec: 120 },
   pricing: { usdPerSecond: 0.08, byOption: { resolution: { '480p': 0.04, '720p': 0.08 } }, minSeconds: 3 },
@@ -151,12 +151,12 @@ test('effectiveOptions keeps valid choices and falls back to defaults; free-form
 });
 
 test('routeState and groupRoutes', () => {
-  assert.deepEqual(H.routeState(route(), 5), { selectable: true, needsKey: false, tooLong: false });
-  assert.deepEqual(H.routeState(route(), 200), { selectable: true, needsKey: false, tooLong: true });
+  assert.deepEqual(H.routeState(route(), 5), { selectable: true, needsKey: false, tooLong: false, tooShort: false });
+  assert.deepEqual(H.routeState(route(), 200), { selectable: true, needsKey: false, tooLong: true, tooShort: false });
   assert.deepEqual(H.routeState(route({ available: false, unavailableCode: 'no_credentials' }), 5),
-    { selectable: false, needsKey: true, tooLong: false });
+    { selectable: false, needsKey: true, tooLong: false, tooShort: false });
   assert.deepEqual(H.routeState(route({ available: false, unavailableCode: 'no_media_relay' }), 5),
-    { selectable: false, needsKey: false, tooLong: false });
+    { selectable: false, needsKey: false, tooLong: false, tooShort: false });
   const groups = H.groupRoutes([
     route({ id: 'a', familyLabel: 'Wan' }),
     route({ id: 'b', familyLabel: 'Kling' }),
@@ -166,12 +166,39 @@ test('routeState and groupRoutes', () => {
   assert.equal(H.isMockRoute({ provider: 'mock' }), true);
 });
 
+test('routeMinSeconds and the length limits mirror the server tolerance', () => {
+  const limited = (videoMinSec, videoMaxSec = 30) => ({ available: true, limits: { videoMinSec, videoMaxSec } });
+  assert.equal(H.LENGTH_TOLERANCE_SEC, 0.05);
+  assert.equal(H.routeMinSeconds(limited(3)), 3);
+  assert.equal(H.routeMinSeconds(limited(null)), null);
+  assert.equal(H.routeMinSeconds(limited(0)), null);
+  assert.equal(H.routeMinSeconds(limited('x')), null);
+  assert.equal(H.routeMinSeconds({}), null);
+  assert.equal(H.routeMinSeconds(null), null);
+
+  assert.equal(H.routeState(limited(3), 2.5).tooShort, true);
+  assert.equal(H.routeState(limited(3), 2.94).tooShort, true);
+  assert.equal(H.routeState(limited(3), 2.96).tooShort, false);
+  assert.equal(H.routeState(limited(3), 3).tooShort, false);
+  assert.equal(H.routeState(limited(null), 0.5).tooShort, false);
+  assert.equal(H.routeState(limited(3), undefined).tooShort, false);
+  assert.equal(H.routeState(limited(3), Number.NaN).tooShort, false);
+
+  assert.equal(H.routeState(limited(3, 30), 30.03).tooLong, false);
+  assert.equal(H.routeState(limited(3, 30), 30.06).tooLong, true);
+});
+
 test('errorText prefers known Korean codes, then the server message', () => {
   assert.equal(H.errorText({ error: 'x', code: 'character_missing' }), '캐릭터 이미지가 없습니다');
   assert.equal(H.errorText({ error: 'x', code: 'route_unavailable', detail: { unavailableCode: 'no_credentials' } }), 'API 키가 필요합니다');
   assert.equal(H.errorText({ error: 'Something broke', code: 'weird' }), 'Something broke');
   assert.equal(H.errorText({ code: 'weird', message: 'Provider said no' }), 'Provider said no');
   assert.equal(H.errorText(null), '알 수 없는 오류');
+  assert.equal(H.errorText({ error: 'x', code: 'driving_too_short', detail: { minSec: 3, duration: 2.5 } }),
+    '영상(2.5초)이 이 모델의 최소 길이(3초)보다 짧습니다');
+  assert.equal(H.errorText({ error: 'x', code: 'driving_too_short' }), '영상이 모델 최소 길이보다 짧습니다');
+  assert.equal(H.errorText({ error: 'x', code: 'driving_too_short', detail: { minSec: 3 } }), '영상이 모델 최소 길이보다 짧습니다');
+  assert.equal(H.tooShortText(2.5, 3), '영상(2.5초)이 이 모델의 최소 길이(3초)보다 짧습니다');
 });
 
 test('job helpers: default name, newest-first upsert, added state, progress text', () => {
@@ -193,13 +220,30 @@ test('job helpers: default name, newest-first upsert, added state, progress text
   assert.equal(H.progressText({ providerStatus: 'IN_PROGRESS', progress: 0.42 }), 'IN_PROGRESS · 42%');
   assert.equal(H.progressText({ providerStatus: null, progress: null }), '');
   assert.deepEqual(Object.keys(H.JOB_STATE_LABELS),
-    ['queued', 'preparing', 'submitting', 'running', 'downloading', 'succeeded', 'failed', 'canceled']);
+    ['queued', 'preparing', 'submitting', 'running', 'downloading', 'keying', 'succeeded', 'failed', 'canceled']);
+  assert.equal(H.JOB_STATE_LABELS.keying, '배경 지우는 중');
+  assert.ok(H.ACTIVE_STATES.has('keying'));
+  assert.equal(H.keyNote({ result: { keyedUrl: '/k', keySkipped: null, keyFailed: false } }), '');
+  assert.equal(H.keyNote({ result: { keyedUrl: null, keySkipped: 'not_uniform', keyFailed: false } }), '배경이 한 가지 색이 아니라서 원본 영상을 그대로 씁니다');
+  assert.equal(H.keyNote({ result: { keyedUrl: null, keySkipped: null, keyFailed: true } }), '배경을 지우지 못해 원본 영상을 그대로 씁니다');
+  assert.equal(H.keyNote({ result: { keyedUrl: null, keySkipped: null, keyFailed: false } }), '');
+  assert.equal(H.keyNote({ result: null }), '');
 });
 
 test('formatting helpers', () => {
   assert.equal(H.formatSeconds(5), '5초');
-  assert.equal(H.formatSeconds(4.6), '5초');
+  assert.equal(H.formatSeconds(2.5), '2.5초');
+  assert.equal(H.formatSeconds(3), '3초');
+  assert.equal(H.formatSeconds(3.04), '3초');
+  assert.equal(H.formatSeconds(3.6), '3.6초');
+  assert.equal(H.formatSeconds(4.6), '4.6초');
+  assert.equal(H.formatSeconds(9.96), '10초');
+  assert.equal(H.formatSeconds(10), '10초');
+  assert.equal(H.formatSeconds(12.4), '12초');
   assert.equal(H.formatSeconds(null), '');
+  assert.equal(H.formatSeconds(0), '');
+  assert.equal(H.formatSeconds(-1), '');
+  assert.equal(H.formatSeconds(Number.POSITIVE_INFINITY), '');
   const now = new Date(2026, 8, 29, 16, 0).getTime();
   assert.equal(H.formatTime(new Date(2026, 8, 29, 9, 5).toISOString(), now), '09:05');
   assert.equal(H.formatTime(new Date(2026, 8, 28, 9, 5).getTime(), now), '9/28 09:05');

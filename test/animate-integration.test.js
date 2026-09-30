@@ -39,8 +39,17 @@ function makeClip(filePath, { seconds = 4, size = '320x240', rate = 15, format =
     '-pix_fmt', 'yuv420p', '-c:v', 'libx264', '-preset', 'ultrafast', ...(format ? ['-f', format] : []), filePath]);
 }
 
+// A red body on a transparent canvas: composited onto the green key canvas it
+// leaves a green border, so mock results get keyed.
 function makeCharacter(filePath) {
-  ffmpeg(['-f', 'lavfi', '-i', 'color=c=red@0.5:s=64x96', '-frames:v', '1', '-vf', 'format=rgba', filePath]);
+  ffmpeg(['-f', 'lavfi', '-i', "nullsrc=s=64x96,format=rgba,geq=r=255:g=0:b=0:a='255*between(X\\,16\\,47)*between(Y\\,24\\,71)'",
+    '-frames:v', '1', filePath]);
+}
+
+// The alpha plane of the first frame of a VP9 WebM (libvpx keeps alpha).
+function alphaFrame(filePath) {
+  return execFileSync(FFMPEG, ['-hide_banner', '-loglevel', 'error', '-nostdin', '-c:v', 'libvpx-vp9', '-i', filePath,
+    '-vf', 'alphaextract,format=gray', '-frames:v', '1', '-f', 'rawvideo', 'pipe:1']);
 }
 
 async function makeFixtures() {
@@ -189,7 +198,7 @@ test('full flow: fetch examples -> character -> mock job -> result -> add as mot
       'keepsImageBackground', 'verified', 'docs', 'needsRelay', 'available', 'unavailableCode']) {
       assert.ok(key in mockRoute, `RouteView has ${key}`);
     }
-    assert.ok(status.routes.length >= 17, 'catalog routes are restored');
+    assert.ok(status.routes.length >= 14, 'catalog routes are restored');
     assert.ok(status.providers.some(provider => provider.id === 'wavespeed'));
     assert.ok(!('keying' in status.config));
 
@@ -277,6 +286,10 @@ test('full flow: fetch examples -> character -> mock job -> result -> add as mot
     assert.equal(done.result.url, `/api/animate/jobs/${done.id}/result`);
     assert.equal(done.result.posterUrl, `/api/animate/jobs/${done.id}/poster`);
     assert.equal(done.result.mime, 'video/mp4');
+    assert.equal(done.result.keyedUrl, `/api/animate/jobs/${done.id}/result?variant=keyed`);
+    assert.match(done.result.keyColor, /^#[0-9A-F]{6}$/);
+    assert.equal(done.result.keySkipped, null);
+    assert.equal(done.result.keyFailed, false);
     assert.equal(done.result.width, 64);
     assert.equal(done.result.height, 96);
     assert.ok(done.result.duration > 2.5 && done.result.duration < 3.5, `result duration ${done.result.duration}`);
@@ -297,6 +310,16 @@ test('full flow: fetch examples -> character -> mock job -> result -> add as mot
     assert.equal(response.headers.get('content-type'), 'image/jpeg');
     await response.arrayBuffer();
 
+    // The keyed WebM is served with Range and is transparent around the character.
+    response = await fetch(`${app.base}${done.result.keyedUrl}`, { headers: { Range: 'bytes=0-3' } });
+    assert.equal(response.status, 206);
+    assert.equal(response.headers.get('content-type'), 'video/webm');
+    assert.deepEqual([...Buffer.from(await response.arrayBuffer())], [0x1a, 0x45, 0xdf, 0xa3]);
+    const alpha = alphaFrame(path.join(dataDir, 'animate', 'jobs', done.id, 'result.webm'));
+    assert.equal(alpha.length, 64 * 96);
+    assert.ok(alpha[0] < 10, `corner alpha ${alpha[0]}`);
+    assert.ok(alpha[48 * 64 + 32] > 245, `centre alpha ${alpha[48 * 64 + 32]}`);
+
     // Add as motion: the name defaults to the preset label.
     response = await json(app.base, 'POST', `/api/animate/jobs/${done.id}/motion`, undefined);
     assert.equal(response.status, 415);
@@ -305,7 +328,9 @@ test('full flow: fetch examples -> character -> mock job -> result -> add as mot
     const added = await response.json();
     assert.equal(added.motion.name, '인사 (Hi)');
     assert.equal(added.motion.kind, 'motion');
-    assert.equal(added.motion.mime, 'video/mp4');
+    assert.equal(added.motion.mime, 'video/webm');
+    assert.equal(added.keyed, true);
+    assert.equal(added.keyReason, null);
     assert.equal(added.motion.url, `/api/media/${added.motion.id}`);
     assert.deepEqual(added.motion.source, { jobId: done.id });
     assert.equal(added.job.motionId, added.motion.id);
@@ -313,13 +338,13 @@ test('full flow: fetch examples -> character -> mock job -> result -> add as mot
 
     const library = await (await fetch(`${app.base}/api/library`)).json();
     assert.equal(library.motions.length, 1);
-    assert.equal(library.motions[0].mime, 'video/mp4');
-    assert.ok(fsSync.existsSync(path.join(dataDir, 'media', `${added.motion.id}.mp4`)));
+    assert.equal(library.motions[0].mime, 'video/webm');
+    assert.ok(fsSync.existsSync(path.join(dataDir, 'media', `${added.motion.id}.webm`)));
 
     response = await fetch(`${app.base}/api/media/${added.motion.id}`, { headers: { Range: 'bytes=0-11' } });
     assert.equal(response.status, 206);
-    assert.equal(response.headers.get('content-type'), 'video/mp4');
-    assert.equal(Buffer.from(await response.arrayBuffer()).toString('ascii', 4, 8), 'ftyp');
+    assert.equal(response.headers.get('content-type'), 'video/webm');
+    assert.deepEqual([...Buffer.from(await response.arrayBuffer()).subarray(0, 4)], [0x1a, 0x45, 0xdf, 0xa3]);
 
     // The motion can be triggered like any other.
     response = await json(app.base, 'POST', '/api/trigger', { id: added.motion.id });
@@ -334,7 +359,7 @@ test('full flow: fetch examples -> character -> mock job -> result -> add as mot
     // After deleting the motion from the library it can be added again.
     response = await fetch(`${app.base}/api/media/${added.motion.id}`, { method: 'DELETE' });
     assert.equal(response.status, 200);
-    assert.equal(fsSync.existsSync(path.join(dataDir, 'media', `${added.motion.id}.mp4`)), false);
+    assert.equal(fsSync.existsSync(path.join(dataDir, 'media', `${added.motion.id}.webm`)), false);
     response = await json(app.base, 'POST', `/api/animate/jobs/${done.id}/motion`, { name: '  내\n인사  ' });
     assert.equal(response.status, 201);
     assert.equal((await response.json()).motion.name, '내 인사');
@@ -343,9 +368,9 @@ test('full flow: fetch examples -> character -> mock job -> result -> add as mot
     await new Promise(resolve => setTimeout(resolve, 100));
     const jobEvents = events.messages.filter(message => message.type === 'animate-job' && message.job.id === done.id);
     const states = jobEvents.map(message => message.job.state);
-    for (const state of ['queued', 'preparing', 'submitting', 'running', 'downloading', 'succeeded']) assert.ok(states.includes(state), `SSE saw ${state}`);
+    for (const state of ['queued', 'preparing', 'submitting', 'running', 'downloading', 'keying', 'succeeded']) assert.ok(states.includes(state), `SSE saw ${state}`);
     assert.ok(jobEvents.some(message => message.job.motionId === added.motion.id));
-    assert.ok(events.messages.some(message => message.type === 'library' && message.library.motions.some(item => item.mime === 'video/mp4')));
+    assert.ok(events.messages.some(message => message.type === 'library' && message.library.motions.some(item => item.mime === 'video/webm')));
   } finally {
     events.close();
     await stop(app.server);
@@ -438,14 +463,22 @@ test('job validation, uploads, config, cancel and the idle fallback', { skip }, 
     assert.ok(!JSON.stringify(configured).includes('test-key-not-real'));
     const configPath = path.join(dataDir, 'animate', 'config.json');
     assert.equal((await fs.stat(configPath)).mode & 0o777, 0o600);
-    const paidRoute = configured.routes.find(route => route.id === 'wavespeed/wan-2.2-animate');
+    const paidRoute = configured.routes.find(route => route.id === 'wavespeed/wan-2.2-animate-2');
     assert.equal(paidRoute.available, true);
     // A paid route needs explicit confirmation; nothing is sent without it.
     response = await post({ drivingId: mine.id, routeId: paidRoute.id });
     assert.equal(response.status, 400);
     assert.equal((await response.json()).code, 'not_confirmed');
-    response = await post({ drivingId: short.id, routeId: paidRoute.id, confirmed: true });
-    assert.equal((await response.json()).code, 'driving_too_short');
+    // WaveSpeed Wan Animate 2 has no input minimum (3 s is billing only): the 2 s clip passes the length
+    // check and stops at the confirmation. Kling documents 3-30 s and refuses it.
+    response = await post({ drivingId: short.id, routeId: paidRoute.id });
+    assert.equal((await response.json()).code, 'not_confirmed');
+    const klingRoute = configured.routes.find(route => route.id === 'wavespeed/kling-v3-motion-control-std');
+    assert.equal(klingRoute.available, true);
+    response = await post({ drivingId: short.id, routeId: klingRoute.id, confirmed: true });
+    const klingShort = await response.json();
+    assert.equal(klingShort.code, 'driving_too_short');
+    assert.equal(klingShort.detail.minSec, 3);
     response = await json(app.base, 'PUT', '/api/animate/config', { providers: { wavespeed: { apiKey: '' } } });
     assert.equal(response.status, 200);
     assert.equal((await (await fetch(`${app.base}/api/animate/jobs`)).json()).jobs.length, 0, 'no job was created for a paid route');
@@ -637,6 +670,154 @@ test('jobs survive a restart: polling resumes, a mid-submit job becomes interrup
   } finally {
     await stop(app.server);
     await cleanup(dataDir, fixtures.dir);
+  }
+});
+
+test('keying: resume after a restart, on-demand keying, and the non-green skip path', { skip }, async () => {
+  const fixtures = await makeFixtures();
+  const fixtureServer = await startFixtureServer(fixtures.clip);
+  const manifestPath = await writeManifest(fixtures.dir, fixtureServer.base);
+  const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'virtually-animate-'));
+  const jobDir = id => path.join(dataDir, 'animate', 'jobs', id);
+  const rewriteJob = async (id, mutate) => {
+    const file = path.join(jobDir(id), 'job.json');
+    const stored = JSON.parse(await fs.readFile(file, 'utf8'));
+    mutate(stored);
+    await fs.writeFile(file, JSON.stringify(stored));
+  };
+  let app = await start(dataDir, manifestPath);
+  const ids = [];
+  try {
+    await upload(app.base, '/api/animate/character?name=c.png', fixtures.character);
+    const driving = await (await upload(app.base, '/api/animate/drivings?name=clip.mp4', fixtures.clip)).json();
+    for (let i = 0; i < 3; i += 1) {
+      const response = await json(app.base, 'POST', '/api/animate/jobs', { drivingId: driving.id, routeId: 'mock/local-demo' });
+      const done = await waitForJob(app.base, (await response.json()).job.id, ['succeeded', 'failed']);
+      assert.equal(done.state, 'succeeded', JSON.stringify(done.error));
+      assert.ok(done.result.keyedUrl, 'keyed during the run');
+      ids.push(done.id);
+    }
+  } finally {
+    await stop(app.server);
+    await new Promise(resolve => fixtureServer.server.close(resolve));
+  }
+  const [interruptedId, olderId, greyId] = ids;
+  // 1. Interrupted while keying: resumes keying only, never re-submits.
+  await fs.rm(path.join(jobDir(interruptedId), 'result.webm'));
+  await rewriteJob(interruptedId, job => { job.state = 'keying'; delete job.result.keyed; });
+  // 2. An older job from before keying existed: no result.webm, no key fields.
+  await fs.rm(path.join(jobDir(olderId), 'result.webm'));
+  await rewriteJob(olderId, job => { for (const field of ['keyed', 'keySkipped', 'keyError']) delete job.result[field]; });
+  // 3. A result whose background is not one colour.
+  await fs.rm(path.join(jobDir(greyId), 'result.webm'));
+  await fs.copyFile(fixtures.clip, path.join(jobDir(greyId), 'result.mp4'));
+  await rewriteJob(greyId, job => { for (const field of ['keyed', 'keySkipped', 'keyError']) delete job.result[field]; });
+  const submitsBefore = mockProvider._submitCount();
+
+  app = await start(dataDir, manifestPath);
+  try {
+    const resumed = await waitForJob(app.base, interruptedId, ['succeeded', 'failed']);
+    assert.equal(resumed.state, 'succeeded', JSON.stringify(resumed.error));
+    assert.ok(resumed.result.keyedUrl);
+    assert.equal(mockProvider._submitCount(), submitsBefore, 'keying resumed without a new submit');
+
+    let older = await (await fetch(`${app.base}/api/animate/jobs/${olderId}`)).json();
+    assert.equal(older.result.keyedUrl, null);
+    assert.equal(older.result.keySkipped, null);
+    let response = await fetch(`${app.base}/api/animate/jobs/${olderId}/result?variant=keyed`);
+    assert.equal(response.status, 404);
+    await response.arrayBuffer();
+    response = await json(app.base, 'POST', `/api/animate/jobs/${olderId}/motion`, {});
+    assert.equal(response.status, 201);
+    let added = await response.json();
+    assert.equal(added.keyed, true);
+    assert.equal(added.motion.mime, 'video/webm');
+    assert.ok(fsSync.existsSync(path.join(dataDir, 'media', `${added.motion.id}.webm`)));
+    assert.ok(fsSync.existsSync(path.join(jobDir(olderId), 'result.webm')), 'keyed on demand');
+    assert.ok(added.job.result.keyedUrl);
+    const alpha = alphaFrame(path.join(dataDir, 'media', `${added.motion.id}.webm`));
+    assert.ok(alpha[0] < 10 && alpha[48 * 64 + 32] > 245, `alpha corner ${alpha[0]} centre ${alpha[48 * 64 + 32]}`);
+
+    response = await json(app.base, 'POST', `/api/animate/jobs/${greyId}/motion`, {});
+    assert.equal(response.status, 201);
+    added = await response.json();
+    assert.equal(added.keyed, false);
+    assert.equal(added.keyReason, 'not_uniform');
+    assert.equal(added.motion.mime, 'video/mp4');
+    assert.ok(fsSync.existsSync(path.join(dataDir, 'media', `${added.motion.id}.mp4`)));
+    response = await fetch(`${app.base}/api/media/${added.motion.id}`, { headers: { Range: 'bytes=0-11' } });
+    assert.equal(response.headers.get('content-type'), 'video/mp4');
+    assert.equal(Buffer.from(await response.arrayBuffer()).toString('ascii', 4, 8), 'ftyp');
+    const grey = await (await fetch(`${app.base}/api/animate/jobs/${greyId}`)).json();
+    assert.equal(grey.state, 'succeeded');
+    assert.equal(grey.result.keyedUrl, null);
+    assert.equal(grey.result.keySkipped, 'not_uniform');
+    assert.equal(grey.motionId, added.motion.id);
+  } finally {
+    await stop(app.server);
+    await cleanup(dataDir, fixtures.dir);
+  }
+});
+
+test('state left by the removed Wan v1 / DashScope routes still loads', async () => {
+  const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'virtually-animate-'));
+  const manifestPath = path.join(dataDir, 'none.json');
+  const animateDir = path.join(dataDir, 'animate');
+  await fs.mkdir(animateDir, { recursive: true });
+  // A config saved before the removal: default route is v1 and a DashScope key is stored.
+  await fs.writeFile(path.join(animateDir, 'config.json'), JSON.stringify({
+    version: 1,
+    providers: { dashscope: { apiKey: 'old-dashscope-key-5678', region: 'intl' }, wavespeed: { apiKey: 'test-key-not-real-1234' } },
+    defaults: { routeId: 'dashscope/wan2.2-animate-move', options: {} },
+    mediaRelay: 'auto', concurrency: 2,
+  }));
+  // A finished v1 job with a result on disk, and a v1 job that was still polling.
+  const doneId = 'aaaaaaaa-1111-4111-8111-111111111111';
+  const pollingId = 'bbbbbbbb-2222-4222-8222-222222222222';
+  const baseJob = {
+    routeLabel: 'Wan 2.2 Animate', familyLabel: 'Wan 2.2 Animate (v1)', providerLabel: 'WaveSpeed',
+    drivingId: 'up-x', drivingLabel: 'old', updatedAt: '2026-09-01T00:00:00.000Z', options: {},
+  };
+  const jobsDir = path.join(animateDir, 'jobs');
+  await fs.mkdir(path.join(jobsDir, doneId), { recursive: true });
+  await fs.writeFile(path.join(jobsDir, doneId, 'job.json'), JSON.stringify({
+    ...baseJob, id: doneId, state: 'succeeded', routeId: 'wavespeed/wan-2.2-animate', createdAt: '2026-09-01T00:00:00.000Z',
+    result: { duration: 3, width: 64, height: 96, mime: 'video/mp4' },
+  }));
+  await fs.writeFile(path.join(jobsDir, doneId, 'result.mp4'), Buffer.from('OLDRESULT'));
+  await fs.mkdir(path.join(jobsDir, pollingId), { recursive: true });
+  await fs.writeFile(path.join(jobsDir, pollingId, 'job.json'), JSON.stringify({
+    ...baseJob, id: pollingId, state: 'running', routeId: 'dashscope/wan2.2-animate-move', createdAt: '2026-09-02T00:00:00.000Z',
+    task: { id: 'ds-1' },
+  }));
+
+  const app = await start(dataDir, manifestPath);
+  try {
+    const status = await (await fetch(`${app.base}/api/animate/status`)).json();
+    assert.equal(status.providers.some(provider => provider.id === 'dashscope'), false);
+    assert.equal(status.routes.some(route => route.family === 'wan-animate' || route.provider === 'dashscope'), false);
+    assert.equal(status.routes[0].id, 'wavespeed/wan-2.2-animate-2');
+    assert.ok(!JSON.stringify(status).includes('old-dashscope-key'));
+
+    const list = (await (await fetch(`${app.base}/api/animate/jobs`)).json()).jobs;
+    assert.deepEqual(list.map(job => job.id).sort(), [doneId, pollingId].sort());
+    const done = await (await fetch(`${app.base}/api/animate/jobs/${doneId}`)).json();
+    assert.equal(done.state, 'succeeded');
+    assert.equal(done.routeLabel, 'Wan 2.2 Animate');
+    assert.equal(done.result.url, `/api/animate/jobs/${doneId}/result`);
+    const result = await fetch(`${app.base}${done.result.url}`);
+    assert.equal(result.status, 200);
+    assert.equal(Buffer.from(await result.arrayBuffer()).toString(), 'OLDRESULT');
+    // The job whose route vanished mid-poll ends failed instead of throwing.
+    const orphan = await waitForJob(app.base, pollingId, ['failed']);
+    assert.equal(orphan.error.code, 'submit_failed');
+
+    // Saving config still works with the stale DashScope entry in the file.
+    const response = await json(app.base, 'PUT', '/api/animate/config', { concurrency: 1 });
+    assert.equal(response.status, 200);
+  } finally {
+    await stop(app.server);
+    await cleanup(dataDir);
   }
 });
 
