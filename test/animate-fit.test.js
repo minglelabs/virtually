@@ -211,17 +211,23 @@ test('job margin option: validation, padded reference, job view, lazy fit after 
     assert.ok(Math.max(...pixel(path.join(jobDir, 'reference.mp4'), 4, 4, 396)) < 30, 'the padded corner is black');
     assert.ok(done.result.fit && done.result.fit.v === 1, 'keyed result has a fit');
 
-    // A job stored before margins/fit existed: margin 'none', fit measured in the background.
+    // A job stored before margins/fit/finishedAt existed: margin 'none', fit measured in
+    // the background, finishedAt taken from result.mp4's mtime (written once, on download).
+    assert.ok(Date.parse(done.finishedAt) >= Date.parse(done.createdAt), 'finishedAt stamped on success');
     const jobPath = path.join(jobDir, 'job.json');
     const stored = JSON.parse(await fs.readFile(jobPath, 'utf8'));
     delete stored.margin;
     delete stored.result.fit;
+    delete stored.finishedAt;
     await stop(app.server);
     await fs.writeFile(jobPath, JSON.stringify(stored));
+    const downloadedAt = new Date('2026-09-30T05:02:13.000Z');
+    await fs.utimes(path.join(jobDir, 'result.mp4'), downloadedAt, downloadedAt);
     app = await start(dataDir);
     await app.server.animate.pipeline.fitBackfill;
     const reloaded = await (await fetch(`${app.base}/api/animate/jobs/${jobId}`)).json();
     assert.equal(reloaded.margin, 'none');
+    assert.equal(reloaded.finishedAt, downloadedAt.toISOString());
     assert.deepEqual(reloaded.result.fit, done.result.fit);
     assert.ok('fit' in JSON.parse(await fs.readFile(jobPath, 'utf8')).result, 'persisted');
   } finally {

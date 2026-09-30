@@ -296,6 +296,9 @@ const AnimateHelpers = (() => {
    */
   function keyNote(job) {
     const result = job?.result;
+    if (result?.keyedUrl && result.keyMethod === 'plain') {
+      return '배경이 요청한 색으로 나오지 않아, 가장자리와 이어진 배경만 지웠습니다(캐릭터가 감싼 틈은 남을 수 있습니다)';
+    }
     if (!result || result.keyedUrl) return '';
     if (result.keySkipped) return '배경이 한 가지 색이 아니라서 원본 영상을 그대로 씁니다';
     if (result.keyFailed) return '배경을 지우지 못해 원본 영상을 그대로 씁니다';
@@ -307,10 +310,12 @@ const AnimateHelpers = (() => {
    * character's colours would be keyed or despilled with green), else ''. Jobs without keyColor are green.
    */
   function keyColorNote(job) {
+    const parts = [];
+    if (job?.characterCutout) parts.push('캐릭터 이미지의 배경을 지우고 보냈습니다');
     const name = job?.keyColor?.name;
-    if (name === 'blue') return '캐릭터 색과 겹치지 않게 파란 배경으로 만들었습니다';
-    if (name === 'magenta') return '캐릭터 색과 겹치지 않게 분홍 배경으로 만들었습니다';
-    return '';
+    if (name === 'blue') parts.push('캐릭터 색과 겹치지 않게 파란 배경으로 만들었습니다');
+    if (name === 'magenta') parts.push('캐릭터 색과 겹치지 않게 분홍 배경으로 만들었습니다');
+    return parts.join(' · ');
   }
 
   /** The driving margin choices from the routes payload (`margins`), or [] when absent. */
@@ -380,6 +385,36 @@ const AnimateHelpers = (() => {
     return parts.join(' · ');
   }
 
+  /** Elapsed time in Korean: "45초", "2분 13초", "2분", "1시간 5분". */
+  function formatElapsed(ms) {
+    if (!Number.isFinite(ms) || ms < 0) return '';
+    const total = Math.round(ms / 1000);
+    if (total < 60) return `${total}초`;
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    const seconds = total % 60;
+    if (hours) return minutes ? `${hours}시간 ${minutes}분` : `${hours}시간`;
+    return seconds ? `${minutes}분 ${seconds}초` : `${minutes}분`;
+  }
+
+  /**
+   * How long a job took: "작업 시간 2분 13초" once it finished (createdAt ->
+   * finishedAt), "1분 5초 경과" while it is still running, '' when unknown.
+   */
+  function jobTimingText(job, now = Date.now()) {
+    const start = timeValue(job?.createdAt);
+    if (!start) return '';
+    if (ACTIVE_STATES.has(job.state)) return `${formatElapsed(now - start)} 경과`;
+    const end = timeValue(job?.finishedAt);
+    return end ? `작업 시간 ${formatElapsed(end - start)}` : '';
+  }
+
+  /** "영상 3초" / "영상 9.9초" for a job whose result length is known, else ''. */
+  function resultLengthText(job) {
+    const text = formatSeconds(Number(job?.result?.duration));
+    return text ? `영상 ${text}` : '';
+  }
+
   /** Content-Type for an uploaded driving video (browsers may leave file.type empty). */
   function videoContentType(name, type) {
     if (type === 'video/mp4' || type === 'video/quicktime' || type === 'video/webm') return type;
@@ -414,6 +449,46 @@ const AnimateHelpers = (() => {
   }
 
   /**
+   * Image files from a paste's clipboard data (ClipboardEvent.clipboardData),
+   * for the character library. A copied screenshot arrives as an unnamed or
+   * generic 'image.png' item, so each file gets a stable name with an extension
+   * that matches its type. Files seen through both .files and .items count once.
+   */
+  function pastedImages(clipboardData, now = Date.now()) {
+    if (!clipboardData) return [];
+    const seen = new Set();
+    const files = [];
+    const add = (file) => {
+      if (!file || seen.has(file)) return;
+      seen.add(file);
+      files.push(file);
+    };
+    for (const file of Array.from(clipboardData.files || [])) add(file);
+    for (const item of Array.from(clipboardData.items || [])) {
+      if (item && item.kind === 'file' && typeof item.getAsFile === 'function') add(item.getAsFile());
+    }
+    const images = files.filter(file => fileKind(file.name, file.type) === 'image');
+    // The same image can surface as two distinct File objects (files + items) in some browsers.
+    const unique = [];
+    const keys = new Set();
+    for (const file of images) {
+      const key = `${file.name}|${file.type}|${file.size}`;
+      if (keys.has(key)) continue;
+      keys.add(key);
+      unique.push(file);
+    }
+    return unique.map((file, index) => ({ file, name: pastedName(file, now, index) }));
+  }
+
+  function pastedName(file, now, index) {
+    const name = String(file.name ?? '');
+    if (name && name.toLowerCase() !== 'image.png' && /\.[a-z0-9]+$/i.test(name)) return name;
+    const ext = { 'image/jpeg': 'jpg', 'image/webp': 'webp' }[String(file.type ?? '').toLowerCase()] || 'png';
+    const stamp = new Date(now).toISOString().replace(/[-:]/g, '').replace(/\..*$/, '');
+    return `pasted-${stamp}${index ? `-${index + 1}` : ''}.${ext}`;
+  }
+
+  /**
    * Horizontal scroll delta for a wheel event over a strip, or 0 to leave the
    * event to the page: only mostly-vertical wheels, only when the strip can
    * scroll, and not past either end.
@@ -433,6 +508,7 @@ const AnimateHelpers = (() => {
     DRIVING_BATCH_SIZE,
     drivingRenderCount,
     fileKind,
+    pastedImages,
     stripWheelDelta,
     JOB_STATE_LABELS,
     ACTIVE_STATES,
@@ -471,6 +547,9 @@ const AnimateHelpers = (() => {
     fitNote,
     jobPayload,
     formatTime,
+    formatElapsed,
+    jobTimingText,
+    resultLengthText,
     progressText,
     videoContentType,
   };
@@ -1077,6 +1156,24 @@ if (typeof document !== 'undefined') (() => {
   });
   acceptDrops(characterCard, characterDrop, uploadCharacters);
 
+  // Paste (Cmd+V / Ctrl+V) anywhere on the page adds copied images to the
+  // character library -- no focus needed, since only this card takes images.
+  // A paste with no image (plain text into a field) is left to the browser.
+  document.addEventListener('paste', (event) => {
+    const pasted = H.pastedImages(event.clipboardData);
+    if (pasted.length === 0) return;
+    event.preventDefault();
+    if (state.busy.character) {
+      setStatus(characterStatus, '올리는 중에는 붙여넣을 수 없습니다. 끝난 뒤 다시 붙여넣어 주세요', 'error');
+      return;
+    }
+    characterDrop.classList.add('is-dragover');
+    setTimeout(() => characterDrop.classList.remove('is-dragover'), 600);
+    characterCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    uploadCharacters(pasted.map(({ file, name }) =>
+      name === file.name ? file : new File([file], name, { type: file.type || 'image/png' })));
+  });
+
   // ---- 3. Routes ----
   function routeOptionsFor(route) {
     return H.effectiveOptions(route, state.options[route.id] || {});
@@ -1444,6 +1541,8 @@ if (typeof document !== 'undefined') (() => {
   const showOriginal = new Set(); // job ids viewing the original MP4 instead of the keyed WebM
   const addBusy = new Set();
   const addErrors = new Map();
+  const keyBusy = new Set(); // job ids whose background removal is re-running
+  const keyErrors = new Map();
 
   function upsertJob(job) {
     state.jobs = H.upsertJob(state.jobs, job);
@@ -1499,9 +1598,9 @@ if (typeof document !== 'undefined') (() => {
 
     let info = '';
     let infoKind = null;
-    if (H.ACTIVE_STATES.has(job.state)) info = H.progressText(job);
+    if (H.ACTIVE_STATES.has(job.state)) info = [H.progressText(job), H.jobTimingText(job)].filter(Boolean).join(' · ');
     else if (job.state === 'failed') { info = H.errorText(job.error); infoKind = 'error'; }
-    else if (job.state === 'succeeded') info = H.keyNote(job);
+    else if (job.state === 'succeeded') info = [H.jobTimingText(job), H.resultLengthText(job), H.keyNote(job)].filter(Boolean).join(' · ');
     info = [H.marginText(job, state.margins), info].filter(Boolean).join(' · ');
     row.info.textContent = info;
     row.info.hidden = !info;
@@ -1552,7 +1651,8 @@ if (typeof document !== 'undefined') (() => {
     }
 
     const added = H.isAdded(job, state.libraryIds);
-    const actionsKey = JSON.stringify([job.state, added, addBusy.has(job.id), addErrors.get(job.id) || null]);
+    const actionsKey = JSON.stringify([job.state, added, addBusy.has(job.id), addErrors.get(job.id) || null,
+      keyBusy.has(job.id), keyErrors.get(job.id) || null]);
     if (actionsKey !== row.actionsKey) {
       row.actionsKey = actionsKey;
       row.actions.replaceChildren(...jobActions(job, added).filter(node => node != null));
@@ -1578,11 +1678,22 @@ if (typeof document !== 'undefined') (() => {
       return [cancel];
     }
     if (job.state !== 'succeeded') return [];
+    const keyBusyNow = keyBusy.has(job.id);
+    const keyError = keyErrors.get(job.id);
+    const rekeyButton = el('button', {
+      type: 'button',
+      className: 'btn btn-ghost btn-sm',
+      disabled: keyBusyNow,
+      text: keyBusyNow ? '배경 지우는 중…' : '배경 제거하기',
+      title: '이 결과의 배경 제거만 다시 실행합니다. 이미 추가한 동작도 새 투명 영상으로 바뀝니다.',
+      onclick: () => rekey(job),
+    });
+    const rekeyStatus = keyError ? el('span', { className: 'status', dataset: { kind: 'error' }, text: keyError }) : null;
     if (added) {
       return [el('span', { className: 'job-added' }, [
         '추가됨 · ',
         el('a', { className: 'link', href: './', text: '메인에서 보기' }),
-      ])];
+      ]), rekeyButton, rekeyStatus];
     }
     const inputId = `name-${job.id}`;
     const input = el('input', {
@@ -1606,7 +1717,25 @@ if (typeof document !== 'undefined') (() => {
         onclick: () => addMotion(job, input.value),
       }),
       error ? el('span', { className: 'status', dataset: { kind: 'error' }, text: error }) : null,
+      rekeyButton,
+      rekeyStatus,
     ];
+  }
+
+  async function rekey(job) {
+    keyBusy.add(job.id);
+    keyErrors.delete(job.id);
+    renderJobs();
+    try {
+      const data = await api('POST', `/api/animate/jobs/${encodeURIComponent(job.id)}/key`, { json: {} });
+      if (data?.job) upsertJob(data.job);
+      if (!data?.keyed) keyErrors.set(job.id, H.keyNote(data?.job) || '배경을 지우지 못했습니다');
+    } catch (error) {
+      keyErrors.set(job.id, `배경 제거 실패: ${error.message}`);
+    } finally {
+      keyBusy.delete(job.id);
+      renderJobs();
+    }
   }
 
   async function addMotion(job, rawName) {
@@ -1650,6 +1779,11 @@ if (typeof document !== 'undefined') (() => {
 
   // ---- Live updates ----
   let everConnected = false;
+  // Running jobs show their elapsed time ("1분 5초 경과"); refresh it every second.
+  setInterval(() => {
+    if (state.jobs.some(job => H.ACTIVE_STATES.has(job.state))) renderJobs();
+  }, 1000);
+
   const events = new EventSource('/api/events');
   events.addEventListener('open', () => {
     // After a reconnect, refetch what may have changed while disconnected.

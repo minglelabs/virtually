@@ -307,7 +307,7 @@ test('animate page: drop zones replace the upload button', () => {
   assert.doesNotMatch(html, /이미지 올리기<\/button>|characterUploadBtn/);
   assert.match(html, /<div class="strip-lead">\s*<button type="button" id="characterDrop" class="dropzone/);
   assert.match(html, /이미지를 끌어다 놓으세요/);
-  assert.match(html, /또는 클릭해서 고르기 · PNG · JPG · WebP/);
+  assert.match(html, /클릭해서 고르기 · 붙여넣기\(⌘V \/ Ctrl\+V\) · PNG · JPG · WebP/);
   assert.match(html, /<div class="strip-lead">\s*<button type="button" id="drivingDrop" class="dropzone/);
   assert.match(html, /id="drivingSentinel"/);
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'animate.js'), 'utf8');

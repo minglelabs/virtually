@@ -291,7 +291,8 @@ test('full flow: fetch examples -> character -> mock job -> result -> add as mot
     assert.equal(done.result.url, `/api/animate/jobs/${done.id}/result`);
     assert.equal(done.result.posterUrl, `/api/animate/jobs/${done.id}/poster`);
     assert.equal(done.result.mime, 'video/mp4');
-    assert.equal(done.result.keyedUrl, `/api/animate/jobs/${done.id}/result?variant=keyed`);
+    // Versioned by the WebM's mtime so a re-keyed clip is never served from cache.
+    assert.match(done.result.keyedUrl, new RegExp(`^/api/animate/jobs/${done.id}/result\\?variant=keyed&v=\\d+$`));
     assert.match(done.result.keyColor, /^#[0-9A-F]{6}$/);
     assert.equal(done.result.keySkipped, null);
     assert.equal(done.result.keyFailed, false);
@@ -309,8 +310,10 @@ test('full flow: fetch examples -> character -> mock job -> result -> add as mot
     assert.equal(done.result.width, 64);
     assert.equal(done.result.height, 96);
     assert.ok(done.result.duration > 2.5 && done.result.duration < 3.5, `result duration ${done.result.duration}`);
-    assert.deepEqual(Object.keys(done).sort(), ['characterId', 'characterLabel', 'createdAt', 'drivingId', 'drivingLabel', 'error', 'estimate', 'familyLabel', 'id', 'keyColor', 'margin', 'motionId',
+    assert.deepEqual(Object.keys(done).sort(), ['characterCutout', 'characterId', 'characterLabel', 'createdAt', 'drivingId', 'drivingLabel', 'error', 'estimate', 'familyLabel', 'finishedAt', 'id', 'keyColor', 'margin', 'motionId',
       'motionName', 'presetKey', 'progress', 'providerLabel', 'providerStatus', 'result', 'routeId', 'routeLabel', 'state', 'updatedAt']);
+    // finishedAt = the first arrival in a terminal state, never before creation.
+    assert.ok(Date.parse(done.finishedAt) >= Date.parse(done.createdAt), `${done.createdAt} -> ${done.finishedAt}`);
 
     const list = (await (await fetch(`${app.base}/api/animate/jobs`)).json()).jobs;
     assert.equal(list[0].id, done.id);
