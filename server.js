@@ -12,7 +12,7 @@ const { measureFit } = require('./lib/animate/fit');
 const { processMotionUpload } = require('./lib/animate/motion-upload');
 const { createAuth } = require('./lib/auth');
 const {
-  CharacterStore, characterError, checkName, cleanFilename,
+  CharacterStore, characterError, checkName, cleanFilename, photoDisplay,
   CHARACTER_ID_RE, PHOTO_ID_RE, MAX_CHARACTERS, MAX_PHOTOS, PHOTO_MAX_BYTES,
 } = require('./lib/characters');
 
@@ -281,11 +281,13 @@ async function createAppServer({
       }
     }
   }
-  // The photo's own image as the idle item, while no idle was uploaded for it.
+  // The photo as the idle item, while no idle was uploaded for it: its cutout
+  // when the plain background was cut out, else the photo file.
   function photoIdle(character, photo) {
+    const display = photoDisplay(photo);
     return {
-      id: photo.id, name: character.name, kind: 'idle', mime: photo.mime, url: `/api/media/${photo.id}`,
-      createdAt: photo.createdAt, fit: photo.fit ?? null, source: { photoId: photo.id },
+      id: photo.id, name: character.name, kind: 'idle', mime: display.mime, url: display.url,
+      createdAt: photo.createdAt, fit: display.fit, source: { photoId: photo.id },
     };
   }
   // What the controller and the overlay see (GET /api/library, SSE): the
@@ -705,11 +707,18 @@ async function createAppServer({
       }
       if ((req.method === 'GET' || req.method === 'HEAD') && pathname.startsWith('/api/media/')) {
         const id = pathname.slice('/api/media/'.length);
-        const item = findLibraryItem(id);
-        if (item) return serveFile(req, res, mediaPathForItem(item), item.mime);
-        // A character photo (the on-air photo is the overlay's idle image).
+        const variant = url.searchParams.get('variant');
+        if (variant === null) {
+          const item = findLibraryItem(id);
+          if (item) return serveFile(req, res, mediaPathForItem(item), item.mime);
+        }
+        // A character photo (the on-air photo is the overlay's idle image), or
+        // ?variant=cutout: the photo with its plain background cut out.
         const entry = characters.getPhoto(id);
-        if (entry) return serveFile(req, res, entry.path, entry.photo.mime);
+        if (entry && variant === null) return serveFile(req, res, entry.path, entry.photo.mime);
+        if (entry && variant === 'cutout' && entry.photo.cutout && entry.photo.cutout.cut) {
+          return serveFile(req, res, characters.cutoutPath(entry.photo), 'image/png');
+        }
         return sendJson(res, 404, { error: 'Media not found.' });
       }
       if (await handleCharacters(req, res, url)) return;
@@ -763,6 +772,17 @@ async function createAppServer({
   server.fitBackfill = new Promise(resolve => {
     server.once('listening', () => {
       setImmediate(() => backfillFits().catch(error => console.warn(`[fit] library backfill failed: ${error.message}`)).finally(resolve));
+    });
+  });
+  // Photos stored before cutouts existed (or undecodable last time) get their
+  // cutout decided the same way, in the background; the overlay hears when the
+  // on-air photo changes. server.cutoutBackfill resolves when done.
+  server.cutoutBackfill = new Promise(resolve => {
+    server.once('listening', () => {
+      setImmediate(() => characters.backfillCutouts({ isClosed: () => closed })
+        .then(changed => { if (changed && !closed) broadcastLibrary(); })
+        .catch(error => console.warn(`[characters] cutout backfill failed: ${error.message}`))
+        .finally(resolve));
     });
   });
 

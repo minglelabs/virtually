@@ -18,6 +18,7 @@ const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
 
 const { createAppServer } = require('../server');
+const media = require('../lib/animate/media');
 
 const FFMPEG = process.env.FFMPEG_PATH || 'ffmpeg';
 const FFPROBE = process.env.FFPROBE_PATH || 'ffprobe';
@@ -71,6 +72,25 @@ after(async () => {
   if (fixturesPromise) await fs.rm((await fixturesPromise).dir, { recursive: true, force: true });
 });
 
+// A 1-component (grayscale) baseline JPEG, 8x8, every pixel 128. ffmpeg's
+// MJPEG encoder only writes colour JPEGs, and a grayscale one probes as
+// pix_fmt 'gray': the name the old alpha test mistook for an alpha format.
+// One-code Huffman tables: DC category 0 = '0', AC end-of-block = '0'.
+function grayJpeg() {
+  const hex = value => Buffer.from(value.replace(/\s+/g, ''), 'hex');
+  const oneCode = '01' + '00'.repeat(15);
+  return Buffer.concat([
+    hex('ffd8'),
+    hex('ffdb 0043 00'), Buffer.alloc(64, 1), // quantization table, all 1
+    hex('ffc0 000b 08 0008 0008 01 01 11 00'), // 8x8, one component
+    hex(`ffc4 0014 00 ${oneCode} 00`), // DC table
+    hex(`ffc4 0014 10 ${oneCode} 00`), // AC table
+    hex('ffda 0008 01 01 00 00 3f 00'), // scan header
+    hex('3f'), // one block: DC diff 0, end of block, padding
+    hex('ffd9'),
+  ]);
+}
+
 async function makeFixtures() {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'virtually-characters-fixture-'));
   const file = name => path.join(dir, name);
@@ -90,11 +110,22 @@ async function makeFixtures() {
   ffmpeg(['-f', 'lavfi', '-i', 'testsrc=size=64x48:rate=8', '-t', '1', '-c:v', 'mpeg4', file('busy-mpeg4.mp4')]);
   ffmpeg(['-f', 'lavfi', '-i', 'testsrc=size=32x24:rate=2', '-t', '61', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-preset', 'ultrafast', file('long.mp4')]);
   ffmpeg(['-f', 'lavfi', '-i', 'testsrc=size=32x24:rate=4', '-t', '1', file('anim.gif')]);
+  // Opaque photos: the same red box on a white background (PNG, JPEG, and an
+  // RGBA PNG with nothing transparent), a busy picture, grayscale images.
+  const onWhite = ['-f', 'lavfi', '-i', 'color=c=white:s=64x96', '-vf', 'drawbox=x=16:y=24:w=32:h=48:color=red:t=fill', '-frames:v', '1'];
+  ffmpeg([...onWhite, file('white.png')]);
+  ffmpeg([...onWhite, '-q:v', '2', file('white.jpg')]);
+  ffmpeg([...onWhite.slice(0, 5), 'drawbox=x=16:y=24:w=32:h=48:color=red:t=fill,format=rgba', '-frames:v', '1', file('opaque-rgba.png')]);
+  ffmpeg(['-f', 'lavfi', '-i', 'testsrc=size=64x48', '-frames:v', '1', file('busy.png')]);
+  await fs.writeFile(file('gray.jpg'), grayJpeg());
+  ffmpeg(['-f', 'lavfi', '-i', box(), '-frames:v', '1', '-pix_fmt', 'ya8', file('gray-alpha.png')]);
   return {
     dir,
     png: file('box.png'), jpg: file('blue.jpg'), webp: file('box.webp'), clip: file('clip.mp4'),
     alphaWebm: file('alpha.webm'), alphaMov: file('alpha.mov'), greenMp4: file('green.mp4'),
     busyMp4: file('busy.mp4'), busyMpeg4: file('busy-mpeg4.mp4'), longMp4: file('long.mp4'), gif: file('anim.gif'),
+    whitePng: file('white.png'), whiteJpg: file('white.jpg'), opaqueRgba: file('opaque-rgba.png'), busyPng: file('busy.png'),
+    grayJpg: file('gray.jpg'), grayAlphaPng: file('gray-alpha.png'),
   };
 }
 
@@ -286,7 +317,8 @@ test('create: name and photo validation, sniffing, views and the files on disk',
   assert.match(photo.id, /^ph-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
   assert.equal(character.basePhotoId, photo.id);
   assert.deepEqual(photo, {
-    id: photo.id, url: `/api/media/${photo.id}`, width: 64, height: 96, hasAlpha: true, createdAt: character.createdAt,
+    id: photo.id, url: `/api/media/${photo.id}`, displayUrl: `/api/media/${photo.id}`, cutout: false,
+    width: 64, height: 96, hasAlpha: true, createdAt: character.createdAt,
     isBase: true, onAir: false, idle: 'photo', motionCount: 0, motions: [],
   });
   assert.equal(first.activePhotoId, null, 'a new character does not go on air');
@@ -313,6 +345,9 @@ test('create: name and photo validation, sniffing, views and the files on disk',
   assert.deepEqual(stored.fit.first, BOX_FIT);
   assert.equal(index.characters[1].photos[0].fit, null, 'a JPEG has no alpha box');
   near(index.characters[2].photos[0].fit.first, BOX_FIT);
+  // Transparent photos are not cut; a single-colour image has nothing to cut out.
+  assert.deepEqual(index.characters.map(item => item.photos[0].cutout),
+    [{ cut: false, reason: 'has_alpha' }, { cut: false, reason: 'no_subject' }, { cut: false, reason: 'has_alpha' }]);
   assert.deepEqual(await photoFiles(dataDir),
     [`${photo.id}.png`, `${jpeg.photos[0].id}.jpg`, `${webp.character.photos[0].id}.webp`].sort());
   assert.deepEqual(await tmpFiles(path.join(dataDir, 'characters')), []);
@@ -648,11 +683,14 @@ test('login on: the on-air photo reaches OBS with the overlay key alone; the cha
   const createdAt = '2026-09-01T00:00:00.000Z';
   const app = await setup(t, {
     seed: async dataDir => {
+      // An opaque photo whose background was cut out: OBS shows the cutout.
+      const cutout = { cut: true, color: '#FFFFFF', fit: null };
       await seedIndex(dataDir, {
         v: 1, activePhotoId: photoId,
-        characters: [{ id: characterId, name: '방송 캐릭터', createdAt, basePhotoId: photoId, photos: [photoRecord(photoId, createdAt)] }],
+        characters: [{ id: characterId, name: '방송 캐릭터', createdAt, basePhotoId: photoId, photos: [photoRecord(photoId, createdAt, { hasAlpha: false, cutout })] }],
       });
-      await fs.copyFile(fx.png, path.join(dataDir, 'characters', 'photos', `${photoId}.png`));
+      await fs.copyFile(fx.whitePng, path.join(dataDir, 'characters', 'photos', `${photoId}.png`));
+      await fs.copyFile(fx.png, path.join(dataDir, 'characters', 'photos', `${photoId}.cutout.png`));
       await fs.mkdir(path.join(dataDir, 'auth'), { recursive: true });
       await fs.writeFile(path.join(dataDir, 'auth', 'config.json'), JSON.stringify({
         google: { clientId: 'test-client.apps.googleusercontent.com', clientSecret: 'GOCSPX-test-client-secret' },
@@ -664,20 +702,26 @@ test('login on: the on-air photo reaches OBS with the overlay key alone; the cha
   });
   const { overlayKey } = JSON.parse(await fs.readFile(path.join(app.dataDir, 'auth', 'state.json'), 'utf8'));
   const cookie = `virtually_overlay=${overlayKey}`;
+  const cutUrl = `/api/media/${photoId}?variant=cutout`;
 
   let response = await rawRequest(app.port, `/api/media/${photoId}`);
   assert.equal(response.status, 401, 'signed out, no key');
   response = await rawRequest(app.port, `/api/media/${photoId}`, { cookie: 'virtually_overlay=wrong' });
   assert.equal(response.status, 401, 'a wrong key');
+  assert.equal((await rawRequest(app.port, cutUrl)).status, 401, 'the cutout needs the key too');
   response = await rawRequest(app.port, `/api/media/${photoId}`, { cookie });
   assert.equal(response.status, 200);
   assert.equal(response.headers['content-type'], 'image/png');
-  assert.deepEqual(response.body, fsSync.readFileSync(fx.png));
+  assert.deepEqual(response.body, fsSync.readFileSync(fx.whitePng));
   assert.equal((await rawRequest(app.port, `/api/media/${photoId}`, { method: 'HEAD', cookie })).status, 200);
+  response = await rawRequest(app.port, cutUrl, { cookie });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers['content-type'], 'image/png');
+  assert.deepEqual(response.body, fsSync.readFileSync(fx.png));
   response = await rawRequest(app.port, '/api/library', { cookie });
   assert.equal(response.status, 200);
   const view = JSON.parse(response.body.toString('utf8'));
-  assert.equal(view.idle.url, `/api/media/${photoId}`);
+  assert.equal(view.idle.url, cutUrl);
   assert.deepEqual(view.character, { id: characterId, name: '방송 캐릭터' });
 
   // Everything else of the character layer is session class.
@@ -795,7 +839,8 @@ test('migration: every old photo becomes a character with the same id; motions f
     assert.equal(list.activePhotoId, selected, 'the old selection is on air');
     assert.equal(list.activeCharacterId, list.characters[1].id);
     assert.deepEqual(list.characters[0].photos[0], {
-      id: older, url: `/api/media/${older}`, width: 48, height: 48, hasAlpha: false, createdAt: '2026-09-01T00:00:00.000Z',
+      id: older, url: `/api/media/${older}`, displayUrl: `/api/media/${older}`, cutout: false,
+      width: 48, height: 48, hasAlpha: false, createdAt: '2026-09-01T00:00:00.000Z',
       isBase: true, onAir: false, idle: 'photo', motionCount: 1,
       motions: [{ id: motions[0].id, name: motions[0].name, mime: 'video/webm', createdAt: motions[0].createdAt }],
     });
@@ -810,6 +855,8 @@ test('migration: every old photo becomes a character with the same id; motions f
     assert.equal(index.characters[1].photos[0].filename, 'hero.png');
     assert.deepEqual(index.characters[1].photos[0].fit.first, BOX_FIT, 'measured while migrating');
     assert.equal(index.characters[0].photos[0].fit, null);
+    assert.deepEqual(index.characters.map(item => item.photos[0].cutout),
+      [{ cut: false, reason: 'no_subject' }, { cut: false, reason: 'has_alpha' }], 'decided while migrating');
 
     // Motions: their job's photo, else the on-air photo; the legacy idle is the on-air photo's idle.
     const stored = JSON.parse(await fs.readFile(path.join(dataDir, 'library.json'), 'utf8'));
@@ -877,7 +924,8 @@ test('migration fallbacks: a missing selection puts the oldest photo on air; no 
     selectedId: `ch-${uuid()}`,
     photos: [
       { record: legacyRecord(b, 'image/png', '2026-09-03T00:00:00.000Z'), file: fx.png },
-      { record: legacyRecord(a, 'image/png', '2026-09-02T00:00:00.000Z'), file: fx.png },
+      // Opaque art on white: its cutout is made while migrating.
+      { record: legacyRecord(a, 'image/png', '2026-09-02T00:00:00.000Z', { hasAlpha: true }), file: fx.whitePng },
     ],
     motions: [motion], idle,
   });
@@ -886,6 +934,9 @@ test('migration fallbacks: a missing selection puts the oldest photo on air; no 
     const list = await (await fetch(`${app.base}/api/characters`)).json();
     assert.deepEqual(list.characters.map(item => item.basePhotoId), [a, b]);
     assert.equal(list.activePhotoId, a);
+    const migrated = list.characters[0].photos[0];
+    assert.deepEqual([migrated.cutout, migrated.displayUrl, migrated.hasAlpha], [true, `/api/media/${a}?variant=cutout`, false]);
+    assert.ok(fsSync.existsSync(path.join(first, 'characters', 'photos', `${a}.cutout.png`)));
     const stored = JSON.parse(await fs.readFile(path.join(first, 'library.json'), 'utf8'));
     assert.deepEqual(stored.motions.map(item => item.photoId), [a]);
     assert.deepEqual(stored.idles, { [a]: idle });
@@ -1162,4 +1213,228 @@ test('finished motions: refusals leave no record or file; only the on-air photo 
   assert.deepEqual(await fs.readdir(mediaDir), [`${forP2.id}.webm`]);
   list = await (await fetch(`${base}/api/characters`)).json();
   assert.deepEqual(list.characters[0].photos.map(photo => [photo.id, photo.motionCount]), [[p2, 1]]);
+});
+
+// [r, g, b, a] of one pixel of an image's first frame.
+function rgbaAt(filePath, x, y) {
+  const width = Number(execFileSync(FFPROBE, ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width',
+    '-of', 'csv=p=0', filePath]).toString().trim());
+  const raw = execFileSync(FFMPEG, ['-hide_banner', '-loglevel', 'error', '-nostdin', '-i', filePath, '-frames:v', '1',
+    '-f', 'rawvideo', '-pix_fmt', 'rgba', 'pipe:1']);
+  const at = (y * width + x) * 4;
+  return [...raw.subarray(at, at + 4)];
+}
+
+async function fetchToFile(base, pathname, filePath) {
+  const response = await fetch(`${base}${pathname}`);
+  assert.equal(response.status, 200, pathname);
+  const type = response.headers.get('content-type');
+  await fs.writeFile(filePath, Buffer.from(await response.arrayBuffer()));
+  return type;
+}
+
+test('opaque photos: a plain background is cut out for the list and the overlay; other photos are shown as they are', { skip }, async t => {
+  const fx = await fixtures();
+  const app = await setup(t);
+  const { base, dataDir } = app;
+  const scratch = await fs.mkdtemp(path.join(os.tmpdir(), 'virtually-cutout-check-'));
+  t.after(() => fs.rm(scratch, { recursive: true, force: true }));
+  const hero = (await createCharacter(base, '흰 배경', fx.whitePng)).character;
+  const [white] = hero.photos;
+  const cutUrl = `/api/media/${white.id}?variant=cutout`;
+
+  // The PhotoView points at the cutout; `url` stays the original file.
+  assert.equal(white.cutout, true);
+  assert.equal(white.url, `/api/media/${white.id}`);
+  assert.equal(white.displayUrl, cutUrl);
+  assert.equal(white.hasAlpha, false);
+  const original = path.join(scratch, 'original.png');
+  assert.equal(await fetchToFile(base, white.url, original), 'image/png');
+  assert.deepEqual(fsSync.readFileSync(original), fsSync.readFileSync(fx.whitePng));
+  const cut = path.join(scratch, 'cut.png');
+  assert.equal(await fetchToFile(base, cutUrl, cut), 'image/png');
+  assert.equal(rgbaAt(cut, 0, 0)[3], 0, 'the white corner is transparent');
+  const [r, g, b, a] = rgbaAt(cut, 32, 48);
+  assert.ok(a === 255 && r > 240 && g < 16 && b < 16, `the character stays: ${[r, g, b, a]}`);
+  assert.equal((await fetch(`${base}${cutUrl}`, { method: 'HEAD' })).status, 200);
+  assert.equal((await fetch(`${base}${cutUrl}`, { headers: { Range: 'bytes=0-7' } })).status, 206);
+
+  // Stored: the decision (with the cutout's box) and photos/<id>.cutout.png.
+  let index = JSON.parse(await fs.readFile(path.join(dataDir, 'characters', 'index.json'), 'utf8'));
+  const stored = index.characters[0].photos[0];
+  assert.equal(stored.cutout.cut, true);
+  assert.match(stored.cutout.color, /^#F[0-9A-F]F[0-9A-F]F[0-9A-F]$/, 'near white');
+  assert.deepEqual(stored.cutout.fit.first, BOX_FIT);
+  assert.equal(stored.fit, null, 'the photo file itself has no alpha box');
+  assert.equal(stored.hasAlpha, false);
+  assert.deepEqual(await photoFiles(dataDir), [`${white.id}.cutout.png`, `${white.id}.png`]);
+
+  // On air: the overlay's idle is the cutout, with its box; `photo` is still the original.
+  const stream = await events(base);
+  t.after(() => stream.close());
+  await stream.nextOfType('obs-source');
+  let data = await setActive(base, white.id);
+  assert.deepEqual(data.library.idle, {
+    id: white.id, name: '흰 배경', kind: 'idle', mime: 'image/png', url: cutUrl, createdAt: white.createdAt,
+    fit: stored.cutout.fit, source: { photoId: white.id },
+  });
+  assert.deepEqual(data.library.photo, { id: white.id, url: white.url, width: 64, height: 96, hasAlpha: false });
+  assert.deepEqual((await stream.nextOfType('library')).library, data.library);
+
+  // A JPEG on white: the photo stays a JPEG, its cutout is a PNG.
+  const jpeg = (await addPhoto(base, hero.id, fx.whiteJpg)).photo;
+  assert.equal(jpeg.cutout, true);
+  assert.equal(jpeg.displayUrl, `/api/media/${jpeg.id}?variant=cutout`);
+  assert.equal(await fetchToFile(base, jpeg.url, path.join(scratch, 'jpeg.jpg')), 'image/jpeg');
+  const jpegCut = path.join(scratch, 'jpeg-cut.png');
+  assert.equal(await fetchToFile(base, jpeg.displayUrl, jpegCut), 'image/png');
+  assert.equal(rgbaAt(jpegCut, 1, 1)[3], 0);
+  data = await setActive(base, jpeg.id);
+  assert.equal(data.library.idle.mime, 'image/png');
+  assert.equal(data.library.idle.url, jpeg.displayUrl);
+  near(data.library.idle.fit.first, BOX_FIT);
+
+  // An RGBA PNG with nothing transparent is opaque too: cut, and hasAlpha false.
+  const rgba = (await addPhoto(base, hero.id, fx.opaqueRgba)).photo;
+  assert.equal(rgba.cutout, true);
+  assert.equal(rgba.hasAlpha, false);
+
+  // Not cut: a transparent photo, a busy picture, a single colour. They are shown as they are.
+  const cases = [[fx.png, 'has_alpha', true], [fx.busyPng, 'not_uniform', false], [fx.jpg, 'no_subject', false]];
+  const others = [];
+  for (const [file] of cases) others.push((await addPhoto(base, hero.id, file)).photo);
+  index = JSON.parse(await fs.readFile(path.join(dataDir, 'characters', 'index.json'), 'utf8'));
+  for (const [i, [file, reason, hasAlpha]] of cases.entries()) {
+    const photo = others[i];
+    const label = path.basename(file);
+    assert.equal(photo.cutout, false, label);
+    assert.equal(photo.displayUrl, photo.url, label);
+    assert.equal(photo.hasAlpha, hasAlpha, label);
+    assert.deepEqual(index.characters[0].photos.find(item => item.id === photo.id).cutout, { cut: false, reason }, label);
+    assert.equal((await fetch(`${base}/api/media/${photo.id}?variant=cutout`)).status, 404, label);
+  }
+  data = await setActive(base, others[1].id);
+  assert.equal(data.library.idle.url, others[1].url);
+  assert.equal(data.library.idle.fit, null);
+
+  // Only ?variant=cutout exists, and only for photos.
+  assert.equal((await fetch(`${base}/api/media/${white.id}?variant=original`)).status, 404);
+  const motion = await uploadLegacy(base, 'motion', 'wave');
+  assert.equal((await fetch(`${base}/api/media/${motion.id}?variant=cutout`)).status, 404);
+  assert.equal((await fetch(`${base}/api/media/${motion.id}`)).status, 200);
+
+  // An idle uploaded for a cut photo wins over the cutout; deleting it brings the cutout back.
+  await setActive(base, white.id);
+  const uploadedIdle = await uploadLegacy(base, 'idle', 'pose', fsSync.readFileSync(fx.png), '.png');
+  assert.equal((await library(base)).idle.id, uploadedIdle.id);
+  assert.equal((await fetch(`${base}/api/media/${uploadedIdle.id}`, { method: 'DELETE' })).status, 200);
+  assert.equal((await library(base)).idle.url, cutUrl);
+
+  // Deleting a cut photo removes its cutout too.
+  assert.equal((await fetch(`${base}/api/characters/${hero.id}/photos/${jpeg.id}`, { method: 'DELETE' })).status, 200);
+  assert.ok(!(await photoFiles(dataDir)).some(name => name.startsWith(jpeg.id)));
+  assert.equal((await fetch(`${base}${jpeg.displayUrl}`)).status, 404);
+  assert.equal((await fetch(`${base}/api/characters/${hero.id}`, { method: 'DELETE' })).status, 200);
+  assert.deepEqual(await photoFiles(dataDir), []);
+});
+
+function within(promise, ms, message) {
+  let timer;
+  return Promise.race([promise, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(message)), ms); })])
+    .finally(() => clearTimeout(timer));
+}
+
+test('opaque photos: the startup backfill decides stored photos, corrects hasAlpha, and the overlay gets the cutout live', { skip }, async t => {
+  const fx = await fixtures();
+  const createdAt = i => new Date(Date.UTC(2026, 8, 1, 0, 0, i)).toISOString();
+  const ids = { white: `ph-${uuid()}`, alpha: `ph-${uuid()}`, gray: `ph-${uuid()}`, lostCutout: `ph-${uuid()}`, noFile: `ph-${uuid()}` };
+  const characterId = `c-${uuid()}`;
+  // Stored before cutouts existed, with the old (wrong) hasAlpha of a grayscale JPEG.
+  const photos = [
+    photoRecord(ids.white, createdAt(0), { hasAlpha: true }),
+    photoRecord(ids.alpha, createdAt(1)),
+    photoRecord(ids.gray, createdAt(2), { mime: 'image/jpeg', width: 8, height: 8, hasAlpha: true }),
+    // Decided as cut, but its cutout file is gone: decided again.
+    photoRecord(ids.lostCutout, createdAt(3), { mime: 'image/jpeg', hasAlpha: false, cutout: { cut: true, color: '#FFFFFF', fit: null } }),
+    // No photo file at all: left undecided.
+    photoRecord(ids.noFile, createdAt(4)),
+  ];
+  const app = await setup(t, {
+    seed: async dataDir => {
+      await seedIndex(dataDir, { v: 1, activePhotoId: ids.white, characters: [{ id: characterId, name: '예전 캐릭터', createdAt: createdAt(0), basePhotoId: ids.white, photos }] });
+      const dir = path.join(dataDir, 'characters', 'photos');
+      await fs.copyFile(fx.whitePng, path.join(dir, `${ids.white}.png`));
+      await fs.copyFile(fx.png, path.join(dir, `${ids.alpha}.png`));
+      await fs.copyFile(fx.grayJpg, path.join(dir, `${ids.gray}.jpg`));
+      await fs.copyFile(fx.whiteJpg, path.join(dir, `${ids.lostCutout}.jpg`));
+    },
+  });
+  const { base, dataDir } = app;
+  const cutUrl = `/api/media/${ids.white}?variant=cutout`;
+
+  // Connected right away: whether the backfill finishes before or after this,
+  // the overlay ends up with the cutout without reconnecting.
+  const stream = await events(base);
+  t.after(() => stream.close());
+  await within((async () => {
+    for (;;) if ((await stream.nextOfType('library')).library.idle.url === cutUrl) return;
+  })(), 20000, 'the overlay never got the cutout');
+  await app.server.cutoutBackfill;
+
+  const index = JSON.parse(await fs.readFile(path.join(dataDir, 'characters', 'index.json'), 'utf8'));
+  const byId = Object.fromEntries(index.characters[0].photos.map(photo => [photo.id, photo]));
+  assert.equal(byId[ids.white].cutout.cut, true);
+  assert.deepEqual(byId[ids.white].cutout.fit.first, BOX_FIT);
+  assert.equal(byId[ids.white].hasAlpha, false, 'corrected from the decoded image');
+  assert.deepEqual(byId[ids.alpha].cutout, { cut: false, reason: 'has_alpha' });
+  assert.equal(byId[ids.alpha].hasAlpha, true);
+  assert.deepEqual(byId[ids.gray].cutout, { cut: false, reason: 'no_subject' });
+  assert.equal(byId[ids.gray].hasAlpha, false, 'a grayscale JPEG is not transparent');
+  assert.equal(byId[ids.lostCutout].cutout.cut, true, 'decided again');
+  assert.ok(!('cutout' in byId[ids.noFile]), 'no file, no decision');
+  const files = await photoFiles(dataDir);
+  assert.ok(files.includes(`${ids.white}.cutout.png`) && files.includes(`${ids.lostCutout}.cutout.png`), files.join(' '));
+  assert.deepEqual(files.filter(name => name.includes('.tmp')), [], 'no temp files left');
+
+  const list = await (await fetch(`${base}/api/characters`)).json();
+  assert.deepEqual(list.characters[0].photos.map(photo => [photo.id, photo.cutout, photo.hasAlpha]), [
+    [ids.white, true, false], [ids.alpha, false, true], [ids.gray, false, false], [ids.lostCutout, true, false], [ids.noFile, false, true],
+  ]);
+  const view = await library(base);
+  assert.equal(view.idle.url, cutUrl);
+  assert.equal(view.photo.hasAlpha, false);
+
+  // A restart has nothing left to decide (the photo without a file stays as it is).
+  const before = await fs.readFile(path.join(dataDir, 'characters', 'index.json'));
+  await stop(app.server);
+  const again = await start(dataDir);
+  try {
+    await again.server.cutoutBackfill;
+    assert.deepEqual(await fs.readFile(path.join(dataDir, 'characters', 'index.json')), before);
+  } finally {
+    await stop(again.server);
+  }
+});
+
+test('hasAlpha: only pixel formats with an alpha channel count; a grayscale JPEG is not transparent', { skip }, async t => {
+  const fx = await fixtures();
+  for (const pixFmt of ['rgba', 'argb', 'bgra', 'abgr', 'ya8', 'ya16be', 'yuva420p', 'yuva444p10le', 'gbrap', 'rgba64be', 'pal8']) {
+    assert.equal(media.pixFmtHasAlpha(pixFmt), true, pixFmt);
+  }
+  for (const pixFmt of ['gray', 'gray16be', 'grayf32le', 'yuvj420p', 'yuv420p', 'rgb24', 'rgb0', '0rgb', 'bayer_rggb8', 'nv12', '', null, undefined]) {
+    assert.equal(media.pixFmtHasAlpha(pixFmt), false, String(pixFmt));
+  }
+  // The probe: a grayscale JPEG reads as pix_fmt 'gray', which the old /a/ test counted as alpha.
+  const gray = await media.probeVideo(FFPROBE, fx.grayJpg);
+  assert.equal(gray.pixFmt, 'gray');
+  assert.equal(gray.hasAlpha, false);
+  assert.equal((await media.probeVideo(FFPROBE, fx.grayAlphaPng)).hasAlpha, true);
+
+  // Photos: the flag says whether the image really has transparent pixels.
+  const app = await setup(t);
+  const view = async file => (await createCharacter(app.base, path.basename(file), file)).character.photos[0];
+  assert.equal((await view(fx.grayJpg)).hasAlpha, false, 'grayscale JPEG');
+  assert.equal((await view(fx.grayAlphaPng)).hasAlpha, true, 'grayscale with alpha');
+  assert.equal((await view(fx.opaqueRgba)).hasAlpha, false, 'RGBA with nothing transparent');
+  assert.equal((await view(fx.png)).hasAlpha, true, 'transparent PNG');
 });
