@@ -33,6 +33,7 @@ const FAIL_KINDS = new Set([
   'down', // API requests: the connection is dropped without an answer
   'server_error', // API requests answer 500
   'unauthorized', // API requests answer 401
+  'forbidden', // API requests answer 403 (a token without the needed scopes)
   'checkout_422', // POST /v1/checkouts/ answers 422
 ]);
 
@@ -343,6 +344,7 @@ async function startFakePolar({ token, webhookSecret, webhookUrl = null, now = D
     });
     if (failure === 'down') return req.socket.destroy();
     if (failure === 'server_error') return send(res, 500, { error: 'InternalServerError' });
+    if (failure === 'forbidden') return send(res, 403, { error: 'insufficient_scope', error_description: 'The token lacks a required scope.' });
     if (failure === 'unauthorized' || req.headers.authorization !== `Bearer ${token}`) {
       return send(res, 401, { error: 'invalid_token', error_description: 'The access token is invalid.' });
     }
