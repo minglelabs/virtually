@@ -54,6 +54,10 @@ const AnimateHelpers = (() => {
     if (code === 'route_unavailable' && error.detail && ERROR_TEXT[error.detail.unavailableCode]) {
       return ERROR_TEXT[error.detail.unavailableCode];
     }
+    if (code === 'driving_too_short' && error.detail) {
+      const text = tooShortText(error.detail.duration, error.detail.minSec);
+      if (text) return text;
+    }
     if (code && ERROR_TEXT[code]) return ERROR_TEXT[code];
     const message = typeof error.error === 'string' ? error.error : error.message;
     return typeof message === 'string' && message ? message : '알 수 없는 오류';
@@ -97,14 +101,35 @@ const AnimateHelpers = (() => {
     return Number.isFinite(usd) ? `약 $${usd.toFixed(2)}` : '';
   }
 
+  /** "2.5초" below 10 s (one decimal, no trailing .0), "12초" from 10 s, '' when unknown. */
   function formatSeconds(seconds) {
-    return Number.isFinite(seconds) && seconds > 0 ? `${Math.round(seconds)}초` : '';
+    if (!Number.isFinite(seconds) || seconds <= 0) return '';
+    const value = seconds < 10 ? Math.round(seconds * 10) / 10 : Math.round(seconds);
+    return `${value}초`;
   }
+
+  // Same slack the server's createJob allows on both length limits.
+  const LENGTH_TOLERANCE_SEC = 0.05;
 
   /** Longest driving video a route accepts, in seconds, or null. */
   function routeMaxSeconds(route) {
     const max = Number(route?.limits?.videoMaxSec);
     return Number.isFinite(max) && max > 0 ? max : null;
+  }
+
+  /** Shortest driving video a route accepts, in seconds, or null when it has no minimum. */
+  function routeMinSeconds(route) {
+    const raw = route?.limits?.videoMinSec;
+    if (raw == null) return null;
+    const min = Number(raw);
+    return Number.isFinite(min) && min > 0 ? min : null;
+  }
+
+  /** "영상(2.5초)이 이 모델의 최소 길이(3초)보다 짧습니다", or '' without both lengths. */
+  function tooShortText(drivingSeconds, minSeconds) {
+    const length = formatSeconds(Number(drivingSeconds));
+    const min = formatSeconds(Number(minSeconds));
+    return length && min ? `영상(${length})이 이 모델의 최소 길이(${min})보다 짧습니다` : '';
   }
 
   function isMockRoute(route) {
@@ -113,15 +138,20 @@ const AnimateHelpers = (() => {
 
   /**
    * How a route row behaves: `selectable` (radio enabled), `needsKey` (show the
-   * "키 필요" link to the key panel), `tooLong` (driving exceeds the route limit).
+   * "키 필요" link to the key panel), `tooLong` / `tooShort` (driving is outside
+   * the route's length limits, with the server's tolerance).
    */
   function routeState(route, drivingSeconds) {
     const max = routeMaxSeconds(route);
-    const tooLong = max != null && Number.isFinite(drivingSeconds) && drivingSeconds > max;
+    const min = routeMinSeconds(route);
+    const known = Number.isFinite(drivingSeconds);
+    const tooLong = max != null && known && drivingSeconds > max + LENGTH_TOLERANCE_SEC;
+    const tooShort = min != null && known && drivingSeconds < min - LENGTH_TOLERANCE_SEC;
     return {
       selectable: Boolean(route?.available),
       needsKey: !route?.available && route?.unavailableCode === 'no_credentials',
       tooLong,
+      tooShort,
     };
   }
 
@@ -256,7 +286,10 @@ const AnimateHelpers = (() => {
     estimateUsd,
     formatUsd,
     formatSeconds,
+    LENGTH_TOLERANCE_SEC,
     routeMaxSeconds,
+    routeMinSeconds,
+    tooShortText,
     isMockRoute,
     routeState,
     groupRoutes,
@@ -896,10 +929,26 @@ if (typeof document !== 'undefined') (() => {
     renderCreate();
   }
 
+  /** "최소 3초" / "최소 없음", or a warning when the selected driving is shorter. */
+  function minLengthBadge(route, rs) {
+    const min = H.routeMinSeconds(route);
+    if (min == null) return el('span', { className: 'badge badge-min', text: '최소 없음' });
+    const minText = H.formatSeconds(min);
+    if (rs.tooShort) {
+      return el('span', {
+        className: 'badge badge-warn',
+        text: `최소 ${minText}보다 짧음`,
+        title: `이 모델은 ${minText} 이상 영상만 받습니다. 지금 영상: ${H.formatSeconds(selectedDriving()?.duration)}`,
+      });
+    }
+    return el('span', { className: 'badge badge-min', text: `최소 ${minText}` });
+  }
+
   function routeRow(route, rs) {
     const badges = [];
     if (!route.verified) badges.push(el('span', { className: 'badge', text: '검증 전' }));
     if (rs.tooLong) badges.push(el('span', { className: 'badge badge-warn', text: `최대 ${Math.floor(H.routeMaxSeconds(route))}초` }));
+    badges.push(minLengthBadge(route, rs));
     if (!route.available && !rs.needsKey) {
       badges.push(el('span', {
         className: 'badge badge-muted',
@@ -1099,7 +1148,9 @@ if (typeof document !== 'undefined') (() => {
     if (!driving) return '동작 영상을 고르세요';
     if (!currentCharacter()) return '캐릭터를 올리세요';
     if (!route) return '모델을 고르세요';
-    if (H.routeState(route, driving.duration).tooLong) return '영상이 모델 제한보다 깁니다';
+    const rs = H.routeState(route, driving.duration);
+    if (rs.tooLong) return '영상이 모델 제한보다 깁니다';
+    if (rs.tooShort) return H.tooShortText(driving.duration, H.routeMinSeconds(route));
     return null;
   }
 
