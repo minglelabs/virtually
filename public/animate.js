@@ -210,6 +210,9 @@ const AnimateHelpers = (() => {
    */
   function keyNote(job) {
     const result = job?.result;
+    if (result?.keyedUrl && result.keyMethod === 'plain') {
+      return '배경이 요청한 색으로 나오지 않아, 가장자리와 이어진 배경만 지웠습니다(캐릭터가 감싼 틈은 남을 수 있습니다)';
+    }
     if (!result || result.keyedUrl) return '';
     if (result.keySkipped) return '배경이 한 가지 색이 아니라서 원본 영상을 그대로 씁니다';
     if (result.keyFailed) return '배경을 지우지 못해 원본 영상을 그대로 씁니다';
@@ -221,10 +224,12 @@ const AnimateHelpers = (() => {
    * character's colours would be keyed or despilled with green), else ''. Jobs without keyColor are green.
    */
   function keyColorNote(job) {
+    const parts = [];
+    if (job?.characterCutout) parts.push('캐릭터 이미지의 배경을 지우고 보냈습니다');
     const name = job?.keyColor?.name;
-    if (name === 'blue') return '캐릭터 색과 겹치지 않게 파란 배경으로 만들었습니다';
-    if (name === 'magenta') return '캐릭터 색과 겹치지 않게 분홍 배경으로 만들었습니다';
-    return '';
+    if (name === 'blue') parts.push('캐릭터 색과 겹치지 않게 파란 배경으로 만들었습니다');
+    if (name === 'magenta') parts.push('캐릭터 색과 겹치지 않게 분홍 배경으로 만들었습니다');
+    return parts.join(' · ');
   }
 
   /** The driving margin choices from the routes payload (`margins`), or [] when absent. */
@@ -1413,6 +1418,8 @@ if (typeof document !== 'undefined') (() => {
   const showOriginal = new Set(); // job ids viewing the original MP4 instead of the keyed WebM
   const addBusy = new Set();
   const addErrors = new Map();
+  const keyBusy = new Set(); // job ids whose background removal is re-running
+  const keyErrors = new Map();
 
   function upsertJob(job) {
     state.jobs = H.upsertJob(state.jobs, job);
@@ -1517,7 +1524,8 @@ if (typeof document !== 'undefined') (() => {
     }
 
     const added = H.isAdded(job, state.libraryIds);
-    const actionsKey = JSON.stringify([job.state, added, addBusy.has(job.id), addErrors.get(job.id) || null]);
+    const actionsKey = JSON.stringify([job.state, added, addBusy.has(job.id), addErrors.get(job.id) || null,
+      keyBusy.has(job.id), keyErrors.get(job.id) || null]);
     if (actionsKey !== row.actionsKey) {
       row.actionsKey = actionsKey;
       row.actions.replaceChildren(...jobActions(job, added).filter(node => node != null));
@@ -1543,11 +1551,22 @@ if (typeof document !== 'undefined') (() => {
       return [cancel];
     }
     if (job.state !== 'succeeded') return [];
+    const keyBusyNow = keyBusy.has(job.id);
+    const keyError = keyErrors.get(job.id);
+    const rekeyButton = el('button', {
+      type: 'button',
+      className: 'btn btn-ghost btn-sm',
+      disabled: keyBusyNow,
+      text: keyBusyNow ? '배경 지우는 중…' : '배경 제거하기',
+      title: '이 결과의 배경 제거만 다시 실행합니다. 이미 추가한 동작도 새 투명 영상으로 바뀝니다.',
+      onclick: () => rekey(job),
+    });
+    const rekeyStatus = keyError ? el('span', { className: 'status', dataset: { kind: 'error' }, text: keyError }) : null;
     if (added) {
       return [el('span', { className: 'job-added' }, [
         '추가됨 · ',
         el('a', { className: 'link', href: './', text: '메인에서 보기' }),
-      ])];
+      ]), rekeyButton, rekeyStatus];
     }
     const inputId = `name-${job.id}`;
     const input = el('input', {
@@ -1571,7 +1590,25 @@ if (typeof document !== 'undefined') (() => {
         onclick: () => addMotion(job, input.value),
       }),
       error ? el('span', { className: 'status', dataset: { kind: 'error' }, text: error }) : null,
+      rekeyButton,
+      rekeyStatus,
     ];
+  }
+
+  async function rekey(job) {
+    keyBusy.add(job.id);
+    keyErrors.delete(job.id);
+    renderJobs();
+    try {
+      const data = await api('POST', `/api/animate/jobs/${encodeURIComponent(job.id)}/key`, { json: {} });
+      if (data?.job) upsertJob(data.job);
+      if (!data?.keyed) keyErrors.set(job.id, H.keyNote(data?.job) || '배경을 지우지 못했습니다');
+    } catch (error) {
+      keyErrors.set(job.id, `배경 제거 실패: ${error.message}`);
+    } finally {
+      keyBusy.delete(job.id);
+      renderJobs();
+    }
   }
 
   async function addMotion(job, rawName) {
