@@ -189,7 +189,7 @@ test('full flow: fetch examples -> character -> mock job -> result -> add as mot
       'keepsImageBackground', 'verified', 'docs', 'needsRelay', 'available', 'unavailableCode']) {
       assert.ok(key in mockRoute, `RouteView has ${key}`);
     }
-    assert.ok(status.routes.length >= 17, 'catalog routes are restored');
+    assert.ok(status.routes.length >= 14, 'catalog routes are restored');
     assert.ok(status.providers.some(provider => provider.id === 'wavespeed'));
     assert.ok(!('keying' in status.config));
 
@@ -438,13 +438,13 @@ test('job validation, uploads, config, cancel and the idle fallback', { skip }, 
     assert.ok(!JSON.stringify(configured).includes('test-key-not-real'));
     const configPath = path.join(dataDir, 'animate', 'config.json');
     assert.equal((await fs.stat(configPath)).mode & 0o777, 0o600);
-    const paidRoute = configured.routes.find(route => route.id === 'wavespeed/wan-2.2-animate');
+    const paidRoute = configured.routes.find(route => route.id === 'wavespeed/wan-2.2-animate-2');
     assert.equal(paidRoute.available, true);
     // A paid route needs explicit confirmation; nothing is sent without it.
     response = await post({ drivingId: mine.id, routeId: paidRoute.id });
     assert.equal(response.status, 400);
     assert.equal((await response.json()).code, 'not_confirmed');
-    // WaveSpeed Wan has no input minimum (3 s is billing only): the 2 s clip passes the length
+    // WaveSpeed Wan Animate 2 has no input minimum (3 s is billing only): the 2 s clip passes the length
     // check and stops at the confirmation. Kling documents 3-30 s and refuses it.
     response = await post({ drivingId: short.id, routeId: paidRoute.id });
     assert.equal((await response.json()).code, 'not_confirmed');
@@ -645,6 +645,68 @@ test('jobs survive a restart: polling resumes, a mid-submit job becomes interrup
   } finally {
     await stop(app.server);
     await cleanup(dataDir, fixtures.dir);
+  }
+});
+
+test('state left by the removed Wan v1 / DashScope routes still loads', async () => {
+  const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'virtually-animate-'));
+  const manifestPath = path.join(dataDir, 'none.json');
+  const animateDir = path.join(dataDir, 'animate');
+  await fs.mkdir(animateDir, { recursive: true });
+  // A config saved before the removal: default route is v1 and a DashScope key is stored.
+  await fs.writeFile(path.join(animateDir, 'config.json'), JSON.stringify({
+    version: 1,
+    providers: { dashscope: { apiKey: 'old-dashscope-key-5678', region: 'intl' }, wavespeed: { apiKey: 'test-key-not-real-1234' } },
+    defaults: { routeId: 'dashscope/wan2.2-animate-move', options: {} },
+    mediaRelay: 'auto', concurrency: 2,
+  }));
+  // A finished v1 job with a result on disk, and a v1 job that was still polling.
+  const doneId = 'aaaaaaaa-1111-4111-8111-111111111111';
+  const pollingId = 'bbbbbbbb-2222-4222-8222-222222222222';
+  const baseJob = {
+    routeLabel: 'Wan 2.2 Animate', familyLabel: 'Wan 2.2 Animate (v1)', providerLabel: 'WaveSpeed',
+    drivingId: 'up-x', drivingLabel: 'old', updatedAt: '2026-09-01T00:00:00.000Z', options: {},
+  };
+  const jobsDir = path.join(animateDir, 'jobs');
+  await fs.mkdir(path.join(jobsDir, doneId), { recursive: true });
+  await fs.writeFile(path.join(jobsDir, doneId, 'job.json'), JSON.stringify({
+    ...baseJob, id: doneId, state: 'succeeded', routeId: 'wavespeed/wan-2.2-animate', createdAt: '2026-09-01T00:00:00.000Z',
+    result: { duration: 3, width: 64, height: 96, mime: 'video/mp4' },
+  }));
+  await fs.writeFile(path.join(jobsDir, doneId, 'result.mp4'), Buffer.from('OLDRESULT'));
+  await fs.mkdir(path.join(jobsDir, pollingId), { recursive: true });
+  await fs.writeFile(path.join(jobsDir, pollingId, 'job.json'), JSON.stringify({
+    ...baseJob, id: pollingId, state: 'running', routeId: 'dashscope/wan2.2-animate-move', createdAt: '2026-09-02T00:00:00.000Z',
+    task: { id: 'ds-1' },
+  }));
+
+  const app = await start(dataDir, manifestPath);
+  try {
+    const status = await (await fetch(`${app.base}/api/animate/status`)).json();
+    assert.equal(status.providers.some(provider => provider.id === 'dashscope'), false);
+    assert.equal(status.routes.some(route => route.family === 'wan-animate' || route.provider === 'dashscope'), false);
+    assert.equal(status.routes[0].id, 'wavespeed/wan-2.2-animate-2');
+    assert.ok(!JSON.stringify(status).includes('old-dashscope-key'));
+
+    const list = (await (await fetch(`${app.base}/api/animate/jobs`)).json()).jobs;
+    assert.deepEqual(list.map(job => job.id).sort(), [doneId, pollingId].sort());
+    const done = await (await fetch(`${app.base}/api/animate/jobs/${doneId}`)).json();
+    assert.equal(done.state, 'succeeded');
+    assert.equal(done.routeLabel, 'Wan 2.2 Animate');
+    assert.equal(done.result.url, `/api/animate/jobs/${doneId}/result`);
+    const result = await fetch(`${app.base}${done.result.url}`);
+    assert.equal(result.status, 200);
+    assert.equal(Buffer.from(await result.arrayBuffer()).toString(), 'OLDRESULT');
+    // The job whose route vanished mid-poll ends failed instead of throwing.
+    const orphan = await waitForJob(app.base, pollingId, ['failed']);
+    assert.equal(orphan.error.code, 'submit_failed');
+
+    // Saving config still works with the stale DashScope entry in the file.
+    const response = await json(app.base, 'PUT', '/api/animate/config', { concurrency: 1 });
+    assert.equal(response.status, 200);
+  } finally {
+    await stop(app.server);
+    await cleanup(dataDir);
   }
 });
 

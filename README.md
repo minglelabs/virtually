@@ -82,7 +82,7 @@ Open `http://127.0.0.1:8787/animate` (or **+ 동작 추가하러 가기** on the
 
 1. **동작 영상** — pick an example driving video, or upload your own MP4/MOV/WebM (up to 200 MB) by clicking or dropping files on the first tile. The clips form a horizontal strip (mouse wheel scrolls it sideways) that loads 12 more cards as you near the right end.
 2. **캐릭터** — drop PNG/JPEG/WebP images (up to 20 MB each) anywhere on the card, or click the drop zone. Every uploaded character stays in a horizontal strip; click a tile to use it. The most recently selected character comes first and stays selected after a reload; a new upload becomes the selected one. With no uploaded character, the library's PNG/WebP idle image is used. Transparent pixels are sent as a plain green background. Deleting a character does not affect jobs already started with it.
-3. **모델** — pick a route: Wan 2.2 Animate 2 (WaveSpeed, the default), Wan 2.2 Animate (v1), DreamActor V2 (M2.0) or Kling motion control, through WaveSpeed, fal.ai, Replicate, Higgsfield, Alibaba Model Studio or Kling directly. Wan 2.2 Animate 2 ignores the backgrounds of the character image and the driving video and generates the output background from its prompt; we ask for a plain solid green (`#00FF00`) background so it can be keyed later, and send the motion wording separately as `motion_prompt`. Routes marked "검증 전" have an endpoint or field name that was not confirmed against the vendor's docs; see [docs/animate-providers.md](docs/animate-providers.md). The page shows an estimated cost when the route has a known price and asks for confirmation before any paid request.
+3. **모델** — pick a route: Wan 2.2 Animate 2 (WaveSpeed, the default), DreamActor V2 (M2.0) or Kling motion control, through WaveSpeed, fal.ai, Replicate, Higgsfield or Kling directly. Wan 2.2 Animate 2 ignores the backgrounds of the character image and the driving video and generates the output background from its prompt; we ask for a plain solid green (`#00FF00`) background so it can be keyed later, and send the motion wording separately as `motion_prompt`. Routes marked "검증 전" have an endpoint or field name that was not confirmed against the vendor's docs; see [docs/animate-providers.md](docs/animate-providers.md). The page shows an estimated cost when the route has a known price and asks for confirmation before any paid request.
 4. **결과** — jobs update live. A finished result plays on the page; **동작으로 추가하기** copies it into the motion list as an MP4 motion. Its default name is the preset label of the example (for example `인사 (Hi)`), so it lands on that preset button.
 
 Background removal of results and fixing hard driving videos (several people, busy backgrounds) are not implemented yet.
@@ -111,7 +111,6 @@ Enter keys in the page's **API 키 설정** panel. They are saved in `data/anima
 | fal.ai | `FAL_KEY` |
 | Replicate | `REPLICATE_API_TOKEN` |
 | Higgsfield | `HIGGSFIELD_API_KEY_ID` + `HIGGSFIELD_API_KEY_SECRET` |
-| Alibaba Model Studio | `DASHSCOPE_API_KEY` |
 | Kling AI (direct) | `KLING_ACCESS_KEY` + `KLING_SECRET_KEY`, or `KLING_API_KEY` |
 
 Kling direct has no video upload API, so it also needs a WaveSpeed, fal.ai or Higgsfield key to relay the driving video. Generation is billed by the provider.
