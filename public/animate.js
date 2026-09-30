@@ -221,10 +221,12 @@ const AnimateHelpers = (() => {
    * character's colours would be keyed or despilled with green), else ''. Jobs without keyColor are green.
    */
   function keyColorNote(job) {
+    const parts = [];
+    if (job?.characterCutout) parts.push('캐릭터 이미지의 배경을 지우고 보냈습니다');
     const name = job?.keyColor?.name;
-    if (name === 'blue') return '캐릭터 색과 겹치지 않게 파란 배경으로 만들었습니다';
-    if (name === 'magenta') return '캐릭터 색과 겹치지 않게 분홍 배경으로 만들었습니다';
-    return '';
+    if (name === 'blue') parts.push('캐릭터 색과 겹치지 않게 파란 배경으로 만들었습니다');
+    if (name === 'magenta') parts.push('캐릭터 색과 겹치지 않게 분홍 배경으로 만들었습니다');
+    return parts.join(' · ');
   }
 
   /** The driving margin choices from the routes payload (`margins`), or [] when absent. */
