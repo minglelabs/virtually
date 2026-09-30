@@ -47,6 +47,11 @@ html, body {
   visibility: visible;
 }
 
+/* A size-fitted motion video may extend past the canvas edges: clip it, never scroll. */
+.reaction-layer {
+  overflow: hidden;
+}
+
 /* Media Elements (Video / Image) */
 .media-element {
   max-width: 100%;

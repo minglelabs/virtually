@@ -402,6 +402,9 @@ a.driving-credit:hover { color: var(--text); }
 .route-cost { margin-left: auto; font-size: 12px; color: var(--text); }
 .route-options { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 10px; }
 .route-option { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.route-margin { margin-top: 10px; }
+.route-margin[hidden] { display: none; }
+.route-margin-hint { margin: 4px 0 0; font-size: 12px; }
 
 .badge {
   display: inline-block;

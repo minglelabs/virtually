@@ -8,6 +8,7 @@ const crypto = require('node:crypto');
 const { once } = require('node:events');
 
 const { createAnimateApi } = require('./lib/animate/api');
+const { measureFit } = require('./lib/animate/fit');
 
 const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -321,7 +322,9 @@ async function createAppServer({
         let committed = false;
         try {
           if (!(await hasExpectedSignature(filePath, type.ext))) throw Object.assign(new Error('File format does not match its extension.'), { status: 415 });
-          const item = { id, name: sanitizeName(path.basename(originalName, type.ext)), kind, mime: type.mime, url: `/api/media/${id}`, createdAt: new Date().toISOString() };
+          // Character box from the alpha channel (null when the file has none).
+          const fit = await measureFit(ffmpegPath, ffprobePath, filePath);
+          const item = { id, name: sanitizeName(path.basename(originalName, type.ext)), kind, mime: type.mime, url: `/api/media/${id}`, createdAt: new Date().toISOString(), fit };
           let priorIdle;
           await enqueue(async () => {
             priorIdle = library.idle;
@@ -402,8 +405,40 @@ async function createAppServer({
       sendJson(res, error.status, body);
     });
   });
+  // Library records stored before fit measurement: measured once the server
+  // listens, without delaying it. server.fitBackfill resolves when done.
+  let closed = false;
+  async function backfillFits() {
+    const pending = [library.idle, ...library.motions].filter(item => item && !('fit' in item));
+    if (!pending.length) return;
+    const measured = new Map();
+    for (const item of pending) {
+      if (closed) return;
+      measured.set(item.id, await measureFit(ffmpegPath, ffprobePath, mediaPathForItem(item)));
+    }
+    if (closed) return;
+    // Merge into the CURRENT library inside the mutation queue, so a motion
+    // added or deleted meanwhile is kept or stays gone, and a record that got
+    // a fit meanwhile is not rewritten.
+    await enqueue(async () => {
+      let changed = false;
+      const apply = item => {
+        if (!item || 'fit' in item || !measured.has(item.id)) return item;
+        changed = true;
+        return { ...item, fit: measured.get(item.id) };
+      };
+      const next = { ...library, idle: apply(library.idle), motions: library.motions.map(apply) };
+      if (changed && !closed) await save(next);
+    });
+  }
+  server.fitBackfill = new Promise(resolve => {
+    server.once('listening', () => {
+      setImmediate(() => backfillFits().catch(error => console.warn(`[fit] library backfill failed: ${error.message}`)).finally(resolve));
+    });
+  });
+
   // Stop running jobs and downloads with the server (tests must not leak).
-  server.on('close', () => { animate.close().catch(() => {}); });
+  server.on('close', () => { closed = true; animate.close().catch(() => {}); });
   server.animate = animate;
   return server;
 }

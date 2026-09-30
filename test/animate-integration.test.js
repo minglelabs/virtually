@@ -195,8 +195,13 @@ test('full flow: fetch examples -> character -> mock job -> result -> add as mot
     assert.ok(mockRoute, 'mock route is listed');
     assert.equal(mockRoute.available, true);
     for (const key of ['id', 'provider', 'providerLabel', 'family', 'familyLabel', 'label', 'options', 'limits', 'pricing',
-      'keepsImageBackground', 'verified', 'docs', 'needsRelay', 'available', 'unavailableCode']) {
+      'keepsImageBackground', 'defaultMargin', 'verified', 'docs', 'needsRelay', 'available', 'unavailableCode']) {
       assert.ok(key in mockRoute, `RouteView has ${key}`);
+    }
+    // Margins: one list of values + labels; Animate 2 defaults to 'normal', every other route to 'none'.
+    assert.deepEqual(status.margins, [{ value: 'none', label: '없음' }, { value: 'normal', label: '보통' }, { value: 'wide', label: '넓게' }]);
+    for (const route of status.routes) {
+      assert.equal(route.defaultMargin, route.id === 'wavespeed/wan-2.2-animate-2' ? 'normal' : 'none', route.id);
     }
     assert.ok(status.routes.length >= 14, 'catalog routes are restored');
     assert.ok(status.providers.some(provider => provider.id === 'wavespeed'));
@@ -290,12 +295,21 @@ test('full flow: fetch examples -> character -> mock job -> result -> add as mot
     assert.match(done.result.keyColor, /^#[0-9A-F]{6}$/);
     assert.equal(done.result.keySkipped, null);
     assert.equal(done.result.keyFailed, false);
+    // The mock route defaults to no margin; the keyed result's character box is measured.
+    assert.equal(done.margin, 'none');
+    const fit = done.result.fit;
+    assert.equal(fit.v, 1);
+    assert.equal(fit.width, 64);
+    assert.equal(fit.height, 96);
+    const near = (actual, expected) => actual.every((value, i) => Math.abs(value - expected[i]) < 0.04);
+    assert.ok(near(fit.first, [0.25, 0.25, 0.75, 0.75]), `first ${fit.first}`);
+    assert.deepEqual(fit.touches, { left: false, right: false, top: false, bottom: false });
     // A red character has no green: the key colour stays green.
     assert.deepEqual(done.keyColor, { name: 'green', hex: '#00FF00' });
     assert.equal(done.result.width, 64);
     assert.equal(done.result.height, 96);
     assert.ok(done.result.duration > 2.5 && done.result.duration < 3.5, `result duration ${done.result.duration}`);
-    assert.deepEqual(Object.keys(done).sort(), ['characterId', 'characterLabel', 'createdAt', 'drivingId', 'drivingLabel', 'error', 'estimate', 'familyLabel', 'id', 'keyColor', 'motionId',
+    assert.deepEqual(Object.keys(done).sort(), ['characterId', 'characterLabel', 'createdAt', 'drivingId', 'drivingLabel', 'error', 'estimate', 'familyLabel', 'id', 'keyColor', 'margin', 'motionId',
       'motionName', 'presetKey', 'progress', 'providerLabel', 'providerStatus', 'result', 'routeId', 'routeLabel', 'state', 'updatedAt']);
 
     const list = (await (await fetch(`${app.base}/api/animate/jobs`)).json()).jobs;
@@ -335,6 +349,7 @@ test('full flow: fetch examples -> character -> mock job -> result -> add as mot
     assert.equal(added.keyReason, null);
     assert.equal(added.motion.url, `/api/media/${added.motion.id}`);
     assert.deepEqual(added.motion.source, { jobId: done.id });
+    assert.deepEqual(added.motion.fit, fit, 'the motion carries the job fit');
     assert.equal(added.job.motionId, added.motion.id);
     assert.equal(added.job.motionName, '인사 (Hi)');
 
@@ -458,7 +473,7 @@ test('job validation, uploads, config, cancel and the idle fallback', { skip }, 
     response = await json(app.base, 'PUT', '/api/animate/config', { providers: { wavespeed: { apiKey: 'test-key-not-real-1234' } } });
     assert.equal(response.status, 200);
     const configured = await response.json();
-    assert.deepEqual(Object.keys(configured).sort(), ['config', 'providers', 'routes']);
+    assert.deepEqual(Object.keys(configured).sort(), ['config', 'margins', 'providers', 'routes']);
     const wavespeed = configured.providers.find(provider => provider.id === 'wavespeed');
     assert.equal(wavespeed.configured, true);
     assert.equal(wavespeed.credentials[0].masked, '••••1234');

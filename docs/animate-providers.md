@@ -311,6 +311,61 @@ despill was rejected (green/teal fringe on every edge). The alpha plane only dec
 libvpx decoder (`ffmpeg -c:v libvpx-vp9 -i x.webm`); ffmpeg's native vp9 decoder drops it.
 Browsers and OBS play it with alpha.
 
+## Driving margin
+
+`POST /api/animate/jobs` takes `margin` = `none` | `normal` | `wide` (`lib/animate/margin.js`,
+the single source of the values, their labels and the per-route default). In `preparing`,
+`media.prepareReference` pads the driving clip with black on the left, right and top — never the
+bottom, so the feet stay on the frame edge — by `P = round(f * max(w, h))` px, `f` = 0 / 0.12 /
+0.25, from the probed (rotation-corrected) source size, before the existing long-edge <= 1280 /
+fps <= 30 / H.264 step:
+
+```
+-vf "pad=iw+2P:ih+P:P:P:color=black,scale=...(long edge <= 1280),scale=trunc(iw/2)*2:trunc(ih/2)*2[,fps=30]"
+```
+
+A 320x240 clip with `normal` is sent as 396x278 (P = 38). Wan 2.2 Animate 2 follows the driving
+framing, so the generated character keeps that margin; the route carries
+`defaultMargin: 'normal'` in the catalog and every other route defaults to `none`
+(`registry.routeViews()` exposes `defaultMargin`, the status payload `margins`). Trade-off: the
+character is smaller in the output (fewer pixels, less detail). The effect on DreamActor and
+Kling framing is unverified, which is why their default is `none`.
+
+Route limits after padding: the duration is unchanged. Padding pulls the aspect toward
+1:1-2:1 and the long edge is still capped at 1280. The catalog has no video aspect bounds; a clip
+inside Kling's 0.4-2.5 (image) aspect range stays inside it (2.5 -> 2.38 with `normal`, 2.31
+with `wide`; 0.4 -> 0.57 / 0.72). Wan 2.2 Animate 2 documents no video size or aspect limit. No
+catalog route has a video resolution minimum; a provider that enforces an undocumented video
+size or aspect rule could still reject a padded clip (not verified against any provider).
+
+## Character box (`fit`)
+
+`lib/animate/fit.js` `measureFit(ffmpegPath, ffprobePath, file)` measures the character box of a
+transparent asset from its alpha channel. WebM is decoded with `-c:v libvpx-vp9` (`libvpx` for
+VP8) before `-i` because ffmpeg's native decoders drop the alpha side channel; PNG/WebP use the
+default decoder; `.mp4` / `.mov` / `.jpg` / `.jpeg` return `null` without decoding. Everything is
+scaled with `scale=<w>:<h>` (long edge <= 256, never upscaled) and streamed as raw RGBA, one frame
+at a time. A video is read twice: frame 0 on its own (`-frames:v 1`) for `first`, then
+`fps=4` for `union` — the fps filter emits the last frame of each 1/4 s bucket, so its first
+output is frame 2-3 at 24-30 fps, not frame 0, and the overlay places a motion by the frame it
+shows first. The box of alpha >= 128 is taken per frame; `union` covers frame 0 and all samples,
+normalized by the scaled size (x1/y1 exclusive), 4 decimals; `width` / `height` are the
+source size. `null` when no pixel is below alpha 128 in any frame (opaque) or none reaches 128.
+`touches.<edge>` = the union box is within max(2 px, 1 %) of that edge of the scaled frame.
+Timeout 60 s; a failure logs once and returns `null` — it never throws to callers.
+
+Measured on a copy of a real keyed Animate 2 motion (800x1136, 2.97 s; well under a second):
+`first` [0.0722, 0.0508, 0.9167, 0.9219] (frame 0, 180x256 scan), `union` [0, 0, 1, 1], touching
+all four edges.
+
+Where it runs: after keying (`job.result.fit`, `null` when not keyed), on `POST .../motion`
+(copied onto the motion record; measured then for a keyed job stored before fit existed), on
+`/api/upload` for motions and the idle asset, and in two background passes that never block
+startup — succeeded keyed jobs without a `fit` key (`pipeline.fitBackfill`) and library records
+without a `fit` key (after `listen()`, merged into the current library through the mutation
+queue, one `library` broadcast; `server.fitBackfill`). Records that already have a `fit` key,
+including `fit: null`, are never rewritten.
+
 ## Contract notes / open risks
 
 - **Stub metas kept as seeded.** No provider id, credential key, env-var name, `credentialSets`,
