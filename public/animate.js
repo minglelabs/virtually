@@ -156,16 +156,16 @@ const AnimateHelpers = (() => {
     return showsModelCost(billing) ? `${text} (원가 ${formatUsd(usd)})` : text;
   }
 
-  /** A route's price: '무료' for the mock route, '' until the driving length is known, else priceText. */
+  /** A route's price: '무료' for the free route, '' until the driving length is known, else priceText. */
   function routeCostText(route, seconds, options, billing) {
-    if (isMockRoute(route)) return '무료';
+    if (isFreeRoute(route)) return '무료';
     if (typeof seconds !== 'number' || !Number.isFinite(seconds)) return '';
     return priceText(estimateUsd(route, seconds, options), billing);
   }
 
-  /** Credits a job on this route takes from this account, or null (mock route, unknown price, billing not active). */
+  /** Credits a job on this route takes from this account, or null (free route, unknown price, billing not active). */
   function jobCredits(route, seconds, options, billing) {
-    if (isMockRoute(route) || !billingActive(billing)) return null;
+    if (isFreeRoute(route) || !billingActive(billing)) return null;
     return creditsForEstimate(estimateUsd(route, seconds, options), billing);
   }
 
@@ -214,15 +214,25 @@ const AnimateHelpers = (() => {
   }
 
   /**
-   * The question before 다시 받기 when it takes credits again (billing.refetchCredits:
-   * the job's charge was given back, and a delivered result is paid once), worded
-   * like the paid confirmation's credit line. '' for no question: nothing to take,
-   * or a free account (the server charges it nothing).
+   * Credits a 다시 받기 of this job takes from the viewer: billing.refetchCredits (the
+   * job's charge was given back, and a delivered result is paid once), 0 for nothing
+   * or a free account (the server charges it nothing). An unknown account (no GET
+   * /api/billing answer yet) counts as paying.
+   */
+  function refetchChargeCredits(job, billing) {
+    const needed = job?.billing?.refetchCredits;
+    if (typeof needed !== 'number' || !Number.isFinite(needed) || needed <= 0) return 0;
+    if (billing && typeof billing === 'object' && billing.free === true) return 0;
+    return needed;
+  }
+
+  /**
+   * The question before 다시 받기 when it takes credits again, worded like the paid
+   * confirmation's credit line. '' for no question (refetchChargeCredits is 0).
    */
   function refetchConfirmText(job, billing) {
-    const needed = job?.billing?.refetchCredits;
-    if (typeof needed !== 'number' || !Number.isFinite(needed) || needed <= 0) return '';
-    if (billing && typeof billing === 'object' && billing.free === true) return '';
+    const needed = refetchChargeCredits(job, billing);
+    if (!needed) return '';
     const line = confirmCreditsText(needed, billing?.balance) || `${formatCredits(needed)} 크레딧이 차감됩니다.`;
     return `다시 받으면 ${line}`;
   }
@@ -264,8 +274,14 @@ const AnimateHelpers = (() => {
     return length && min ? `영상(${length})이 이 모델의 최소 길이(${min})보다 짧습니다` : '';
   }
 
-  function isMockRoute(route) {
-    return route?.provider === 'mock';
+  /**
+   * The server's verdict on a route (route view `free`: only the local demo route): no
+   * paid confirmation, no `confirmed`, no credits and the price '무료'. Every other
+   * route is paid, mock-provider custom routes included, and so is a route without
+   * the flag (a server from before it).
+   */
+  function isFreeRoute(route) {
+    return route?.free === true;
   }
 
   /**
@@ -338,9 +354,17 @@ const AnimateHelpers = (() => {
     return (job?.state === 'failed' || job?.state === 'canceled') && job.canRefetch === true;
   }
 
-  /** The 다시 받기 button's tooltip, naming the job's provider. */
-  function refetchTitle(job) {
-    return `${job?.providerLabel || 'AI 서비스'}에 남아 있는 결과를 다시 받아 옵니다. 새로 만들지 않아 요금이 더 나가지 않습니다.`;
+  /**
+   * The 다시 받기 button's tooltip, naming the job's provider. When the re-fetch takes
+   * the given-back credits again (refetchChargeCredits), it says so instead of
+   * promising no new cost.
+   */
+  function refetchTitle(job, billing) {
+    const provider = `${job?.providerLabel || 'AI 서비스'}에 남아 있는 결과를 다시 받아 옵니다.`;
+    const needed = refetchChargeCredits(job, billing);
+    return needed
+      ? `${provider} 돌려받은 ${formatCredits(needed)} 크레딧이 다시 차감됩니다.`
+      : `${provider} 새로 만들지 않아 요금이 더 나가지 않습니다.`;
   }
 
   /**
@@ -407,11 +431,14 @@ const AnimateHelpers = (() => {
     return '';
   }
 
-  /** The POST /api/animate/jobs body. `margin` is sent only when the server offers margins. */
-  function jobPayload({ drivingId, route, options, margin, margins, mock }) {
+  /**
+   * The POST /api/animate/jobs body. `margin` is sent only when the server offers margins;
+   * `confirmed` for every route but the free one (the page asked first).
+   */
+  function jobPayload({ drivingId, route, options, margin, margins }) {
     const payload = { drivingId, routeId: route?.id, options: options || {} };
     if (Array.isArray(margins) && margins.some(m => m.value === margin)) payload.margin = margin;
-    if (!mock) payload.confirmed = true;
+    if (!isFreeRoute(route)) payload.confirmed = true;
     return payload;
   }
 
@@ -583,6 +610,7 @@ const AnimateHelpers = (() => {
     refundTurnedOn,
     jobCharged,
     cancelConfirmText,
+    refetchChargeCredits,
     refetchConfirmText,
     refetchErrorText,
     formatSeconds,
@@ -590,7 +618,7 @@ const AnimateHelpers = (() => {
     routeMaxSeconds,
     routeMinSeconds,
     tooShortText,
-    isMockRoute,
+    isFreeRoute,
     routeState,
     groupRoutes,
     defaultMotionName,
@@ -1549,6 +1577,8 @@ if (typeof document !== 'undefined') (() => {
     state.billing = billing;
     // Before the routes arrive there is no price to redraw (their first render reads state.billing).
     if (state.routes.length > 0) renderRoutes();
+    // The 다시 받기 tooltips depend on the account (a free one pays nothing).
+    if (state.jobs.length > 0) renderJobs();
   }
 
   /** Redraw the credits chip and the credit prices from a fresh GET /api/billing. */
@@ -1561,8 +1591,9 @@ if (typeof document !== 'undefined') (() => {
     if (createBlocker()) return;
     const route = selectedRoute();
     const driving = selectedDriving();
-    const mock = H.isMockRoute(route);
-    if (!mock && !(await confirmCreate(route, driving))) return;
+    // The server's verdict: only its free route skips the paid confirmation.
+    const free = H.isFreeRoute(route);
+    if (!free && !(await confirmCreate(route, driving))) return;
     state.busy.create = true;
     renderCreate();
     setStatus(createStatus, '');
@@ -1573,7 +1604,6 @@ if (typeof document !== 'undefined') (() => {
         options: routeOptionsFor(route),
         margin: state.margin,
         margins: state.margins,
-        mock,
       });
       const data = await api('POST', '/api/animate/jobs', { json: payload });
       if (data?.job) upsertJob(data.job);
@@ -1713,7 +1743,7 @@ if (typeof document !== 'undefined') (() => {
 
     const added = H.isAdded(job, state.libraryIds);
     const actionsKey = JSON.stringify([job.state, added, addBusy.has(job.id), addErrors.get(job.id) || null,
-      keyBusy.has(job.id), keyErrors.get(job.id) || null,
+      keyBusy.has(job.id), keyErrors.get(job.id) || null, H.offersRefetch(job) ? H.refetchTitle(job, state.billing) : null,
       job.canRefetch === true, refetchBusy.has(job.id), refetchErrors.get(job.id) || null]);
     if (actionsKey !== row.actionsKey) {
       row.actionsKey = actionsKey;
@@ -1752,7 +1782,7 @@ if (typeof document !== 'undefined') (() => {
           className: 'btn btn-ghost btn-sm',
           disabled: refetchBusyNow,
           text: refetchBusyNow ? '다시 받는 중…' : '다시 받기',
-          title: H.refetchTitle(job),
+          title: H.refetchTitle(job, state.billing),
           onclick: () => {
             // Taking the credits again asks first; read the newest view of the job.
             const question = H.refetchConfirmText(state.jobs.find(item => item.id === job.id) || job, state.billing);

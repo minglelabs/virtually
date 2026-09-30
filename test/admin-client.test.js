@@ -256,6 +256,25 @@ test('admin page: header like /billing, billing.css + admin.css, auth.js then bi
   assert.match(html, /<div id="adjustResult" class="messages adjust-result" role="status" aria-live="polite"><\/div>/);
 });
 
+test('users table on a phone: values stay on one line and the table scrolls sideways inside its card', () => {
+  const html = readPublic('admin.html');
+  // The table is the only child of its scroll box, inside the card.
+  assert.match(html, /<section id="usersCard" class="card"[\s\S]*<div class="table-wrap">\s*<table id="usersTable" class="users-table" hidden>[\s\S]*<\/table>\s*<\/div>[\s\S]*<\/section>/);
+  const css = readPublic('admin.css');
+  const rule = selector => {
+    const match = css.match(new RegExp(`(?:^|\\n)${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\{([^}]*)\\}`));
+    assert.ok(match, selector);
+    return match[1];
+  };
+  assert.match(rule('.table-wrap'), /overflow-x: auto;/);
+  assert.match(rule('.users-table th, .users-table td'), /white-space: nowrap;/);
+  assert.match(rule('.user-pick'), /white-space: nowrap;/);
+  // Emails and names are never broken mid-word (the page scrolls the table instead).
+  for (const selector of ['.users-table th, .users-table td', '.user-pick', '.users-table .user-name']) {
+    assert.doesNotMatch(rule(selector), /overflow-wrap|word-break/, selector);
+  }
+});
+
 test('every element admin.js looks up exists once in admin.html; no HTML strings', () => {
   const html = readPublic('admin.html');
   const js = readPublic('admin.js');

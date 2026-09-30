@@ -110,6 +110,35 @@ test('invalid billing fails closed: 503 billing_misconfigured and no job; the mo
   assert.deepEqual(response.json.detail, { problem: 'login_required' });
 });
 
+test('route view: free only for the local demo route; mock-provider custom routes, and one taking the demo id, are paid', async t => {
+  const ctx = await H.startApp(t, { animate: { concurrency: 1 } });
+  const alice = await H.signIn(ctx, H.ALICE);
+  const routesOf = async () => {
+    const response = await H.get(ctx, '/api/animate/status', alice);
+    assert.equal(response.status, 200, response.text);
+    return response.json.routes;
+  };
+  let routes = await routesOf();
+  const byId = Object.fromEntries(routes.map(route => [route.id, route]));
+  assert.equal(byId['mock/local-demo'].free, true);
+  assert.equal(byId[H.PRICED_ROUTE.id].free, false);
+  assert.equal(byId[H.PRICED_ROUTE.id].provider, 'mock');
+  assert.equal(byId[H.UNPRICED_ROUTE.id].free, false);
+  assert.deepEqual(routes.filter(route => route.free !== false).map(route => route.id), ['mock/local-demo'], 'every other route says free: false');
+
+  // Without the mock provider, a custom route that takes the demo's id is an ordinary paid route.
+  await H.stopApp(ctx);
+  const impostor = { ...H.PRICED_ROUTE, id: 'mock/local-demo', provider: 'wavespeed', label: '데모 이름을 쓴 경로' };
+  await fs.writeFile(path.join(ctx.dataDir, 'animate', 'custom-routes.json'), JSON.stringify([impostor], null, 2));
+  ctx.mock = false;
+  await H.restartApp(ctx);
+  routes = await routesOf();
+  const taken = routes.find(route => route.id === 'mock/local-demo');
+  assert.equal(taken.label, impostor.label);
+  assert.equal(taken.free, false);
+  assert.equal(routes.some(route => route.free === true), false);
+});
+
 test('charges: debit + view.billing, 402 with needed/balance, price_unknown, free accounts, two parallel creates', { skip }, async t => {
   const ctx = await H.startApp(t, { billing: H.billingConfig({ freeEmails: [H.BOB.email] }), animate: { concurrency: 1 } });
   const admin = await H.signIn(ctx, H.ADMIN);

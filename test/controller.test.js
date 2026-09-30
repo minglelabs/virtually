@@ -164,7 +164,12 @@ test('routeState and groupRoutes', () => {
     route({ id: 'c', familyLabel: 'Wan' }),
   ]);
   assert.deepEqual(groups.map(g => [g.familyLabel, g.routes.map(r => r.id)]), [['Wan', ['a', 'c']], ['Kling', ['b']]]);
-  assert.equal(H.isMockRoute({ provider: 'mock' }), true);
+  // Free only by the server's verdict (route view `free`), never by the provider.
+  assert.equal(H.isFreeRoute({ id: 'mock/local-demo', provider: 'mock', free: true }), true);
+  assert.equal(H.isFreeRoute({ id: 'mock/priced', provider: 'mock', free: false }), false);
+  assert.equal(H.isFreeRoute({ provider: 'mock' }), false, 'a route without the flag is paid');
+  assert.equal(H.isFreeRoute(null), false);
+  assert.equal(H.isMockRoute, undefined);
 });
 
 test('routeMinSeconds and the length limits mirror the server tolerance', () => {

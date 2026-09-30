@@ -450,7 +450,7 @@ test('priceText: "약 N 크레딧" in every mode, "(원가 $x)" for admins and w
   assert.equal(H.formatUsd(null), '');
 });
 
-test('routeCostText: the route estimate in credits; 무료 for mock; nothing until the length is known', () => {
+test('routeCostText: the route estimate in credits; 무료 for the free route; nothing until the length is known', () => {
   const r = route();
   const customer = enabledPayload();
   assert.equal(H.routeCostText(r, 5, { resolution: '720p' }, customer), '약 800 크레딧');
@@ -465,7 +465,7 @@ test('routeCostText: the route estimate in credits; 무료 for mock; nothing unt
   assert.equal(H.routeCostText(r, undefined, {}, customer), '');
   assert.equal(H.routeCostText(r, Number.NaN, {}, disabledPayload()), '');
   for (const payload of [customer, enabledPayload({ isAdmin: true }), disabledPayload(), null]) {
-    assert.equal(H.routeCostText({ id: 'mock', provider: 'mock' }, 5, {}, payload), '무료');
+    assert.equal(H.routeCostText({ id: 'mock/local-demo', provider: 'mock', free: true }, 5, {}, payload), '무료');
   }
   // No USD wording on the page besides the 원가 note.
   const js = readPublic('animate.js');
@@ -488,12 +488,45 @@ test('jobCredits is the shared creditsFor on the page estimate (the price the se
     assert.equal(H.jobCredits(r, 10, {}, payload), null, JSON.stringify(payload));
   }
   assert.equal(H.jobCredits(route({ pricing: null }), 10, {}, enabledPayload()), null);
-  assert.equal(H.jobCredits({ id: 'mock', provider: 'mock' }, 5, {}, enabledPayload()), null);
+  assert.equal(H.jobCredits({ id: 'mock/local-demo', provider: 'mock', free: true, pricing: { usdPerSecond: 0.1 } }, 5, {}, enabledPayload()), null);
   // The formula lives in credits.js only.
   for (const file of ['animate.js', 'billing.js', 'auth.js', 'admin.js']) {
     assert.doesNotMatch(readPublic(file), /function creditsFor\b|1e-6/, file);
   }
   assert.match(readPublic('animate.js'), /credits\.creditsFor\(usd, /);
+});
+
+test('free route: only the server\'s verdict (route view free) is free; a priced mock-provider route is paid like any other', () => {
+  const customer = enabledPayload();
+  // The server's custom test routes: on the mock provider, but not its local demo route.
+  const priced = route({ id: 'mock/priced', provider: 'mock', providerLabel: '로컬 테스트 (AI 아님)', free: false,
+    pricing: { usdPerSecond: 0.1, minSeconds: 3 }, options: [] });
+  const unpriced = route({ id: 'mock/unpriced', provider: 'mock', free: false, pricing: null, options: [] });
+  const demo = route({ id: 'mock/local-demo', provider: 'mock', free: true, pricing: null, options: [] });
+
+  // A 2 s driving on $0.10/s with a 3 s floor: $0.30 = 600 credits, the price the server charges.
+  assert.equal(H.routeCostText(priced, 2, {}, customer), '약 600 크레딧');
+  assert.equal(H.routeCostText(priced, 2, {}, enabledPayload({ isAdmin: true })), '약 600 크레딧 (원가 $0.30)');
+  assert.equal(H.jobCredits(priced, 2, {}, customer), 600);
+  // Its paid confirmation takes the credits, and the request says it was confirmed.
+  assert.equal(H.confirmCreditsText(H.jobCredits(priced, 2, {}, customer), customer.balance), '600 크레딧이 차감됩니다 (보유 1,234).');
+  assert.deepEqual(H.jobPayload({ drivingId: 'd1', route: priced, options: {}, margin: null, margins: [] }),
+    { drivingId: 'd1', routeId: 'mock/priced', options: {}, confirmed: true });
+
+  // Without a price it is not free either: the server answers price_unknown.
+  assert.equal(H.routeCostText(unpriced, 2, {}, customer), '가격 정보 없음');
+  assert.equal(H.jobCredits(unpriced, 2, {}, customer), null);
+  assert.equal(H.jobPayload({ drivingId: 'd1', route: unpriced, options: {} }).confirmed, true);
+
+  // The local demo route alone is free: no price, no credits, no confirmation.
+  assert.equal(H.routeCostText(demo, 2, {}, customer), '무료');
+  assert.equal(H.jobCredits(demo, 2, {}, customer), null);
+  assert.equal('confirmed' in H.jobPayload({ drivingId: 'd1', route: demo, options: {} }), false);
+
+  // The page asks the paid confirmation for every route but the free one, and never reads the provider for it.
+  const js = readPublic('animate.js');
+  assert.match(js, /const free = H\.isFreeRoute\(route\);\s*if \(!free && !\(await confirmCreate\(route, driving\)\)\) return;/);
+  assert.doesNotMatch(js, /isMockRoute|provider === 'mock'/);
 });
 
 test('confirmation and error texts for credits (error map style: no trailing period)', () => {

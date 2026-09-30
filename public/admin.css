@@ -40,14 +40,16 @@ input::placeholder { color: #6b7385; }
 .card-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; margin-bottom: 12px; }
 .card-head h2 { margin: 0; }
 .search { max-width: 280px; }
-.table-wrap { overflow-x: auto; }
+/* Every value stays on one line (an email or a name is never broken mid-word); a table
+   wider than its card (a phone) scrolls sideways inside the card, the page does not. */
+.table-wrap { overflow-x: auto; overscroll-behavior-x: contain; }
 .users-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .users-table th, .users-table td {
   padding: 8px 10px;
   border-bottom: 1px solid var(--border);
   text-align: left;
   vertical-align: middle;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
 }
 .users-table thead th { font-size: 12px; font-weight: 600; color: var(--muted); white-space: nowrap; }
 .users-table tbody tr { cursor: pointer; }
@@ -66,7 +68,7 @@ input::placeholder { color: #6b7385; }
   font: inherit;
   font-weight: 600;
   text-align: left;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
   cursor: pointer;
 }
 .user-pick:hover { color: var(--accent); }

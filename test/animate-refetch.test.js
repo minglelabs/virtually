@@ -460,6 +460,27 @@ test('client: Korean text for the new codes, and 다시 받기 only where the se
   assert.equal(H.offersRefetch(null), false);
   assert.equal(H.refetchTitle({ providerLabel: 'WaveSpeed' }), 'WaveSpeed에 남아 있는 결과를 다시 받아 옵니다. 새로 만들지 않아 요금이 더 나가지 않습니다.');
   assert.equal(H.refetchTitle({ providerLabel: null }), 'AI 서비스에 남아 있는 결과를 다시 받아 옵니다. 새로 만들지 않아 요금이 더 나가지 않습니다.');
+  // With credits on, a job whose credits were given back takes them again (billing.refetchCredits): the tooltip says so.
+  const account = { enabled: true, mode: 'enabled', free: false, balance: 1234 };
+  const refunded = (refetchCredits, over = {}) => ({
+    providerLabel: 'WaveSpeed', billing: { credits: 600, free: false, refunded: true, cancelRefund: false, refetchCredits }, ...over,
+  });
+  assert.equal(H.refetchTitle(refunded(600), account), 'WaveSpeed에 남아 있는 결과를 다시 받아 옵니다. 돌려받은 600 크레딧이 다시 차감됩니다.');
+  assert.equal(H.refetchTitle(refunded(1500), account), 'WaveSpeed에 남아 있는 결과를 다시 받아 옵니다. 돌려받은 1,500 크레딧이 다시 차감됩니다.');
+  assert.equal(H.refetchTitle(refunded(600, { providerLabel: null }), account), 'AI 서비스에 남아 있는 결과를 다시 받아 옵니다. 돌려받은 600 크레딧이 다시 차감됩니다.');
+  // Before GET /api/billing answers the account counts as paying (the server charges unless it is free).
+  assert.equal(H.refetchTitle(refunded(600)), 'WaveSpeed에 남아 있는 결과를 다시 받아 옵니다. 돌려받은 600 크레딧이 다시 차감됩니다.');
+  // Nothing to take again, or a free account: the text above.
+  const unchanged = 'WaveSpeed에 남아 있는 결과를 다시 받아 옵니다. 새로 만들지 않아 요금이 더 나가지 않습니다.';
+  for (const [job, viewer] of [[refunded(0), account], [refunded(undefined), account], [refunded(600), { ...account, free: true }],
+    [{ providerLabel: 'WaveSpeed', billing: null }, account]]) {
+    assert.equal(H.refetchTitle(job, viewer), unchanged, JSON.stringify([job, viewer]));
+  }
+  // The tooltip and the 다시 받기 question share one rule.
+  assert.equal(H.refetchChargeCredits(refunded(600), account), 600);
+  assert.equal(H.refetchChargeCredits(refunded(600), { ...account, free: true }), 0);
+  assert.equal(H.refetchChargeCredits(refunded(0), account), 0);
+  assert.equal(H.refetchChargeCredits(null, account), 0);
 
   // jobActions lives inside the page script (DOM only): check it is gated by the helper
   // and re-rendered when canRefetch or the request state changes.
@@ -467,4 +488,7 @@ test('client: Korean text for the new codes, and 다시 받기 only where the se
   assert.match(js, /if \(!H\.offersRefetch\(job\)\) return \[\];/);
   assert.match(js, /text: refetchBusyNow \? '다시 받는 중…' : '다시 받기'/);
   assert.match(js, /job\.canRefetch === true, refetchBusy\.has\(job\.id\), refetchErrors\.get\(job\.id\) \|\| null\]/);
+  // The tooltip follows the account (a free one pays nothing) and redraws when its text changes.
+  assert.match(js, /title: H\.refetchTitle\(job, state\.billing\),/);
+  assert.match(js, /H\.offersRefetch\(job\) \? H\.refetchTitle\(job, state\.billing\) : null,\s*job\.canRefetch === true/);
 });
