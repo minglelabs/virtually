@@ -294,6 +294,36 @@ const AnimateHelpers = (() => {
     return parts.join(' · ');
   }
 
+  /** Elapsed time in Korean: "45초", "2분 13초", "2분", "1시간 5분". */
+  function formatElapsed(ms) {
+    if (!Number.isFinite(ms) || ms < 0) return '';
+    const total = Math.round(ms / 1000);
+    if (total < 60) return `${total}초`;
+    const hours = Math.floor(total / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    const seconds = total % 60;
+    if (hours) return minutes ? `${hours}시간 ${minutes}분` : `${hours}시간`;
+    return seconds ? `${minutes}분 ${seconds}초` : `${minutes}분`;
+  }
+
+  /**
+   * How long a job took: "작업 시간 2분 13초" once it finished (createdAt ->
+   * finishedAt), "1분 5초 경과" while it is still running, '' when unknown.
+   */
+  function jobTimingText(job, now = Date.now()) {
+    const start = timeValue(job?.createdAt);
+    if (!start) return '';
+    if (ACTIVE_STATES.has(job.state)) return `${formatElapsed(now - start)} 경과`;
+    const end = timeValue(job?.finishedAt);
+    return end ? `작업 시간 ${formatElapsed(end - start)}` : '';
+  }
+
+  /** "영상 3초" / "영상 9.9초" for a job whose result length is known, else ''. */
+  function resultLengthText(job) {
+    const text = formatSeconds(Number(job?.result?.duration));
+    return text ? `영상 ${text}` : '';
+  }
+
   /** Content-Type for an uploaded driving video (browsers may leave file.type empty). */
   function videoContentType(name, type) {
     if (type === 'video/mp4' || type === 'video/quicktime' || type === 'video/webm') return type;
@@ -374,6 +404,9 @@ const AnimateHelpers = (() => {
     fitNote,
     jobPayload,
     formatTime,
+    formatElapsed,
+    jobTimingText,
+    resultLengthText,
     progressText,
     videoContentType,
   };
@@ -1372,9 +1405,9 @@ if (typeof document !== 'undefined') (() => {
 
     let info = '';
     let infoKind = null;
-    if (H.ACTIVE_STATES.has(job.state)) info = H.progressText(job);
+    if (H.ACTIVE_STATES.has(job.state)) info = [H.progressText(job), H.jobTimingText(job)].filter(Boolean).join(' · ');
     else if (job.state === 'failed') { info = H.errorText(job.error); infoKind = 'error'; }
-    else if (job.state === 'succeeded') info = H.keyNote(job);
+    else if (job.state === 'succeeded') info = [H.jobTimingText(job), H.resultLengthText(job), H.keyNote(job)].filter(Boolean).join(' · ');
     info = [H.marginText(job, state.margins), info].filter(Boolean).join(' · ');
     row.info.textContent = info;
     row.info.hidden = !info;
@@ -1520,6 +1553,11 @@ if (typeof document !== 'undefined') (() => {
 
   // ---- Live updates ----
   let everConnected = false;
+  // Running jobs show their elapsed time ("1분 5초 경과"); refresh it every second.
+  setInterval(() => {
+    if (state.jobs.some(job => H.ACTIVE_STATES.has(job.state))) renderJobs();
+  }, 1000);
+
   const events = new EventSource('/api/events');
   events.addEventListener('open', () => {
     // After a reconnect, refetch what may have changed while disconnected.

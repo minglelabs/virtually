@@ -309,8 +309,10 @@ test('full flow: fetch examples -> character -> mock job -> result -> add as mot
     assert.equal(done.result.width, 64);
     assert.equal(done.result.height, 96);
     assert.ok(done.result.duration > 2.5 && done.result.duration < 3.5, `result duration ${done.result.duration}`);
-    assert.deepEqual(Object.keys(done).sort(), ['characterId', 'characterLabel', 'createdAt', 'drivingId', 'drivingLabel', 'error', 'estimate', 'familyLabel', 'id', 'keyColor', 'margin', 'motionId',
+    assert.deepEqual(Object.keys(done).sort(), ['characterId', 'characterLabel', 'createdAt', 'drivingId', 'drivingLabel', 'error', 'estimate', 'familyLabel', 'finishedAt', 'id', 'keyColor', 'margin', 'motionId',
       'motionName', 'presetKey', 'progress', 'providerLabel', 'providerStatus', 'result', 'routeId', 'routeLabel', 'state', 'updatedAt']);
+    // finishedAt = the first arrival in a terminal state, never before creation.
+    assert.ok(Date.parse(done.finishedAt) >= Date.parse(done.createdAt), `${done.createdAt} -> ${done.finishedAt}`);
 
     const list = (await (await fetch(`${app.base}/api/animate/jobs`)).json()).jobs;
     assert.equal(list[0].id, done.id);
