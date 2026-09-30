@@ -6,28 +6,34 @@
 
 // DOM-free helpers, exported for node tests like AnimateHelpers.
 const BroadcastHelpers = (() => {
+  // motions.js is loaded before this script on the page; node tests require it.
+  const motions = typeof window !== 'undefined' && window.VirtuallyMotions
+    ? window.VirtuallyMotions
+    : require('./motions.js');
+
   /** The 동작 만들기 link for a photo: '/animate?photo=<id>', or '/animate' without one. */
   function animateHref(photoId) {
     return typeof photoId === 'string' && photoId ? `/animate?photo=${encodeURIComponent(photoId)}` : '/animate';
   }
 
   /**
-   * The on-air strip for a library view: null when no photo is on air, else
+   * The on-air strip for a library view: null when no photo is on air (the
+   * motions.js onAirPhotoId rule, like the motion list), else
    * { name, photoId, thumbUrl, thumbIsVideo, animateHref }. The thumbnail is
    * the idle the overlay shows (the photo, its cutout, or an idle uploaded
    * for it), falling back to the photo file.
    */
   function onAirView(library) {
-    const character = library && typeof library === 'object' ? library.character : null;
-    const photo = library && typeof library === 'object' ? library.photo : null;
-    if (!character || !photo || typeof photo.id !== 'string' || !photo.id) return null;
+    const photoId = motions.onAirPhotoId(library);
+    if (!photoId) return null;
+    const character = library.character && typeof library.character === 'object' ? library.character : null;
     const idle = library.idle && typeof library.idle.url === 'string' && library.idle.url ? library.idle : null;
     return {
-      name: String(character.name ?? ''),
-      photoId: photo.id,
-      thumbUrl: idle ? idle.url : String(photo.url ?? ''),
+      name: String(character?.name ?? ''),
+      photoId,
+      thumbUrl: idle ? idle.url : String(library.photo.url ?? ''),
       thumbIsVideo: Boolean(idle && typeof idle.mime === 'string' && idle.mime.startsWith('video/')),
-      animateHref: animateHref(photo.id),
+      animateHref: animateHref(photoId),
     };
   }
 
@@ -37,7 +43,7 @@ const BroadcastHelpers = (() => {
 if (typeof module !== 'undefined' && module.exports) module.exports = BroadcastHelpers;
 
 if (typeof document !== 'undefined') (() => {
-  const { buildMotionItems, motionRenderCount } = window.VirtuallyMotions;
+  const { buildMotionItems, motionRenderCount, onAirPhotoId } = window.VirtuallyMotions;
   const PLAYING_TIMEOUT_MS = 15000;
 
   const urlInput = document.getElementById('overlayUrlInput');
@@ -48,7 +54,11 @@ if (typeof document !== 'undefined') (() => {
   const motionList = document.getElementById('motionList');
   const motionStatus = document.getElementById('motionStatus');
   const motionSentinel = document.getElementById('motionSentinel');
+  const motionHint = document.getElementById('motionHint');
   const idleBtn = document.getElementById('idleBtn');
+  // The hint under 동작: the HTML text (demo mode), or this while a photo is on air.
+  const HINT_DEMO = motionHint.textContent;
+  const HINT_ON_AIR = '영상이 없는 동작은 누를 수 없습니다. 동작 추가하러 가기에서 영상을 넣어 주세요.';
 
   const overlayUrl = new URL('/overlay', window.location.origin).href;
   function showOverlayUrl(url) {
@@ -227,6 +237,8 @@ if (typeof document !== 'undefined') (() => {
       button.type = 'button';
       button.className = 'motion-btn' + (item.linked ? ' is-linked' : '');
       button.dataset.key = item.key;
+      // A preset without its video while a photo is on air (motions.js): not clickable.
+      button.disabled = item.disabled === true;
       const label = document.createElement('span');
       label.className = 'motion-label';
       label.textContent = item.label;
@@ -276,9 +288,9 @@ if (typeof document !== 'undefined') (() => {
 
   motionList.addEventListener('click', (event) => {
     const button = event.target.closest('button[data-key]');
-    if (!button) return;
+    if (!button || button.disabled) return;
     const item = items.find(value => value.key === button.dataset.key);
-    if (item) trigger(item);
+    if (item && item.disabled !== true && item.triggerId) trigger(item);
   });
 
   // ---- Back to idle ----
@@ -378,6 +390,7 @@ if (typeof document !== 'undefined') (() => {
     if (data?.type === 'library') {
       items = buildMotionItems(data.library);
       render();
+      motionHint.textContent = onAirPhotoId(data.library) ? HINT_ON_AIR : HINT_DEMO;
       renderOnAir(data.library);
     } else if (data?.type === 'obs-source') {
       setCanvasSize(data);

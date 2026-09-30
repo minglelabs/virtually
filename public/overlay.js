@@ -110,7 +110,38 @@ const OverlayFit = (() => {
   return { DEMO_BOX, DEMO_VIEWBOX, CUT_BOTTOM, demoRect, idleBox, placeMotion };
 })();
 
-if (typeof module !== 'undefined' && module.exports) module.exports = OverlayFit;
+// What a 'play' message shows: pure helpers, exported for node tests like OverlayFit.
+const OverlayPlayback = (() => {
+  /**
+   * The id of the photo on air in a library view, or null. The same rule as
+   * motions.js onAirPhotoId (the overlay loads no other script; a test keeps
+   * the two equal).
+   */
+  function onAirPhotoId(library) {
+    const photo = library && typeof library === 'object' ? library.photo : null;
+    return photo && typeof photo === 'object' && typeof photo.id === 'string' && photo.id ? photo.id : null;
+  }
+
+  /**
+   * The reaction to a trigger for `id`: { kind: 'motion', motion } for a motion
+   * of the view that has a url. Anything else ('demo', an unknown or url-less
+   * motion) is { kind: 'demo' } with nothing on air (the demo avatar reacts, as
+   * before), but { kind: 'idle' } while a photo is on air: the demo avatar never
+   * replaces the photo, the overlay stays on (or returns to) the photo idle.
+   */
+  function reactionFor(library, id) {
+    const motions = library && Array.isArray(library.motions) ? library.motions : [];
+    if (id !== 'demo') {
+      const motion = motions.find(m => m && (m.id === id || String(m.id) === String(id)));
+      if (motion && motion.url) return { kind: 'motion', motion };
+    }
+    return onAirPhotoId(library) ? { kind: 'idle' } : { kind: 'demo' };
+  }
+
+  return { onAirPhotoId, reactionFor };
+})();
+
+if (typeof module !== 'undefined' && module.exports) module.exports = { ...OverlayFit, ...OverlayPlayback };
 
 if (typeof document !== 'undefined') (() => {
   // DOM Elements
@@ -123,10 +154,11 @@ if (typeof document !== 'undefined') (() => {
   const reactionVideo = document.getElementById('reaction-video');
   const reactionImage = document.getElementById('reaction-image');
 
-  // Application State
+  // Application State (photo: the view's on-air photo, or null in demo mode)
   let library = {
     idle: null,
-    motions: []
+    motions: [],
+    photo: null
   };
 
   // Trigger & playback tracking
@@ -348,21 +380,22 @@ if (typeof document !== 'undefined') (() => {
     clearVideoHandlers();
     cleanupReactionMedia();
 
-    // Special trigger id 'demo'
-    if (id === 'demo') {
+    const reaction = OverlayPlayback.reactionFor(library, id);
+    // 'demo', or a motion the overlay does not have, with nothing on air:
+    // the demo avatar reacts, so the trigger still gives feedback.
+    if (reaction.kind === 'demo') {
       playDemoReaction(token);
       return;
     }
-
-    // Look for matching motion in user library
-    const motion = library.motions.find((m) => m && (m.id === id || String(m.id) === String(id)));
-    if (!motion || !motion.url) {
-      // If motion not found in user media, trigger demo reaction to give feedback
-      playDemoReaction(token);
+    // The same with a photo on air: the photo idle stays (or comes back), and
+    // the preview hears 'idle' so the controller clears its playing mark.
+    if (reaction.kind === 'idle') {
+      returnToIdle();
       return;
     }
 
     // Real user motion media playback
+    const motion = reaction.motion;
     isReacting = true;
 
     if (isVideoMedia(motion)) {
@@ -457,20 +490,25 @@ if (typeof document !== 'undefined') (() => {
     }
   }
 
-  // Update library data
+  // Update library data. The first snapshot always picks the layer (overlay.html
+  // starts with none shown); later ones only when the idle media changed.
+  let libraryKnown = false;
   function updateLibrary(newLibrary) {
     if (!newLibrary) return;
     const prevIdleUrl = library.idle ? library.idle.url : null;
     library = {
       idle: newLibrary.idle || null,
-      motions: Array.isArray(newLibrary.motions) ? newLibrary.motions : []
+      motions: Array.isArray(newLibrary.motions) ? newLibrary.motions : [],
+      photo: newLibrary.photo && typeof newLibrary.photo === 'object' ? newLibrary.photo : null
     };
 
     const newIdleUrl = library.idle ? library.idle.url : null;
+    const first = !libraryKnown;
+    libraryKnown = true;
 
     // If not currently reacting, update idle display if idle media changed
     if (!isReacting) {
-      if (newIdleUrl !== prevIdleUrl) {
+      if (first || newIdleUrl !== prevIdleUrl) {
         if (library.idle) {
           showOnlyLayer('idle');
           applyIdleMedia(library.idle);

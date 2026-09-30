@@ -645,14 +645,18 @@ test('cascade: deleting a photo or a character removes its motions, idles and fi
   assert.equal(data.activePhotoId, b1);
   assert.deepEqual(data.characters.map(item => [item.id, item.onAir]), [[bob.id, true]]);
   assert.equal(fsSync.existsSync(mediaFile(ma2)), false);
-  assert.equal((await send(base, 'POST', '/api/trigger', { id: 'demo' })).status, 200);
-  assert.equal((await stream.next()).type, 'play', 'the view did not change, so no library message came first');
+  assert.equal((await send(base, 'POST', '/api/idle', {})).status, 200);
+  assert.equal((await stream.next()).type, 'idle', 'the view did not change, so no library message came first');
 
   // The on-air character: off air, broadcast, everything of it gone.
   response = await fetch(`${base}/api/characters/${bob.id}`, { method: 'DELETE' });
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { characters: [], activePhotoId: null, activeCharacterId: null });
   assert.deepEqual((await stream.nextOfType('library')).library, offAir);
+  // Nothing on air again: the demo avatar may react.
+  assert.equal((await send(base, 'POST', '/api/trigger', { id: 'demo' })).status, 200);
+  const played = await stream.next();
+  assert.deepEqual([played.type, played.id], ['play', 'demo']);
   stored = await storedLibrary();
   assert.deepEqual(stored.motions.map(item => item.id), [m0.id]);
   assert.deepEqual(stored.idles, {});
@@ -1193,8 +1197,12 @@ test('finished motions: refusals leave no record or file; only the on-air photo 
   const forP2 = (await response.json()).motion;
   assert.equal(forP2.photoId, p2);
   assert.equal((await send(base, 'POST', '/api/trigger', { id: forP2.id })).status, 404);
-  assert.equal((await send(base, 'POST', '/api/trigger', { id: 'demo' })).status, 200);
-  assert.equal((await stream.next()).type, 'play', 'no library message for a photo off air');
+  // The demo avatar never replaces the photo on air: refused, and nothing is broadcast.
+  const demo = await send(base, 'POST', '/api/trigger', { id: 'demo' });
+  assert.equal(demo.status, 409);
+  assert.deepEqual(await demo.json(), { error: '캐릭터 사진이 방송 중일 때는 데모 동작을 재생할 수 없습니다.', code: 'demo_on_air' });
+  assert.equal((await send(base, 'POST', '/api/idle', {})).status, 200);
+  assert.equal((await stream.next()).type, 'idle', 'no library message for a photo off air, no play for the refused demo');
 
   // One for the on-air photo is broadcast and can be triggered.
   response = await uploadMotion(base, hero.id, p1, fx.alphaWebm, { name: '손 흔들기' });

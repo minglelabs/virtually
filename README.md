@@ -14,12 +14,13 @@ Requires Node.js 20 or newer and pnpm. The controller and overlay need no extern
 pnpm start
 ```
 
-By default, the server attempts to bind to port 8787 (or the port set by `PORT`). If the base port is occupied, it tries up to 100 consecutive ports and reports an error if none is available. The server prints the app URL and the OBS overlay URL upon starting:
+By default, the server attempts to bind to port 8787 (or the port set by `PORT`). If the base port is occupied, it tries up to 100 consecutive ports and reports an error if none is available. The server prints the character list, controller and OBS overlay URLs upon starting:
 
-- App (the character list): `http://127.0.0.1:8787/` (or rotated port)
-- OBS overlay: `http://127.0.0.1:8787/overlay` (or rotated port)
+- Character list: `http://127.0.0.1:8787/` (or rotated port)
+- Controller (방송 화면): `http://127.0.0.1:8787/broadcast` (or rotated port)
+- OBS overlay: `http://127.0.0.1:8787/overlay` (or rotated port; with login on, copy the keyed URL from the controller instead)
 
-Open the printed app URL in your browser. It works before you add any files: with no character on air, the broadcast page's buttons fall back to an original illustrated demo avatar. Characters, clips and the library index live in `data/`, which Git ignores. The server binds to `127.0.0.1` by default and is intended for local use; it has no authentication unless you turn on [Google login](#google-login-optional).
+Open the printed character list URL in your browser. It works before you add any files: with no character on air, the broadcast page's buttons fall back to an original illustrated demo avatar. Characters, clips and the library index live in `data/`, which Git ignores. The server binds to `127.0.0.1` by default and is intended for local use; it has no authentication unless you turn on [Google login](#google-login-optional).
 
 ## Pages
 
@@ -35,7 +36,7 @@ Open the printed app URL in your browser. It works before you add any files: wit
 
 A **character** is a name (1–40 characters; duplicates are allowed) plus **photos** (PNG, JPEG or WebP, up to 20 MB each, recognised by their content, not their name). A character is created with one photo, its **base photo** (기본), and more can be added; there are at most 50 characters with 30 photos each. Deleting the base photo passes that role to the oldest remaining photo, and a character's only photo cannot be deleted (delete the character instead). Characters are shared by every allowed login, like the rest of the app.
 
-**Every motion belongs to one photo.** At most one photo is **on air**: the overlay shows that photo as its idle image (instead of the demo avatar), and the controller's motion buttons play that photo's motions. Putting another photo on air switches the overlay and the controller live, over the same `/api/library` + `/api/events` they already use, so the OBS source never needs a new URL. An idle uploaded for a photo (`POST /api/upload?kind=idle` while it is on air) replaces the photo as its idle image. With nothing on air, the overlay shows the old library idle (or the demo avatar) and the motions that belong to no photo, which is how a fresh install without characters works.
+**Every motion belongs to one photo.** At most one photo is **on air**: the overlay shows that photo as its idle image (instead of the demo avatar, which is never shown while a photo is on air — see [Motion buttons](#motion-buttons)), and the controller's motion buttons play that photo's motions. Putting another photo on air switches the overlay and the controller live, over the same `/api/library` + `/api/events` they already use, so the OBS source never needs a new URL. An idle uploaded for a photo (`POST /api/upload?kind=idle` while it is on air) replaces the photo as its idle image. With nothing on air, the overlay shows the old library idle (or the demo avatar) and the motions that belong to no photo, which is how a fresh install without characters works.
 
 **Opaque photos.** A photo without transparency, such as character art on a white background, must not show that background in OBS. When such a photo is added, the server cuts its plain background out with the same step the animate jobs use (`lib/animate/cutout.js`: the border colour is flood-filled from the image edges, so enclosed areas such as the eyes stay) into a PNG kept next to the photo. The overlay's idle image and the photo cards then use the cutout (`/api/media/<photoId>?variant=cutout`), while `/api/media/<photoId>` stays the original file. A photo or scene whose border is not one colour, or one where nothing would be left, is shown as it is. Photos stored before cutouts existed are decided in the background after startup.
 
@@ -45,7 +46,7 @@ The 방송 화면 shows the character on air at the top of the control pane — 
 
 The **동작** (Motions) card sits at the bottom of the controller on the 방송 화면 (`/broadcast`), below the **OBS에 연동하기!** section. It lists the motions of the photo on air (with nothing on air: the motions that belong to no photo). The whole control pane scrolls as one, and the list renders 30 buttons at a time, loading the next 30 as you scroll to the end (infinite scroll). It lists, in this order:
 
-1. **데모 동작** — always plays the built-in demo avatar reaction.
+1. **데모 동작** — plays the built-in demo avatar reaction. Shown only while nothing is on air.
 2. Nine preset buttons:
 
    | key | label |
@@ -62,7 +63,9 @@ The **동작** (Motions) card sits at the bottom of the controller on the 방송
 
 3. Every other motion of the photo on air, in library order, labelled by its name.
 
-**Linking rule:** a preset is linked to the first of those motions whose name, trimmed and compared case-insensitively, equals the preset key or its label. A linked preset plays that clip ("영상"). An unlinked preset plays the demo avatar reaction ("영상 없음 · 데모 재생"). The list updates live when the library or the photo on air changes; no reload is needed.
+**Linking rule:** a preset is linked to the first of those motions whose name, trimmed and compared case-insensitively, equals the preset key or its label. A linked preset plays that clip ("영상"). With nothing on air, an unlinked preset plays the demo avatar reaction ("영상 없음 · 데모 재생"). The list updates live when the library or the photo on air changes; no reload is needed.
+
+**While a photo is on air, the demo avatar never replaces it.** There is no 데모 동작 button, and an unlinked preset is a disabled button ("영상 없음"); the hint under the card title says so and points to **동작 추가하러 가기**. `POST /api/trigger` refuses `demo` then (`409`, code `demo_on_air`), and the overlay itself answers a `demo` or unknown-motion trigger by staying on (or returning to) the photo and telling the preview it is idle. The overlay also shows no layer until it knows the library, so a photo on air does not flash the demo avatar when the OBS source loads.
 
 A new trigger replaces a motion that is already playing. The OBS source and the controller's preview receive the same event. Only motions of the current view can be triggered (`POST /api/trigger` answers `404` for any other id).
 
@@ -283,7 +286,7 @@ The pages use these routes; with login on they need a login, like every page. JS
 
 `...list` stands for `characters, activePhotoId, activeCharacterId`. Deleting the photo on air, or its character, takes it off air.
 
-**Library view.** `GET /api/library` and the `{ "type": "library", "library" }` message on `/api/events` carry `{ idle, motions, character, photo }`: with a photo on air, `idle` is the idle uploaded for it, else the photo itself (`url` = its cutout or its file, `source: { photoId }`), `motions` are that photo's motions, `character` is `{ id, name }` and `photo` is `{ id, url, width, height, hasAlpha }`; with nothing on air, `idle` is the old library idle (`null`: the demo avatar), `motions` are the motions without a photo, and both others are `null`. It is broadcast whenever it may change: the photo on air changes, a motion is added or deleted, a photo or character is deleted, an idle is uploaded, or the character on air is renamed. `POST /api/trigger` accepts `demo` or a motion of the current view (else `404`). `GET /api/media/<id>` serves library items and, by photo id, the photos (`?variant=cutout` for a cut-out photo's PNG); `DELETE /api/media/<id>` removes motions and idles only (photos go through the character API).
+**Library view.** `GET /api/library` and the `{ "type": "library", "library" }` message on `/api/events` carry `{ idle, motions, character, photo }`: with a photo on air, `idle` is the idle uploaded for it, else the photo itself (`url` = its cutout or its file, `source: { photoId }`), `motions` are that photo's motions, `character` is `{ id, name }` and `photo` is `{ id, url, width, height, hasAlpha }`; with nothing on air, `idle` is the old library idle (`null`: the demo avatar), `motions` are the motions without a photo, and both others are `null`. It is broadcast whenever it may change: the photo on air changes, a motion is added or deleted, a photo or character is deleted, an idle is uploaded, or the character on air is renamed. `POST /api/trigger` accepts a motion of the current view (else `404`), and `demo` only while nothing is on air (else `409 { "error": "캐릭터 사진이 방송 중일 때는 데모 동작을 재생할 수 없습니다.", "code": "demo_on_air" }`). `GET /api/media/<id>` serves library items and, by photo id, the photos (`?variant=cutout` for a cut-out photo's PNG); `DELETE /api/media/<id>` removes motions and idles only (photos go through the character API).
 
 | `code` | Status | `error` |
 |---|---|---|
@@ -328,7 +331,7 @@ curl -H 'Content-Type: image/png' --data-binary @idle.png \
 # The library view: the photo on air, its idle and its motions (with ids)
 curl 'http://127.0.0.1:8787/api/library'
 
-# Trigger a motion by id (or "demo") without the controller
+# Trigger a motion by id (or "demo" while nothing is on air) without the controller
 curl -H 'Content-Type: application/json' -d '{"id":"demo"}' \
   'http://127.0.0.1:8787/api/trigger'
 

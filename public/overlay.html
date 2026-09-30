@@ -8,8 +8,9 @@
 </head>
 <body>
   <div id="stage" class="stage">
-    <!-- Demo Avatar Layer (Active when no idle media exists, or during demo test) -->
-    <div id="demo-layer" class="layer demo-layer active" aria-hidden="true">
+    <!-- Demo Avatar Layer: overlay.js shows it once the library is known and has no idle media (never while
+         a photo is on air), or for a demo reaction. Hidden at load, so a photo on air never flashes the demo. -->
+    <div id="demo-layer" class="layer demo-layer" aria-hidden="true">
       <div id="demo-avatar" class="demo-avatar idle">
         <svg viewBox="0 0 380 440" class="avatar-svg" xmlns="http://www.w3.org/2000/svg">
           <defs>

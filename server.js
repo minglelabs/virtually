@@ -672,7 +672,12 @@ async function createAppServer({
         const body = await readBody(req);
         if (!body || typeof body.id !== 'string') return sendJson(res, 400, { error: 'Motion id is required.' });
         // Only the motions the overlay can see: those of the on-air photo (or of no photo).
-        if (body.id !== 'demo' && !libraryView().motions.some(item => item.id === body.id)) return sendJson(res, 404, { error: 'Motion not found.' });
+        const view = libraryView();
+        // The demo avatar never replaces a photo on air (the controller shows no 데모 동작 then).
+        if (body.id === 'demo' && view.photo) {
+          return sendJson(res, 409, { error: '캐릭터 사진이 방송 중일 때는 데모 동작을 재생할 수 없습니다.', code: 'demo_on_air' });
+        }
+        if (body.id !== 'demo' && !view.motions.some(item => item.id === body.id)) return sendJson(res, 404, { error: 'Motion not found.' });
         const seq = ++sequence;
         broadcast({ type: 'play', id: body.id, seq });
         return sendJson(res, 200, { ok: true, seq });
@@ -846,7 +851,8 @@ if (require.main === module) {
     const port = await listenWithPortRotation(server, { host, startPort });
     const displayHost = host.includes(':') ? `[${host}]` : host;
     if (port !== startPort) console.log(`Port ${startPort} is in use; using ${port}.`);
-    console.log(`Virtually controller: http://${displayHost}:${port}/`);
+    console.log(`Virtually characters: http://${displayHost}:${port}/`);
+    console.log(`Virtually controller: http://${displayHost}:${port}/broadcast`);
     const login = server.auth.summary();
     if (login.mode === 'disabled') {
       console.log(`OBS Browser Source: http://${displayHost}:${port}/overlay`);
@@ -856,7 +862,7 @@ if (require.main === module) {
     } else {
       // "Google login: on (N allowed entries)" or the config problem line.
       console.log(login.text);
-      console.log('OBS Browser Source: copy the keyed URL from the controller');
+      console.log('OBS Browser Source: copy the keyed URL from the controller (/broadcast)');
     }
   }).catch(error => { console.error(error); process.exitCode = 1; });
 }
