@@ -32,7 +32,8 @@ body {
   gap: 16px;
 }
 
-.page-header { display: flex; align-items: center; gap: 16px; }
+/* The signed-in chip (auth.css) wraps onto its own row when the header is too narrow. */
+.page-header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
 .page-header h1 { margin: 0; font-size: 20px; }
 .back-link { color: var(--muted); text-decoration: none; }
 .back-link:hover { color: var(--text); }

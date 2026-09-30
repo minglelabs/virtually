@@ -47,8 +47,8 @@ body {
   padding-top: calc(var(--pane-pad) + var(--brand-row-h) + var(--pane-gap));
 }
 
-/* "Virtually" brand row above the 컨트롤러 title. */
-.brand-row { flex: none; display: flex; align-items: center; height: var(--brand-row-h); }
+/* "Virtually" brand row above the 컨트롤러 title (the signed-in chip sits on its right). */
+.brand-row { flex: none; display: flex; align-items: center; gap: 12px; height: var(--brand-row-h); }
 .brand { margin: 0; font-size: 20px; line-height: var(--brand-row-h); }
 /* The two pane titles, 컨트롤러 and 캔버스. */
 .pane-title {
@@ -218,6 +218,14 @@ h3 { margin: 16px 0 6px; font-size: 13px; color: var(--text); }
   font-family: ui-monospace, monospace;
   font-size: 12px;
 }
+
+/* Login on only: the URL carries the overlay key (app.js shows this block). */
+.overlay-key { margin-top: 8px; word-break: keep-all; overflow-wrap: anywhere; }
+.card .overlay-key-note { margin: 0 0 8px; font-size: 12px; color: var(--muted); }
+.overlay-key-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.card .overlay-key-status { margin: 0; font-size: 12px; color: var(--muted); }
+.card .overlay-key-status[data-kind="success"] { color: var(--accent); }
+.card .overlay-key-status[data-kind="error"] { color: var(--danger); }
 
 .steps { margin: 0; padding-left: 20px; color: var(--muted); }
 .steps li + li { margin-top: 2px; }

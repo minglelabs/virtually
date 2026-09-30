@@ -1,0 +1,43 @@
+/*
+ * Signed-in chip (auth.js): avatar, name and 로그아웃 on the right of the controller's
+ * brand row and of the animate page header. Uses each page's palette variables,
+ * with the shared defaults as fallbacks.
+ */
+.auth-slot {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-left: auto;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text, #e6e8ee);
+}
+.auth-slot[hidden] { display: none; }
+
+.auth-avatar {
+  flex: none;
+  display: block;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--border, #2a2f3a);
+}
+
+.auth-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted, #9aa3b2);
+}
+
+/* Compact in both pages (the controller's .btn padding would outgrow its 30px brand row). */
+.auth-slot .auth-logout {
+  flex: none;
+  padding: 3px 10px;
+  font-size: 12px;
+  line-height: 1.5;
+}

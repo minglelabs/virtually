@@ -102,10 +102,10 @@ test('main page links to the animate page instead of uploading', () => {
   assert.doesNotMatch(app, /\/api\/upload/);
 });
 
-test('animate page never assigns innerHTML/outerHTML or uses insertAdjacentHTML', () => {
+test('page scripts never assign innerHTML/outerHTML or use insertAdjacentHTML', () => {
   const fs = require('node:fs');
   const path = require('node:path');
-  for (const file of ['animate.js', 'app.js', 'motions.js']) {
+  for (const file of ['animate.js', 'app.js', 'motions.js', 'login.js', 'auth.js']) {
     const src = fs.readFileSync(path.join(__dirname, '..', 'public', file), 'utf8');
     assert.doesNotMatch(src, /innerHTML|outerHTML|insertAdjacentHTML|document\.write/, file);
   }
@@ -322,7 +322,8 @@ test('controller previews a true-scale canvas at the reported OBS source size', 
   const path = require('node:path');
   const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
   // Both pane titles are h2 with one shared class, and each section is labelled by its h2.
-  assert.match(html, /<section class="pane pane-control" aria-labelledby="controlTitle">\s*<div class="brand-row">\s*<h1 class="brand">Virtually<\/h1>\s*<\/div>\s*<h2 id="controlTitle" class="pane-title">컨트롤러<\/h2>/);
+  // The brand row also holds the signed-in chip slot (auth.js fills it when login is on).
+  assert.match(html, /<section class="pane pane-control" aria-labelledby="controlTitle">\s*<div class="brand-row">\s*<h1 class="brand">Virtually<\/h1>\s*<div id="authSlot" class="auth-slot" hidden><\/div>\s*<\/div>\s*<h2 id="controlTitle" class="pane-title">컨트롤러<\/h2>/);
   assert.match(html, /<section class="pane pane-preview" aria-labelledby="previewTitle">/);
   assert.match(html, /<div class="pane-title-row">\s*<h2 id="previewTitle" class="pane-title">캔버스<\/h2>\s*<button type="button" id="refreshOverlayBtn"/);
   assert.equal((html.match(/<h2 [^>]*class="pane-title"/g) || []).length, 2);
