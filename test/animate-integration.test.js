@@ -291,7 +291,8 @@ test('full flow: fetch examples -> character -> mock job -> result -> add as mot
     assert.equal(done.result.url, `/api/animate/jobs/${done.id}/result`);
     assert.equal(done.result.posterUrl, `/api/animate/jobs/${done.id}/poster`);
     assert.equal(done.result.mime, 'video/mp4');
-    assert.equal(done.result.keyedUrl, `/api/animate/jobs/${done.id}/result?variant=keyed`);
+    // Versioned by the WebM's mtime so a re-keyed clip is never served from cache.
+    assert.match(done.result.keyedUrl, new RegExp(`^/api/animate/jobs/${done.id}/result\\?variant=keyed&v=\\d+$`));
     assert.match(done.result.keyColor, /^#[0-9A-F]{6}$/);
     assert.equal(done.result.keySkipped, null);
     assert.equal(done.result.keyFailed, false);
