@@ -290,10 +290,12 @@ test('full flow: fetch examples -> character -> mock job -> result -> add as mot
     assert.match(done.result.keyColor, /^#[0-9A-F]{6}$/);
     assert.equal(done.result.keySkipped, null);
     assert.equal(done.result.keyFailed, false);
+    // A red character has no green: the key colour stays green.
+    assert.deepEqual(done.keyColor, { name: 'green', hex: '#00FF00' });
     assert.equal(done.result.width, 64);
     assert.equal(done.result.height, 96);
     assert.ok(done.result.duration > 2.5 && done.result.duration < 3.5, `result duration ${done.result.duration}`);
-    assert.deepEqual(Object.keys(done).sort(), ['characterId', 'characterLabel', 'createdAt', 'drivingId', 'drivingLabel', 'error', 'estimate', 'familyLabel', 'id', 'motionId',
+    assert.deepEqual(Object.keys(done).sort(), ['characterId', 'characterLabel', 'createdAt', 'drivingId', 'drivingLabel', 'error', 'estimate', 'familyLabel', 'id', 'keyColor', 'motionId',
       'motionName', 'presetKey', 'progress', 'providerLabel', 'providerStatus', 'result', 'routeId', 'routeLabel', 'state', 'updatedAt']);
 
     const list = (await (await fetch(`${app.base}/api/animate/jobs`)).json()).jobs;

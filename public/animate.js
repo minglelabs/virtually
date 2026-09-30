@@ -216,6 +216,17 @@ const AnimateHelpers = (() => {
     return '';
   }
 
+  /**
+   * One short note when the job's chroma-key background is not green (the
+   * character itself has green in it), else ''. Jobs without keyColor are green.
+   */
+  function keyColorNote(job) {
+    const name = job?.keyColor?.name;
+    if (name === 'blue') return '캐릭터에 초록색이 있어 파란 배경으로 만들었습니다';
+    if (name === 'magenta') return '캐릭터에 초록·파란색이 있어 분홍 배경으로 만들었습니다';
+    return '';
+  }
+
   /** "12:34" today, "9/28 12:34" otherwise. */
   function formatTime(value, now = Date.now()) {
     const t = timeValue(value);
@@ -312,6 +323,7 @@ const AnimateHelpers = (() => {
     upsertJob,
     isAdded,
     keyNote,
+    keyColorNote,
     formatTime,
     progressText,
     videoContentType,
@@ -1256,10 +1268,12 @@ if (typeof document !== 'undefined') (() => {
   function createRow() {
     const head = el('div', { className: 'job-head' });
     const info = el('p', { className: 'job-info' });
+    const colorNote = el('p', { className: 'job-info job-key-color' });
+    colorNote.hidden = true;
     const media = el('div', { className: 'job-media' });
     const actions = el('div', { className: 'job-actions' });
-    const li = el('li', { className: 'job' }, [head, info, media, actions]);
-    return { li, head, info, media, actions, mediaKey: null, actionsKey: null };
+    const li = el('li', { className: 'job' }, [head, info, colorNote, media, actions]);
+    return { li, head, info, colorNote, media, actions, mediaKey: null, actionsKey: null };
   }
 
   function updateRow(row, job) {
@@ -1280,6 +1294,10 @@ if (typeof document !== 'undefined') (() => {
     row.info.hidden = !info;
     if (infoKind) row.info.dataset.kind = infoKind;
     else delete row.info.dataset.kind;
+
+    const colorNote = H.keyColorNote(job);
+    row.colorNote.textContent = colorNote;
+    row.colorNote.hidden = !colorNote;
 
     // The keyed WebM plays over the checkerboard; a toggle shows the original MP4.
     const keyedUrl = job.state === 'succeeded' ? job.result?.keyedUrl || null : null;
