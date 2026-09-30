@@ -32,14 +32,21 @@
       <p id="rateText" class="muted"></p>
       <p id="sandboxNote" class="muted" hidden>테스트 카드 4242 4242 4242 4242로 결제할 수 있습니다.</p>
       <p id="freeNote" class="note-free" hidden>이 계정은 크레딧 없이 동작을 만들 수 있습니다.</p>
-      <div class="row summary-actions">
+      <div id="summaryActions" class="row summary-actions">
+        <a id="adminLink" href="/admin" class="btn btn-ghost btn-sm" hidden>크레딧 관리</a>
         <button type="button" id="portalBtn" class="btn btn-ghost btn-sm" hidden>결제 관리</button>
         <button type="button" id="syncBtn" class="btn btn-ghost btn-sm">결제 내역 다시 확인</button>
       </div>
       <p id="summaryStatus" class="status" aria-live="polite"></p>
     </section>
 
-    <!-- Credit products on Polar -->
+    <!-- How to top up: bank transfer to the admin (config transferNote) -->
+    <section id="transferCard" class="card" aria-labelledby="transferTitle" hidden>
+      <h2 id="transferTitle">충전 안내</h2>
+      <p id="transferNote" class="transfer-note"></p>
+    </section>
+
+    <!-- Credit products on Polar (only when Polar is configured) -->
     <section id="productsCard" class="card" aria-labelledby="productsTitle" hidden>
       <h2 id="productsTitle">충전</h2>
       <p id="productsNote" class="note" hidden></p>

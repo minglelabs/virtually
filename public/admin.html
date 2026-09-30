@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>크레딧 관리 · Virtually</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="./billing.css">
+  <link rel="stylesheet" href="./admin.css">
+  <link rel="stylesheet" href="./auth.css">
+</head>
+<body>
+  <main class="page page-wide">
+    <header class="page-header">
+      <nav class="page-links" aria-label="다른 화면">
+        <a href="/" class="back-link">컨트롤러</a>
+        <a href="/animate" class="back-link">동작 만들기</a>
+        <a href="/billing" class="back-link">크레딧</a>
+      </nav>
+      <h1>크레딧 관리</h1>
+      <div id="authSlot" class="auth-slot" hidden></div>
+    </header>
+
+    <!-- admin.js: not an admin, billing off or misconfigured, no server. -->
+    <div id="adminMessage" class="messages" role="alert"></div>
+    <p id="rateText" class="muted rate-line" hidden></p>
+
+    <!-- Add or take off credits (bank transfer: amount in KRW = credits) -->
+    <section id="adjustCard" class="card" aria-labelledby="adjustTitle" hidden>
+      <h2 id="adjustTitle">충전 · 차감</h2>
+      <form id="adjustForm" class="adjust-form" novalidate>
+        <div class="field">
+          <label for="emailInput">이메일</label>
+          <input type="email" id="emailInput" autocomplete="off" spellcheck="false" maxlength="254">
+        </div>
+        <div class="field">
+          <label for="creditsInput">크레딧</label>
+          <input type="text" id="creditsInput" inputmode="numeric" autocomplete="off" aria-describedby="creditsHint">
+          <p id="creditsHint" class="hint">입금액(원) = 크레딧</p>
+        </div>
+        <div class="field field-wide">
+          <label for="memoInput">메모</label>
+          <input type="text" id="memoInput" autocomplete="off" maxlength="200" placeholder="예: 9/30 계좌이체 50,000원, 입금자 홍길동" aria-describedby="memoHint">
+          <p id="memoHint" class="hint">고객의 사용 내역에도 보입니다</p>
+        </div>
+        <div class="row adjust-actions">
+          <button type="button" id="topupBtn" class="btn">충전</button>
+          <button type="button" id="deductBtn" class="btn btn-ghost">차감</button>
+        </div>
+      </form>
+      <div id="adjustResult" class="messages adjust-result" role="status" aria-live="polite"></div>
+    </section>
+
+    <!-- Every account with a ledger record, and emails waiting for their first login -->
+    <section id="usersCard" class="card" aria-labelledby="usersTitle" hidden>
+      <div class="card-head">
+        <h2 id="usersTitle">사용자</h2>
+        <label for="searchInput" class="visually-hidden">이메일 또는 이름으로 찾기</label>
+        <input type="search" id="searchInput" class="search" autocomplete="off" spellcheck="false" maxlength="100" placeholder="이메일 또는 이름으로 찾기">
+      </div>
+      <p id="usersStatus" class="status" aria-live="polite"></p>
+      <div class="table-wrap">
+        <table id="usersTable" class="users-table" hidden>
+          <thead>
+            <tr><th scope="col">이메일</th><th scope="col">이름</th><th scope="col" class="num">잔액</th><th scope="col">최근 활동</th><th scope="col">상태</th></tr>
+          </thead>
+          <tbody id="usersBody"></tbody>
+        </table>
+      </div>
+      <p id="usersEmpty" class="muted" hidden></p>
+    </section>
+
+    <!-- The picked account's credit history, newest first -->
+    <section id="historyCard" class="card" aria-labelledby="historyTitle" hidden>
+      <h2 id="historyTitle">사용 내역</h2>
+      <p id="historySummary" class="muted history-summary"></p>
+      <p id="historyStatus" class="status" aria-live="polite"></p>
+      <p id="historyEmpty" class="muted" hidden></p>
+      <ol id="historyList" class="history-list" hidden></ol>
+    </section>
+  </main>
+  <script src="./auth.js"></script>
+  <script src="./billing.js"></script>
+  <script src="./admin.js"></script>
+</body>
+</html>

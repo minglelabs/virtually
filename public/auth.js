@@ -5,15 +5,16 @@
 // refuses for a missing login (401 + X-Virtually-Auth: required) sends the browser
 // to /login and back here afterwards; it fills the signed-in chip (#authSlot) and exposes
 // window.VirtuallyAuth = { ready, logout, rotateOverlayKey, loginUrlFor, overlayUrlFor }.
-// It also puts the credits chip (GET /api/billing) in the same slot and exposes
-// window.VirtuallyBilling = { ready, refresh }, so a page reuses that payload instead
-// of asking again. Names and emails are user data: the chips are built with
-// createElement/textContent only. With login and billing off (or an older server)
-// nothing is shown and fetch behaves as before.
+// It also puts the credits chip (GET /api/billing; admins also get a 관리 link to /admin)
+// in the same slot and exposes window.VirtuallyBilling = { ready, refresh }, so a page
+// reuses that payload instead of asking again. Names and emails are user data: the
+// chips are built with createElement/textContent only. With login and billing off (or an
+// older server) nothing is shown and fetch behaves as before.
 (function (root) {
   const AUTH_HEADER = 'X-Virtually-Auth';
   const LOGGED_OUT_URL = '/login?logged_out=1';
   const BILLING_PATH = '/billing';
+  const ADMIN_PATH = '/admin';
 
   const TEXT = Object.freeze({
     logout: '로그아웃',
@@ -23,6 +24,7 @@
     credits: '크레딧',
     creditsFree: '크레딧 무료',
     creditsCheck: '크레딧 설정 확인',
+    admin: '관리',
   });
 
   /** The login page that returns to `pathname + search` afterwards. */
@@ -82,17 +84,18 @@
   }
 
   /**
-   * What the credits chip shows for a GET /api/billing payload: { text, href }, or
-   * null for no chip (billing off, request failed, unknown shape). Every chip links
-   * to the billing page.
+   * What the credits chip shows for a GET /api/billing payload: { text, href, adminHref },
+   * or null for no chip (billing off, request failed, unknown shape). The chip links to
+   * the billing page; adminHref ('/admin', else null) adds the admins' 관리 link.
    */
   function creditChip(billing) {
     if (!billing || typeof billing !== 'object' || billing.enabled !== true) return null;
-    if (billing.mode === 'invalid') return { text: TEXT.creditsCheck, href: BILLING_PATH };
+    if (billing.mode === 'invalid') return { text: TEXT.creditsCheck, href: BILLING_PATH, adminHref: null };
     if (billing.mode !== 'enabled') return null;
-    if (billing.free === true) return { text: TEXT.creditsFree, href: BILLING_PATH };
+    const adminHref = billing.isAdmin === true ? ADMIN_PATH : null;
+    if (billing.free === true) return { text: TEXT.creditsFree, href: BILLING_PATH, adminHref };
     const balance = formatCredits(billing.balance);
-    return balance ? { text: `${TEXT.credits} ${balance}`, href: BILLING_PATH } : null;
+    return balance ? { text: `${TEXT.credits} ${balance}`, href: BILLING_PATH, adminHref } : null;
   }
 
   /** The server's JSON `error` text, else `HTTP <status>`. */
@@ -108,6 +111,7 @@
     AUTH_HEADER,
     LOGGED_OUT_URL,
     BILLING_PATH,
+    ADMIN_PATH,
     TEXT,
     loginUrlFor,
     overlayUrlFor,
@@ -248,13 +252,22 @@
     }
   }
 
-  function creditsChipNode(chip) {
+  function chipLink(className, href, text) {
     const link = document.createElement('a');
-    link.className = 'auth-credits';
-    link.setAttribute('href', chip.href);
-    if (root.location.pathname === BILLING_PATH) link.setAttribute('aria-current', 'page');
-    link.textContent = chip.text;
+    link.className = className;
+    link.setAttribute('href', href);
+    if (root.location.pathname === href) link.setAttribute('aria-current', 'page');
+    link.textContent = text;
     return link;
+  }
+
+  // One group, replaced as a unit: the credits link, and the admins' 관리 link.
+  function creditsChipNode(chip) {
+    const group = document.createElement('span');
+    group.className = 'auth-billing';
+    group.append(chipLink('auth-credits', chip.href, chip.text));
+    if (chip.adminHref) group.append(chipLink('auth-admin', chip.adminHref, TEXT.admin));
+    return group;
   }
 
   // Puts the chip first in #authSlot, replaces it, or removes it (no chip for this payload).

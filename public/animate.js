@@ -10,7 +10,7 @@ const AnimateHelpers = (() => {
     ? window.VirtuallyMotions
     : require('./motions.js');
   // The shared credit formula (credits.js, loaded before this script). Without it the
-  // page shows no credit prices: billingActive() is then false.
+  // page cannot price anything in credits (prices then read 가격 정보 없음).
   const credits = typeof window !== 'undefined' ? window.VirtuallyCredits || null : require('./credits.js');
 
   const JOB_STATE_LABELS = Object.freeze({
@@ -110,55 +110,57 @@ const AnimateHelpers = (() => {
     return Number((rate * billed).toFixed(4));
   }
 
+  /** A model cost in dollars, '$0.30'; '' when it is unknown. Shown only inside the 원가 note. */
   function formatUsd(usd) {
-    return Number.isFinite(usd) ? `약 $${usd.toFixed(2)}` : '';
+    return Number.isFinite(usd) ? `$${usd.toFixed(2)}` : '';
   }
 
   // ---- Credits (GET /api/billing, via window.VirtuallyBilling from auth.js) ----
+  // Prices are credits in every billing mode (1 credit = 1 KRW). The dollar model
+  // cost is shown only to admins, and to everyone while billing is off.
 
   /** A credit count as every page shows it: '1,234', '-50'; '' when it is not a number. */
   function formatCredits(value) {
     return typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString('ko-KR') : '';
   }
 
-  /** True when paid jobs cost this account credits: billing on and working, not a free account. */
+  /** True when paid jobs take credits from this account: billing on and working, not a free account. */
   function billingActive(billing) {
-    return Boolean(credits && billing && typeof billing === 'object' && billing.enabled === true
+    return Boolean(billing && typeof billing === 'object' && billing.enabled === true
       && billing.mode === 'enabled' && billing.free !== true);
   }
 
-  /** Credits a paid job with this USD estimate costs (null: unknown price or billing not active). */
-  function creditsForEstimate(usd, billing) {
-    return billingActive(billing) ? credits.creditsFor(usd, billing.creditsPerUsd) : null;
-  }
-
-  /** "40 크레딧", "크레딧 가격 없음" for an unknown price, '' when billing is not active. */
-  function creditsText(usd, billing) {
-    if (!billingActive(billing)) return '';
-    const needed = creditsForEstimate(usd, billing);
-    return needed == null ? '크레딧 가격 없음' : `${formatCredits(needed)} 크레딧`;
-  }
-
-  /** What the estimate text gains: " · 40 크레딧", " · 크레딧 가격 없음", or ''. */
-  function creditsSuffix(usd, billing) {
-    const text = creditsText(usd, billing);
-    return text ? ` · ${text}` : '';
+  /** True when prices also show the dollar model cost: admins, and everyone while billing is off. */
+  function showsModelCost(billing) {
+    if (!billing || typeof billing !== 'object') return false;
+    return billing.enabled === false || (billing.mode === 'enabled' && billing.isAdmin === true);
   }
 
   /**
-   * A route's cost text: '무료' for the mock route, '약 $0.40 · 40 크레딧' with billing
-   * active, '' until the driving length is known (as before billing).
+   * Credits for a USD estimate at the payload's creditsPerUsd (credits.js falls back to
+   * its default without one, e.g. before GET /api/billing answers); null when unknown.
    */
+  function creditsForEstimate(usd, billing) {
+    if (!credits) return null;
+    return credits.creditsFor(usd, billing && typeof billing === 'object' ? billing.creditsPerUsd : undefined);
+  }
+
+  /** '약 600 크레딧', plus ' (원가 $0.30)' for admins and while billing is off; '가격 정보 없음' when unknown. */
+  function priceText(usd, billing) {
+    const needed = creditsForEstimate(usd, billing);
+    if (needed == null) return '가격 정보 없음';
+    const text = `약 ${formatCredits(needed)} 크레딧`;
+    return showsModelCost(billing) ? `${text} (원가 ${formatUsd(usd)})` : text;
+  }
+
+  /** A route's price: '무료' for the mock route, '' until the driving length is known, else priceText. */
   function routeCostText(route, seconds, options, billing) {
     if (isMockRoute(route)) return '무료';
     if (typeof seconds !== 'number' || !Number.isFinite(seconds)) return '';
-    const usd = estimateUsd(route, seconds, options);
-    const usdText = formatUsd(usd);
-    // A known estimate gains the credit suffix; an unknown one shows only the credit note.
-    return usdText ? usdText + creditsSuffix(usd, billing) : creditsText(usd, billing);
+    return priceText(estimateUsd(route, seconds, options), billing);
   }
 
-  /** Credits a job on this route would cost, or null (mock route, unknown price, billing not active). */
+  /** Credits a job on this route takes from this account, or null (mock route, unknown price, billing not active). */
   function jobCredits(route, seconds, options, billing) {
     if (isMockRoute(route) || !billingActive(billing)) return null;
     return creditsForEstimate(estimateUsd(route, seconds, options), billing);
@@ -188,6 +190,24 @@ const AnimateHelpers = (() => {
   /** True when `next` (a job update) shows a refund that `previous` (the same job before, if any) did not. */
   function refundTurnedOn(previous, next) {
     return next?.billing?.refunded === true && previous?.billing?.refunded !== true;
+  }
+
+  /** True for a job that took credits from this account and has not given them back. */
+  function jobCharged(job) {
+    const billing = job?.billing;
+    return Boolean(billing && typeof billing === 'object' && billing.free !== true && billing.refunded !== true
+      && typeof billing.credits === 'number' && Number.isFinite(billing.credits) && billing.credits > 0);
+  }
+
+  /**
+   * The question before canceling a charged job: the credits come back only while
+   * no provider task exists (billing.cancelRefund). '' for any other job (no question).
+   */
+  function cancelConfirmText(job) {
+    if (!jobCharged(job)) return '';
+    return job.billing.cancelRefund === true
+      ? `취소하면 ${formatCredits(job.billing.credits)} 크레딧을 돌려받습니다. 취소할까요?`
+      : '이미 생성이 시작되어 취소해도 크레딧은 돌려받지 못합니다. 취소할까요?';
   }
 
   /** "2.5초" below 10 s (one decimal, no trailing .0), "12초" from 10 s, '' when unknown. */
@@ -519,15 +539,17 @@ const AnimateHelpers = (() => {
     formatUsd,
     formatCredits,
     billingActive,
+    showsModelCost,
     creditsForEstimate,
-    creditsText,
-    creditsSuffix,
+    priceText,
     routeCostText,
     jobCredits,
     confirmCreditsText,
     insufficientText,
     jobCreditsText,
     refundTurnedOn,
+    jobCharged,
+    cancelConfirmText,
     formatSeconds,
     LENGTH_TOLERANCE_SEC,
     routeMaxSeconds,
@@ -1666,6 +1688,9 @@ if (typeof document !== 'undefined') (() => {
         className: 'btn btn-ghost btn-sm',
         text: '취소',
         onclick: async () => {
+          // A charged job says whether its credits come back; read the newest view of it.
+          const question = H.cancelConfirmText(state.jobs.find(item => item.id === job.id) || job);
+          if (question && !window.confirm(question)) return;
           cancel.disabled = true;
           try {
             upsertJob(await api('POST', `/api/animate/jobs/${encodeURIComponent(job.id)}/cancel`, { json: {} }));

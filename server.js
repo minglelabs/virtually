@@ -35,6 +35,9 @@ const STATIC_FILES = new Map([
   ['/billing.css', ['billing.css', 'text/css; charset=utf-8']],
   ['/billing.js', ['billing.js', 'text/javascript; charset=utf-8']],
   ['/credits.js', ['credits.js', 'text/javascript; charset=utf-8']],
+  ['/admin', ['admin.html', 'text/html; charset=utf-8']],
+  ['/admin.css', ['admin.css', 'text/css; charset=utf-8']],
+  ['/admin.js', ['admin.js', 'text/javascript; charset=utf-8']],
 ]);
 
 // With login on, anyone may load the non-HTML static files (the repo is public anyway).
@@ -199,7 +202,7 @@ async function createAppServer({
   // Google login (off unless <dataDir>/auth/config.json exists). Tests inject
   // { endpoints: { authorize, token, jwks }, now: () => ms, configCheckIntervalMs, log }.
   auth: authOptions = {},
-  // Polar credit billing (off unless <dataDir>/billing/config.json exists). Tests inject
+  // Credit billing (off unless <dataDir>/billing/config.json exists). Tests inject
   // { apiBase, now: () => ms, configCheckIntervalMs, log }.
   billing: billingOptions = {},
 } = {}) {
@@ -558,10 +561,11 @@ if (require.main === module) {
     }
     const billing = server.billing.summary();
     if (billing.mode === 'enabled') {
-      console.log(billing.text); // "Billing (Polar): on (sandbox)"
-      if (login.publicUrl) {
+      // "Billing (Polar): on (sandbox)", or "Billing: on (admin top-ups; Polar off)"
+      console.log(billing.text);
+      if (billing.polar && login.publicUrl) {
         console.log(`Polar webhook URL: ${login.publicUrl}${WEBHOOK_PATH}`);
-      } else {
+      } else if (billing.polar) {
         console.log('Polar webhooks need a public URL (publicUrl in data/auth/config.json); without one the billing page\'s sync still grants credits.');
       }
     } else if (billing.mode === 'invalid') {

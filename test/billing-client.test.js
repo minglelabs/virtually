@@ -1,8 +1,9 @@
 'use strict';
 
-// Client side of Polar credit billing: billing.js (the /billing page), the credits
-// chip in auth.js (window.VirtuallyBilling) and the credit prices on the animate
-// page (animate.js helpers). The DOM-free helpers are required directly; the page
+// Client side of credit billing: billing.js (the /billing page), the credits chip
+// in auth.js (window.VirtuallyBilling) and the credit prices on the animate page
+// (animate.js helpers). 1 credit = 1 KRW; prices come from creditsPerUsd (default
+// 2000: $0.30 -> 600 credits). The DOM-free helpers are required directly; the page
 // glue runs in a vm context against a small fake DOM built from billing.html's ids.
 
 const assert = require('node:assert/strict');
@@ -23,16 +24,20 @@ const enabledPayload = (over = {}) => ({
   mode: 'enabled',
   problem: null,
   server: 'sandbox',
-  creditsPerUsd: 100,
+  creditsPerUsd: 2000,
   free: false,
   balance: 1234,
   products: [],
   productsError: null,
   history: [],
   canManage: false,
+  isAdmin: false,
+  polar: true,
+  transferNote: null,
   ...over,
 });
-const invalidPayload = problem => ({ enabled: true, mode: 'invalid', problem, balance: null, products: [], history: [] });
+const disabledPayload = (over = {}) => ({ enabled: false, creditsPerUsd: 2000, ...over });
+const invalidPayload = problem => ({ enabled: true, mode: 'invalid', problem, creditsPerUsd: 2000, balance: null, products: [], history: [] });
 const product = (over = {}) => ({
   id: 'prod_1',
   name: '크레딧 500',
@@ -91,15 +96,14 @@ test('priceText: subscription suffixes, custom and free prices', () => {
   assert.equal(billing.buyLabel(null), '구매');
 });
 
-test('rateText: 1 credit in dollars, 4 decimals without trailing zeros', () => {
-  assert.equal(billing.rateText(100), '1 크레딧 = 예상 모델 비용 $0.01');
-  assert.equal(billing.rateText(150), '1 크레딧 = 예상 모델 비용 $0.0067');
-  assert.equal(billing.rateText(1), '1 크레딧 = 예상 모델 비용 $1');
-  assert.equal(billing.rateText(2), '1 크레딧 = 예상 모델 비용 $0.5');
-  assert.equal(billing.rateText(3), '1 크레딧 = 예상 모델 비용 $0.3333');
-  assert.equal(billing.rateText(200), '1 크레딧 = 예상 모델 비용 $0.005');
-  assert.equal(billing.rateText(1000), '1 크레딧 = 예상 모델 비용 $0.001');
-  for (const bad of [0, -1, 1.5, '100', null, undefined, Number.NaN]) assert.equal(billing.rateText(bad), '', String(bad));
+test('the rate is the fixed 1크레딧 = 1원; the transfer note falls back to asking the admin', () => {
+  assert.equal(billing.TEXT.rate, '1크레딧 = 1원');
+  assert.equal(billing.rateText, undefined, 'no dollar rate on the billing page');
+  assert.equal(billing.transferText('입금 계좌: OO은행 000-000000-00 (예금주)\n입금 후 로그인 이메일을 알려 주세요.'),
+    '입금 계좌: OO은행 000-000000-00 (예금주)\n입금 후 로그인 이메일을 알려 주세요.');
+  for (const none of [null, undefined, '', '   \n ', 42, {}]) {
+    assert.equal(billing.transferText(none), '충전은 관리자에게 문의해 주세요.', JSON.stringify(none));
+  }
 });
 
 test('balance, delta, time, kind and granted texts', () => {
@@ -116,7 +120,8 @@ test('balance, delta, time, kind and granted texts', () => {
   assert.equal(billing.formatHistoryTime(new Date(2026, 8, 30, 9, 5).toISOString()), '9월 30일 09:05');
   assert.equal(billing.formatHistoryTime(new Date(2026, 0, 3, 23, 59).getTime()), '1월 3일 23:59');
   for (const bad of ['nope', null, undefined, '']) assert.equal(billing.formatHistoryTime(bad), '', String(bad));
-  assert.deepEqual(['grant', 'revoke', 'charge', 'refund'].map(billing.kindText), ['충전', '환불로 회수', '사용', '돌려받음']);
+  assert.deepEqual(['grant', 'revoke', 'charge', 'refund', 'topup', 'deduct'].map(billing.kindText),
+    ['충전', '환불로 회수', '사용', '돌려받음', '충전', '차감']);
   for (const bad of ['GRANT', 'x', null, undefined, '__proto__']) assert.equal(billing.kindText(bad), '', String(bad));
   assert.equal(billing.grantedText(500), '크레딧 500개가 충전되었습니다.');
   assert.equal(billing.grantedText(1500), '크레딧 1,500개가 충전되었습니다.');
@@ -127,12 +132,14 @@ test('balance, delta, time, kind and granted texts', () => {
 test('problemText maps every config problem code; invalidText wraps it', () => {
   const expected = {
     invalid_json: '결제 설정 파일의 JSON 형식이 올바르지 않습니다.',
+    bad_admin_emails: 'adminEmails에 관리자 이메일을 넣어 주세요.',
     bad_server: 'polar.server는 sandbox 또는 production이어야 합니다.',
     missing_token: 'polar.accessToken이 필요합니다.',
     bad_webhook_secret: 'polar.webhookSecret은 whsec_로 시작해야 합니다.',
     bad_api_version: 'polar.apiVersion은 2026-10 같은 형식이어야 합니다.',
     bad_credits_per_usd: 'creditsPerUsd는 1 이상의 정수여야 합니다.',
     bad_free_emails: 'freeEmails는 이메일 목록이어야 합니다.',
+    bad_transfer_note: 'transferNote는 1000자 이하의 글이어야 합니다.',
     login_required: '크레딧 결제를 쓰려면 Google 로그인을 먼저 켜야 합니다.',
   };
   for (const [code, text] of Object.entries(expected)) {
@@ -153,11 +160,18 @@ test('apiErrorText maps the billing error codes, then the server message, then t
     billing_disabled: '크레딧 결제가 꺼져 있습니다.',
     no_customer: '아직 결제 내역이 없습니다.',
     checkout_missing: '이 결제를 찾지 못했습니다.',
+    polar_disabled: '카드 결제(Polar)는 아직 설정되지 않았습니다.',
+    admin_only: '관리자만 쓸 수 있습니다.',
     network: '서버에 연결하지 못했습니다.',
   };
   for (const [code, text] of Object.entries(expected)) {
     assert.equal(billing.apiErrorText({ code, error: 'English text', status: 400 }), text, code);
   }
+  assert.equal(billing.apiErrorText({ code: 'insufficient_balance', status: 409, detail: { balance: 12000 } }),
+    '잔액보다 많이 차감할 수 없습니다 (잔액 12,000)');
+  assert.equal(billing.apiErrorText({ code: 'insufficient_balance', status: 409, detail: { balance: 0 } }),
+    '잔액보다 많이 차감할 수 없습니다 (잔액 0)');
+  assert.equal(billing.apiErrorText({ code: 'insufficient_balance', status: 409, detail: null }), '잔액보다 많이 차감할 수 없습니다');
   assert.equal(billing.apiErrorText({ code: 'bad_request', error: 'Bad request.', status: 400 }), 'Bad request.');
   assert.equal(billing.apiErrorText({ code: null, error: '  ', status: 500 }), 'HTTP 500');
   assert.equal(billing.apiErrorText({ code: 'constructor', status: 418 }), 'HTTP 418');
@@ -216,7 +230,11 @@ test('billingView: enabled shows balance, rate, sandbox, free, products and hist
   assert.equal(view.mode, 'enabled');
   assert.equal(view.message, null);
   assert.equal(view.balance, '보유 크레딧 -5');
-  assert.equal(view.rate, '1 크레딧 = 예상 모델 비용 $0.0067');
+  // Always 1 credit = 1 KRW, whatever creditsPerUsd prices the models at.
+  assert.equal(view.rate, '1크레딧 = 1원');
+  assert.equal(view.transfer, '충전은 관리자에게 문의해 주세요.');
+  assert.equal(view.polar, true);
+  assert.equal(view.isAdmin, false);
   assert.equal(view.sandbox, true);
   assert.equal(view.free, true);
   assert.equal(view.canManage, true);
@@ -246,6 +264,36 @@ test('billingView: an empty product list explains the metadata; a Polar failure 
   const kept = billing.billingView(enabledPayload({ productsError: 'polar_unauthorized', products: [product()] }));
   assert.deepEqual(kept.productsNote, { kind: 'error', text: 'Polar 액세스 토큰(polar.accessToken)을 확인해 주세요.' });
   assert.equal(kept.products.length, 1);
+});
+
+test('billingView: without Polar there are no products, portal or sandbox; the transfer note and the admin link stay', () => {
+  const note = '입금 계좌: OO은행 000-000000-00 (예금주)\n입금 후 로그인 이메일을 알려 주세요.';
+  const view = billing.billingView(enabledPayload({
+    polar: false,
+    server: null,
+    // A stale list or flag must not bring the Polar parts back.
+    products: [product()],
+    productsError: 'polar_unreachable',
+    canManage: true,
+    transferNote: note,
+    isAdmin: true,
+  }));
+  assert.equal(view.polar, false);
+  assert.deepEqual(view.products, []);
+  assert.equal(view.productsNote, null);
+  assert.equal(view.canManage, false);
+  assert.equal(view.sandbox, false);
+  assert.equal(view.transfer, note);
+  assert.equal(view.isAdmin, true);
+  assert.equal(view.rate, '1크레딧 = 1원');
+  assert.equal(billing.billingView(enabledPayload({ polar: false, server: 'sandbox' })).sandbox, false);
+  // An older server sends no `polar` field: Polar counts as on.
+  const older = enabledPayload({ products: [product()] });
+  delete older.polar;
+  assert.equal(billing.billingView(older).polar, true);
+  assert.equal(billing.billingView(older).products.length, 1);
+  // Only a real admin flag shows the link.
+  assert.equal(billing.billingView(enabledPayload({ isAdmin: 'yes' })).isAdmin, false);
 });
 
 // ---- billing.js: the return from Polar ----
@@ -289,6 +337,8 @@ test('checkoutPoll: stops on granted credits, a failed checkout, a final error o
     { stop: true, kind: 'error', text: '크레딧 결제가 꺼져 있습니다.' });
   assert.deepEqual(billing.checkoutPoll({ ok: false, status: 503, code: 'billing_misconfigured' }, 0),
     { stop: true, kind: 'error', text: '결제 설정에 문제가 있어 지금은 결제할 수 없습니다.' });
+  assert.deepEqual(billing.checkoutPoll({ ok: false, status: 409, code: 'polar_disabled' }, 0),
+    { stop: true, kind: 'error', text: '카드 결제(Polar)는 아직 설정되지 않았습니다.' });
   assert.equal(billing.checkoutPoll({ ok: false, status: 400, code: 'bad_request', error: 'Bad request.' }, 0).stop, true);
   // Transient failures are retried until the deadline.
   for (const failure of [{ ok: false, status: 0, code: 'network' }, { ok: false, status: 502, code: 'polar_error' }, { ok: false, status: 500, code: null }]) {
@@ -310,15 +360,22 @@ test('navigableUrl accepts http(s) URLs only', () => {
 
 // ---- auth.js: the credits chip ----
 
-test('creditChip: balance, free and problem chips link to /billing; billing off or no answer shows none', () => {
+test('creditChip: balance, free and problem chips link to /billing; admins also get /admin; billing off shows none', () => {
   assert.equal(auth.BILLING_PATH, '/billing');
-  assert.deepEqual(auth.creditChip(enabledPayload()), { text: '크레딧 1,234', href: '/billing' });
-  assert.deepEqual(auth.creditChip(enabledPayload({ balance: 0 })), { text: '크레딧 0', href: '/billing' });
-  assert.deepEqual(auth.creditChip(enabledPayload({ balance: -40 })), { text: '크레딧 -40', href: '/billing' });
-  assert.deepEqual(auth.creditChip(enabledPayload({ free: true, balance: 0 })), { text: '크레딧 무료', href: '/billing' });
-  assert.deepEqual(auth.creditChip(invalidPayload('bad_server')), { text: '크레딧 설정 확인', href: '/billing' });
-  assert.deepEqual(auth.creditChip(invalidPayload('login_required')), { text: '크레딧 설정 확인', href: '/billing' });
-  for (const none of [{ enabled: false }, null, undefined, 'x', {}, { enabled: true, mode: 'future' },
+  assert.equal(auth.ADMIN_PATH, '/admin');
+  const chip = (text, adminHref = null) => ({ text, href: '/billing', adminHref });
+  assert.deepEqual(auth.creditChip(enabledPayload()), chip('크레딧 1,234'));
+  assert.deepEqual(auth.creditChip(enabledPayload({ balance: 0 })), chip('크레딧 0'));
+  assert.deepEqual(auth.creditChip(enabledPayload({ balance: -40 })), chip('크레딧 -40'));
+  assert.deepEqual(auth.creditChip(enabledPayload({ free: true, balance: 0 })), chip('크레딧 무료'));
+  assert.deepEqual(auth.creditChip(enabledPayload({ isAdmin: true })), chip('크레딧 1,234', '/admin'));
+  assert.deepEqual(auth.creditChip(enabledPayload({ isAdmin: true, free: true })), chip('크레딧 무료', '/admin'));
+  assert.deepEqual(auth.creditChip(enabledPayload({ isAdmin: 1 })), chip('크레딧 1,234'));
+  assert.deepEqual(auth.creditChip(invalidPayload('bad_server')), chip('크레딧 설정 확인'));
+  assert.deepEqual(auth.creditChip(invalidPayload('login_required')), chip('크레딧 설정 확인'));
+  assert.deepEqual(auth.creditChip({ ...invalidPayload('bad_admin_emails'), isAdmin: true }), chip('크레딧 설정 확인'));
+  assert.equal(auth.TEXT.admin, '관리');
+  for (const none of [{ enabled: false }, disabledPayload(), null, undefined, 'x', {}, { enabled: true, mode: 'future' },
     enabledPayload({ balance: null }), enabledPayload({ balance: '12' })]) {
     assert.equal(auth.creditChip(none), null, JSON.stringify(none));
   }
@@ -351,77 +408,100 @@ const route = (over = {}) => ({
   ...over,
 });
 
-test('billingActive: billing on and working, and not a free account', () => {
+test('billingActive and showsModelCost: who pays, and who also sees the dollar model cost', () => {
   assert.equal(H.billingActive(enabledPayload()), true);
   assert.equal(H.billingActive(enabledPayload({ balance: -3 })), true);
-  for (const inactive of [enabledPayload({ free: true }), invalidPayload('bad_server'), { enabled: false }, null, undefined, {}]) {
+  assert.equal(H.billingActive(enabledPayload({ isAdmin: true })), true);
+  for (const inactive of [enabledPayload({ free: true }), invalidPayload('bad_server'), disabledPayload(), { enabled: false }, null, undefined, {}]) {
     assert.equal(H.billingActive(inactive), false, JSON.stringify(inactive));
   }
-});
-
-test('credits suffix: " · N 크레딧" from the shared formula, " · 크레딧 가격 없음" for an unknown price', () => {
-  const active = enabledPayload();
-  assert.equal(H.creditsSuffix(0.4, active), ' · 40 크레딧');
-  assert.equal(H.creditsSuffix(0.001, active), ' · 1 크레딧');
-  assert.equal(H.creditsSuffix(0, active), ' · 0 크레딧');
-  assert.equal(H.creditsSuffix(12.34, active), ' · 1,234 크레딧');
-  assert.equal(H.creditsSuffix(1.1, active), ' · 110 크레딧');
-  assert.equal(H.creditsSuffix(0.4, enabledPayload({ creditsPerUsd: 150 })), ' · 60 크레딧');
-  assert.equal(H.creditsSuffix(null, active), ' · 크레딧 가격 없음');
-  for (const inactive of [null, enabledPayload({ free: true }), invalidPayload('bad_server'), { enabled: false }]) {
-    assert.equal(H.creditsSuffix(0.4, inactive), '');
-    assert.equal(H.creditsSuffix(null, inactive), '');
+  for (const shown of [enabledPayload({ isAdmin: true }), enabledPayload({ isAdmin: true, free: true }), disabledPayload(), { enabled: false }]) {
+    assert.equal(H.showsModelCost(shown), true, JSON.stringify(shown));
   }
-  assert.equal(H.creditsText(0.4, active), '40 크레딧');
-  assert.equal(H.creditsText(null, active), '크레딧 가격 없음');
-  assert.equal(H.creditsText(0.4, null), '');
+  for (const hidden of [enabledPayload(), enabledPayload({ free: true }), enabledPayload({ isAdmin: 'true' }),
+    { ...invalidPayload('bad_server'), isAdmin: true }, null, undefined, {}]) {
+    assert.equal(H.showsModelCost(hidden), false, JSON.stringify(hidden));
+  }
 });
 
-test('routeCostText: the estimate gains the credits only when billing is active', () => {
+test('priceText: "약 N 크레딧" in every mode, "(원가 $x)" for admins and while billing is off', () => {
+  const customer = enabledPayload();
+  const admin = enabledPayload({ isAdmin: true });
+  // The spec's example: $0.30 of model cost is 600 credits at the default 2000 per dollar.
+  assert.equal(H.priceText(0.3, customer), '약 600 크레딧');
+  assert.equal(H.priceText(0.3, admin), '약 600 크레딧 (원가 $0.30)');
+  assert.equal(H.priceText(0.3, disabledPayload()), '약 600 크레딧 (원가 $0.30)');
+  assert.equal(H.priceText(0.3, enabledPayload({ free: true })), '약 600 크레딧');
+  assert.equal(H.priceText(0.3, invalidPayload('login_required')), '약 600 크레딧');
+  // Before (or without) GET /api/billing: credits.js's default rate, no model cost.
+  assert.equal(H.priceText(0.3, null), '약 600 크레딧');
+  // creditsPerUsd comes from the payload in every mode.
+  assert.equal(H.priceText(0.3, enabledPayload({ creditsPerUsd: 1500 })), '약 450 크레딧');
+  assert.equal(H.priceText(0.3, disabledPayload({ creditsPerUsd: 1000 })), '약 300 크레딧 (원가 $0.30)');
+  assert.equal(H.priceText(0.3, { ...invalidPayload('bad_free_emails'), creditsPerUsd: 3000 }), '약 900 크레딧');
+  assert.equal(H.priceText(12.34, customer), '약 24,680 크레딧');
+  assert.equal(H.priceText(0.0001, customer), '약 1 크레딧');
+  assert.equal(H.priceText(12.34, admin), '약 24,680 크레딧 (원가 $12.34)');
+  for (const payload of [customer, admin, disabledPayload(), null]) {
+    assert.equal(H.priceText(null, payload), '가격 정보 없음', JSON.stringify(payload));
+  }
+  assert.equal(H.formatUsd(0.3), '$0.30');
+  assert.equal(H.formatUsd(0.272), '$0.27');
+  assert.equal(H.formatUsd(null), '');
+});
+
+test('routeCostText: the route estimate in credits; 무료 for mock; nothing until the length is known', () => {
   const r = route();
-  const active = enabledPayload();
-  assert.equal(H.routeCostText(r, 5, { resolution: '720p' }, null), '약 $0.40');
-  assert.equal(H.routeCostText(r, 5, { resolution: '720p' }, active), '약 $0.40 · 40 크레딧');
-  assert.equal(H.routeCostText(r, 5, { resolution: '480p' }, active), '약 $0.20 · 20 크레딧');
-  assert.equal(H.routeCostText(r, 1, { resolution: '720p' }, active), '약 $0.24 · 24 크레딧'); // min 3 s billed
-  assert.equal(H.routeCostText(r, 5, { resolution: '720p' }, enabledPayload({ free: true })), '약 $0.40');
-  assert.equal(H.routeCostText(r, 5, { resolution: '720p' }, invalidPayload('login_required')), '약 $0.40');
-  assert.equal(H.routeCostText(r, 5, { resolution: '720p' }, { enabled: false }), '약 $0.40');
-  // No price: nothing before billing, the credit note with it.
-  assert.equal(H.routeCostText(route({ pricing: null }), 5, {}, null), '');
-  assert.equal(H.routeCostText(route({ pricing: null }), 5, {}, active), '크레딧 가격 없음');
-  // No driving length yet: no cost at all, as before billing.
-  assert.equal(H.routeCostText(r, undefined, {}, active), '');
-  assert.equal(H.routeCostText(r, Number.NaN, {}, active), '');
-  // The mock route never costs credits.
-  assert.equal(H.routeCostText({ id: 'mock', provider: 'mock' }, 5, {}, active), '무료');
-  assert.equal(H.jobCredits({ id: 'mock', provider: 'mock' }, 5, {}, active), null);
+  const customer = enabledPayload();
+  assert.equal(H.routeCostText(r, 5, { resolution: '720p' }, customer), '약 800 크레딧');
+  assert.equal(H.routeCostText(r, 5, { resolution: '480p' }, customer), '약 400 크레딧');
+  assert.equal(H.routeCostText(r, 1, { resolution: '720p' }, customer), '약 480 크레딧'); // min 3 s billed
+  assert.equal(H.routeCostText(r, 5, { resolution: '720p' }, enabledPayload({ isAdmin: true })), '약 800 크레딧 (원가 $0.40)');
+  assert.equal(H.routeCostText(r, 5, { resolution: '720p' }, disabledPayload()), '약 800 크레딧 (원가 $0.40)');
+  assert.equal(H.routeCostText(r, 5, { resolution: '720p' }, null), '약 800 크레딧');
+  assert.equal(H.routeCostText(route({ pricing: { usdPerSecond: 0.06 } }), 5, {}, customer), '약 600 크레딧');
+  assert.equal(H.routeCostText(route({ pricing: null }), 5, {}, customer), '가격 정보 없음');
+  assert.equal(H.routeCostText(route({ pricing: null }), 5, {}, disabledPayload()), '가격 정보 없음');
+  assert.equal(H.routeCostText(r, undefined, {}, customer), '');
+  assert.equal(H.routeCostText(r, Number.NaN, {}, disabledPayload()), '');
+  for (const payload of [customer, enabledPayload({ isAdmin: true }), disabledPayload(), null]) {
+    assert.equal(H.routeCostText({ id: 'mock', provider: 'mock' }, 5, {}, payload), '무료');
+  }
+  // No USD wording on the page besides the 원가 note.
+  const js = readPublic('animate.js');
+  assert.doesNotMatch(js, /약 \$(?!\{)|예상 모델 비용/);
+  assert.equal((js.match(/`\$\$\{/g) || []).length, 1, 'formatUsd is the only dollar text');
+  assert.match(js, /`\$\{text\} \(원가 \$\{formatUsd\(usd\)\}\)`/);
 });
 
 test('jobCredits is the shared creditsFor on the page estimate (the price the server charges)', () => {
   const r = route({ pricing: { usdPerSecond: 0.11, minSeconds: 0 } });
-  for (const rate of [1, 7, 100, 150, 1000]) {
+  for (const rate of [1, 7, 100, 150, 2000, 100000]) {
     for (const seconds of [0.5, 3, 10, 12.3, 60]) {
       const usd = H.estimateUsd(r, seconds, {});
       assert.equal(H.jobCredits(r, seconds, {}, enabledPayload({ creditsPerUsd: rate })), credits.creditsFor(usd, rate), `${rate} ${seconds}`);
     }
   }
-  assert.equal(H.jobCredits(r, 10, {}, null), null);
-  assert.equal(H.jobCredits(r, 10, {}, enabledPayload({ free: true })), null);
+  assert.equal(H.jobCredits(r, 10, {}, enabledPayload({ isAdmin: true })), credits.creditsFor(1.1, 2000));
+  // Nothing is taken from free accounts, or while billing is off or broken.
+  for (const payload of [null, enabledPayload({ free: true }), disabledPayload(), invalidPayload('bad_server')]) {
+    assert.equal(H.jobCredits(r, 10, {}, payload), null, JSON.stringify(payload));
+  }
   assert.equal(H.jobCredits(route({ pricing: null }), 10, {}, enabledPayload()), null);
+  assert.equal(H.jobCredits({ id: 'mock', provider: 'mock' }, 5, {}, enabledPayload()), null);
   // The formula lives in credits.js only.
-  for (const file of ['animate.js', 'billing.js', 'auth.js']) {
+  for (const file of ['animate.js', 'billing.js', 'auth.js', 'admin.js']) {
     assert.doesNotMatch(readPublic(file), /function creditsFor\b|1e-6/, file);
   }
-  assert.match(readPublic('animate.js'), /credits\.creditsFor\(usd, billing\.creditsPerUsd\)/);
+  assert.match(readPublic('animate.js'), /credits\.creditsFor\(usd, /);
 });
 
 test('confirmation and error texts for credits (error map style: no trailing period)', () => {
-  assert.equal(H.confirmCreditsText(40, 1234), '40 크레딧이 차감됩니다 (보유 1,234).');
+  assert.equal(H.confirmCreditsText(600, 1234), '600 크레딧이 차감됩니다 (보유 1,234).');
   assert.equal(H.confirmCreditsText(1500, -5), '1,500 크레딧이 차감됩니다 (보유 -5).');
   assert.equal(H.confirmCreditsText(null, 10), '');
   assert.equal(H.confirmCreditsText(40, undefined), '');
-  assert.equal(H.insufficientText(40, 12), '크레딧이 부족합니다 (필요 40, 보유 12)');
+  assert.equal(H.insufficientText(600, 12), '크레딧이 부족합니다 (필요 600, 보유 12)');
   assert.equal(H.insufficientText(40, null), '');
 
   assert.equal(H.errorText({ error: 'x', code: 'insufficient_credits', detail: { needed: 1500, balance: -3 } }),
@@ -434,6 +514,26 @@ test('confirmation and error texts for credits (error map style: no trailing per
   for (const code of ['insufficient_credits', 'price_unknown', 'billing_misconfigured']) {
     assert.doesNotMatch(H.errorText({ code }), /\.$/, code);
   }
+});
+
+test('cancel confirmation: a charged job says whether its credits come back (billing.cancelRefund)', () => {
+  const job = billingRecord => ({ id: 'j1', state: 'running', billing: billingRecord });
+  const charged = over => job({ credits: 600, free: false, refunded: false, cancelRefund: true, ...over });
+  assert.equal(H.cancelConfirmText(charged()), '취소하면 600 크레딧을 돌려받습니다. 취소할까요?');
+  assert.equal(H.cancelConfirmText(charged({ credits: 1500 })), '취소하면 1,500 크레딧을 돌려받습니다. 취소할까요?');
+  const kept = '이미 생성이 시작되어 취소해도 크레딧은 돌려받지 못합니다. 취소할까요?';
+  assert.equal(H.cancelConfirmText(charged({ cancelRefund: false })), kept);
+  assert.equal(H.cancelConfirmText(charged({ cancelRefund: undefined })), kept);
+  // Nothing to lose or regain: no question.
+  for (const none of [charged({ free: true }), charged({ refunded: true }), charged({ credits: null }), charged({ credits: 0 }),
+    job(undefined), job(null), { id: 'j2', state: 'queued' }, null]) {
+    assert.equal(H.cancelConfirmText(none), '', JSON.stringify(none));
+    assert.equal(H.jobCharged(none), false);
+  }
+  assert.equal(H.jobCharged(charged({ cancelRefund: false })), true);
+  // The cancel button asks with the newest view of the job before it posts.
+  assert.match(readPublic('animate.js'),
+    /const question = H\.cancelConfirmText\(state\.jobs\.find\(item => item\.id === job\.id\) \|\| job\);\s*if \(question && !window\.confirm\(question\)\) return;\s*cancel\.disabled = true;/);
 });
 
 test('job rows: credits, refunded credits, nothing for free or unbilled jobs; refunds wake the chip', () => {
@@ -469,9 +569,14 @@ test('billing page: header links, its own CSS, auth.js then credits.js then bill
   assert.equal((html.match(/id="authSlot"/g) || []).length, 1);
   for (const text of ['<h2 id="productsTitle">충전</h2>', '<h2 id="historyTitle">사용 내역</h2>', '>아직 내역이 없습니다.<',
     '>테스트 결제(샌드박스)<', '>테스트 카드 4242 4242 4242 4242로 결제할 수 있습니다.<', '>이 계정은 크레딧 없이 동작을 만들 수 있습니다.<',
-    '>결제 관리<', '>결제 내역 다시 확인<']) {
+    '>결제 관리<', '>결제 내역 다시 확인<', '<h2 id="transferTitle">충전 안내</h2>']) {
     assert.ok(html.includes(text), text);
   }
+  assert.match(html, /<a id="adminLink" href="\/admin" class="btn btn-ghost btn-sm" hidden>크레딧 관리<\/a>/);
+  assert.match(html, /<div id="summaryActions" class="row summary-actions">/);
+  // 충전 안내 comes before the Polar products.
+  assert.ok(html.indexOf('id="transferCard"') < html.indexOf('id="productsCard"'));
+  assert.match(html, /<p id="transferNote" class="transfer-note"><\/p>/);
   // The live regions stay rendered (empty) so the first message is announced.
   assert.match(html, /<div id="billingMessage" class="messages" role="alert"><\/div>/);
   assert.match(html, /<div id="checkoutMessage" class="messages" role="status" aria-live="polite"><\/div>/);
@@ -480,6 +585,18 @@ test('billing page: header links, its own CSS, auth.js then credits.js then bill
     assert.ok(css.includes(token), token);
   }
   assert.match(css, /\[hidden\] \{ display: none !important; \}/);
+  assert.match(css, /\.transfer-note \{[^}]*white-space: pre-line;/);
+});
+
+test('billing.js shares its helpers with the admin page and runs its page glue only on /billing', () => {
+  const window = { document: { getElementById: () => null } };
+  const context = vm.createContext({ window, URL, URLSearchParams, Intl });
+  window.window = window;
+  vm.runInContext(readPublic('billing.js'), context, { filename: 'billing.js' });
+  const shared = window.VirtuallyBillingHelpers;
+  assert.ok(shared, 'window.VirtuallyBillingHelpers');
+  assert.deepEqual(Object.keys(shared).sort(), Object.keys(billing).sort());
+  assert.equal(shared.TEXT.rate, '1크레딧 = 1원');
 });
 
 test('every element billing.js looks up exists in billing.html', () => {
@@ -718,9 +835,11 @@ test('credits chip: first in #authSlot next to the signed-in chip; refresh() red
   assert.equal((await VirtuallyBilling.ready).balance, 1234);
   assert.equal(slot.hidden, false);
   assert.deepEqual(slot.children.map(node => [node.tagName, node.className]), [
-    ['A', 'auth-credits'], ['SPAN', 'auth-name'], ['BUTTON', 'btn btn-ghost btn-sm auth-logout'],
+    ['SPAN', 'auth-billing'], ['SPAN', 'auth-name'], ['BUTTON', 'btn btn-ghost btn-sm auth-logout'],
   ]);
-  const chip = slot.children[0];
+  const group = slot.children[0];
+  assert.deepEqual(group.children.map(node => [node.tagName, node.className]), [['A', 'auth-credits']]);
+  const chip = group.children[0];
   assert.equal(chip.textContent, '크레딧 1,234');
   assert.equal(chip.getAttribute('href'), '/billing');
   assert.equal(chip.getAttribute('aria-current'), null);
@@ -733,14 +852,39 @@ test('credits chip: first in #authSlot next to the signed-in chip; refresh() red
   payload = enabledPayload({ free: true });
   await VirtuallyBilling.refresh();
   assert.deepEqual(texts(slot), ['크레딧 무료', 'Some One', '로그아웃']);
+  // Admins also get 관리 (-> /admin) inside the same group.
+  payload = enabledPayload({ isAdmin: true, balance: 50000 });
+  await VirtuallyBilling.refresh();
+  assert.equal(slot.children.length, 3);
+  assert.deepEqual(slot.children[0].children.map(node => [node.className, node.textContent, node.getAttribute('href')]), [
+    ['auth-credits', '크레딧 50,000', '/billing'],
+    ['auth-admin', '관리', '/admin'],
+  ]);
+  payload = enabledPayload({ balance: 49000 });
+  await VirtuallyBilling.refresh();
+  assert.deepEqual(slot.children[0].children.map(node => node.className), ['auth-credits']);
   // Billing turned off, or the request failing, removes the chip and keeps the rest.
-  payload = { enabled: false };
-  assert.deepEqual({ ...(await VirtuallyBilling.refresh()) }, { enabled: false });
+  payload = disabledPayload();
+  assert.deepEqual({ ...(await VirtuallyBilling.refresh()) }, { enabled: false, creditsPerUsd: 2000 });
   assert.deepEqual(texts(slot), ['Some One', '로그아웃']);
   assert.equal(slot.hidden, false);
   payload = enabledPayload({ balance: 5 });
   await VirtuallyBilling.refresh();
   assert.deepEqual(texts(slot), ['크레딧 5', 'Some One', '로그아웃']);
+});
+
+test('credits chip: on /admin the 관리 link, on /billing the credits link is the current page', async () => {
+  for (const [pathname, html, current] of [['/admin', 'admin.html', 'auth-admin'], ['/billing', 'billing.html', 'auth-credits']]) {
+    const page = runPage(['auth.js'], {
+      html,
+      pathname,
+      routes: { 'GET /api/auth/me': signedIn, 'GET /api/billing': () => jsonResponse(200, enabledPayload({ isAdmin: true })) },
+    });
+    await page.window.VirtuallyBilling.ready;
+    const links = page.el('authSlot').children[0].children;
+    assert.deepEqual(links.map(link => [link.className, link.getAttribute('aria-current')]),
+      [['auth-credits', current === 'auth-credits' ? 'page' : null], ['auth-admin', current === 'auth-admin' ? 'page' : null]], pathname);
+  }
 });
 
 test('credits chip: login off with a billing file shows only 크레딧 설정 확인; a failed request shows nothing', async () => {
@@ -757,7 +901,7 @@ test('credits chip: login off with a billing file shows only 크레딧 설정 �
   await page.window.VirtuallyBilling.ready;
   assert.equal(slot.hidden, false);
   assert.deepEqual(texts(slot), ['크레딧 설정 확인']);
-  assert.equal(slot.children[0].getAttribute('href'), '/billing');
+  assert.equal(slot.children[0].children[0].getAttribute('href'), '/billing');
 
   answer = () => { throw new TypeError('Failed to fetch'); };
   assert.equal(await page.window.VirtuallyBilling.refresh(), null);
@@ -840,11 +984,16 @@ test('billing page glue: enabled shows balance, rate, sandbox note, products and
   });
   await waitFor(() => page.el('summaryCard').hidden === false, 'the summary');
   assert.equal(page.el('balanceText').textContent, '보유 크레딧 1,234');
-  assert.equal(page.el('rateText').textContent, '1 크레딧 = 예상 모델 비용 $0.01');
+  assert.equal(page.el('rateText').textContent, '1크레딧 = 1원');
   assert.equal(page.el('sandboxBadge').hidden, false);
   assert.equal(page.el('sandboxNote').hidden, false);
   assert.equal(page.el('freeNote').hidden, true);
   assert.equal(page.el('portalBtn').hidden, true);
+  assert.equal(page.el('syncBtn').hidden, false);
+  assert.equal(page.el('adminLink').hidden, true);
+  assert.equal(page.el('summaryActions').hidden, false);
+  assert.equal(page.el('transferCard').hidden, false);
+  assert.equal(page.el('transferNote').textContent, '충전은 관리자에게 문의해 주세요.');
   assert.deepEqual(page.el('billingMessage').children, []);
   assert.deepEqual(page.el('checkoutMessage').children, []);
 
@@ -868,10 +1017,62 @@ test('billing page glue: enabled shows balance, rate, sandbox note, products and
   ]);
   assert.equal(page.el('historyList').children[1].children[3].className, 'history-delta is-plus');
 
-  const chip = page.el('authSlot').children[0];
+  const chip = page.el('authSlot').children[0].children[0];
   assert.equal(chip.textContent, '크레딧 1,234');
   assert.equal(chip.getAttribute('aria-current'), 'page');
   assert.equal(billingGets(page), 1);
+});
+
+test('billing page glue: without Polar, 충전 안내 with the transfer note and no products, portal or sync; admins get 크레딧 관리', async () => {
+  const note = '입금 계좌: OO은행 000-000000-00 (예금주)\n입금 후 로그인 이메일을 알려 주세요.';
+  const page = billingPage({
+    payload: enabledPayload({
+      polar: false,
+      server: null,
+      transferNote: note,
+      isAdmin: true,
+      history: [
+        { id: 'e3', at: new Date(2026, 8, 30, 16, 20).toISOString(), delta: -1000, kind: 'deduct', label: '관리자 차감 · 잘못 충전' },
+        { id: 'e2', at: new Date(2026, 8, 30, 16, 10).toISOString(), delta: 50000, kind: 'topup', label: '관리자 충전 · 9/30 계좌이체' },
+      ],
+    }),
+  });
+  await waitFor(() => page.el('summaryCard').hidden === false, 'the summary');
+  assert.equal(page.el('rateText').textContent, '1크레딧 = 1원');
+  assert.equal(page.el('productsCard').hidden, true);
+  assert.equal(page.el('syncBtn').hidden, true);
+  assert.equal(page.el('portalBtn').hidden, true);
+  assert.equal(page.el('sandboxBadge').hidden, true);
+  assert.equal(page.el('sandboxNote').hidden, true);
+  assert.equal(page.el('adminLink').hidden, false);
+  assert.equal(page.el('summaryActions').hidden, false);
+  assert.equal(page.el('transferCard').hidden, false);
+  // One text node: the line breaks are kept by CSS (white-space: pre-line), not markup.
+  assert.deepEqual(page.el('transferNote').childNodes, [note]);
+  assert.deepEqual(page.el('historyList').children.map(texts), [
+    ['9월 30일 16:20', '관리자 차감 · 잘못 충전', '차감', '-1,000'],
+    ['9월 30일 16:10', '관리자 충전 · 9/30 계좌이체', '충전', '+50,000'],
+  ]);
+  assert.deepEqual(page.el('authSlot').children[0].children.map(link => link.textContent), ['크레딧 1,234', '관리']);
+
+  // A customer without Polar has no buttons at all: the actions row goes too.
+  page.state.payload = enabledPayload({ polar: false, server: null });
+  await page.window.VirtuallyBilling.refresh();
+  page.fireWindow('pageshow', { persisted: true });
+  await waitFor(() => page.el('adminLink').hidden === true, 'the customer view');
+  assert.equal(page.el('summaryActions').hidden, true);
+  assert.equal(page.el('transferNote').textContent, '충전은 관리자에게 문의해 주세요.');
+});
+
+test('billing page glue: back from a checkout while Polar is off stops at once and says so', async () => {
+  const page = billingPage({
+    payload: enabledPayload({ polar: false, server: null }),
+    search: '?checkout_id=chk_9',
+    routes: { 'POST /api/billing/sync': () => jsonResponse(409, { error: 'Polar is not configured.', code: 'polar_disabled' }) },
+  });
+  await waitFor(() => page.replacedUrls.length > 0, 'the end of polling');
+  assert.equal(page.requests.filter(r => r.url === '/api/billing/sync').length, 1);
+  assert.deepEqual(messageOf(page.el('checkoutMessage')), [['error', '카드 결제(Polar)는 아직 설정되지 않았습니다.']]);
 });
 
 test('billing page glue: 구매 posts the product, keeps the buttons disabled and goes to Polar', async () => {

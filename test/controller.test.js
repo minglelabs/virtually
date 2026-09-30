@@ -135,7 +135,8 @@ test('estimateUsd mirrors the server: option rate, min seconds, null without pri
   assert.equal(H.estimateUsd(r, 5, H.effectiveOptions(r)), 0.4); // default 720p
   assert.equal(H.estimateUsd(route({ pricing: null }), 5), null);
   assert.equal(H.estimateUsd(r, null), null);
-  assert.equal(H.formatUsd(0.4), '약 $0.40');
+  // Prices are shown in credits; the dollar text is only the admins' 원가 note.
+  assert.equal(H.formatUsd(0.4), '$0.40');
   assert.equal(H.formatUsd(null), '');
 });
 

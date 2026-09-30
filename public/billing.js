@@ -1,14 +1,16 @@
 'use strict';
 
-// Billing page (/billing): the credit balance, the Polar credit products (bought or
-// subscribed on Polar's hosted checkout), the Polar customer portal and this
-// account's credit history, all from GET /api/billing. Back from Polar
-// (?checkout_id=), it asks the server to check the payment until the credits
-// arrive. Product names, descriptions and history labels are data: the DOM is
-// built with createElement/textContent only. The DOM-free helpers are
-// require()-able from node tests (like login.js). auth.js (loaded first) shares
-// the GET /api/billing payload through window.VirtuallyBilling and keeps the
-// credits chip in the header in step with every reload.
+// Billing page (/billing): the credit balance (1 credit = 1 KRW), how to top up
+// (bank transfer to the admin, the config's transferNote), this account's credit
+// history and, when Polar is configured, the Polar credit products (bought or
+// subscribed on Polar's hosted checkout) and the Polar customer portal, all from
+// GET /api/billing. Back from Polar (?checkout_id=), it asks the server to check
+// the payment until the credits arrive. Product names, descriptions, the transfer
+// note and history labels are data: the DOM is built with createElement/textContent
+// only. The DOM-free helpers are require()-able from node tests (like login.js) and
+// shared with the admin page as window.VirtuallyBillingHelpers. auth.js (loaded
+// first) shares the GET /api/billing payload through window.VirtuallyBilling and
+// keeps the credits chip in the header in step with every reload.
 (function (root) {
   const POLL_INTERVAL_MS = 2000;
   const POLL_TIMEOUT_MS = 60000;
@@ -19,7 +21,8 @@
     disabled: '크레딧 결제가 꺼져 있습니다. data/billing/config.json을 만들면 켜집니다(README 참고).',
     invalid: '결제 설정에 문제가 있습니다',
     balance: '보유 크레딧',
-    rate: '1 크레딧 = 예상 모델 비용',
+    rate: '1크레딧 = 1원',
+    transferDefault: '충전은 관리자에게 문의해 주세요.',
     credits: '크레딧',
     buy: '구매',
     subscribe: '구독',
@@ -31,21 +34,25 @@
     notCompleted: '결제가 완료되지 않았습니다.',
     slow: "결제 확인이 늦어지고 있습니다. 잠시 후 '결제 내역 다시 확인'을 눌러 주세요.",
     offline: '서버에 연결하지 못했습니다.',
+    insufficientBalance: '잔액보다 많이 차감할 수 없습니다',
   });
 
-  // GET /api/billing `problem` codes (mode 'invalid').
+  // GET /api/billing `problem` codes (mode 'invalid'), in the server's checking order.
   const PROBLEM_TEXTS = new Map([
     ['invalid_json', '결제 설정 파일의 JSON 형식이 올바르지 않습니다.'],
+    ['bad_admin_emails', 'adminEmails에 관리자 이메일을 넣어 주세요.'],
     ['bad_server', 'polar.server는 sandbox 또는 production이어야 합니다.'],
     ['missing_token', 'polar.accessToken이 필요합니다.'],
     ['bad_webhook_secret', 'polar.webhookSecret은 whsec_로 시작해야 합니다.'],
     ['bad_api_version', 'polar.apiVersion은 2026-10 같은 형식이어야 합니다.'],
     ['bad_credits_per_usd', 'creditsPerUsd는 1 이상의 정수여야 합니다.'],
     ['bad_free_emails', 'freeEmails는 이메일 목록이어야 합니다.'],
+    ['bad_transfer_note', 'transferNote는 1000자 이하의 글이어야 합니다.'],
     ['login_required', '크레딧 결제를 쓰려면 Google 로그인을 먼저 켜야 합니다.'],
   ]);
 
-  // Error `code`s of the billing POST routes; 'network' = the request did not complete.
+  // Error `code`s of the billing and admin routes; 'network' = the request did not
+  // complete. insufficient_balance is built by apiErrorText (it names the balance).
   const ERROR_TEXTS = new Map([
     ['unknown_product', '이 상품은 지금 살 수 없습니다. 새로고침해 주세요.'],
     ['polar_error', 'Polar 요청이 실패했습니다. 잠시 후 다시 시도해 주세요.'],
@@ -53,6 +60,8 @@
     ['billing_disabled', '크레딧 결제가 꺼져 있습니다.'],
     ['no_customer', '아직 결제 내역이 없습니다.'],
     ['checkout_missing', '이 결제를 찾지 못했습니다.'],
+    ['polar_disabled', '카드 결제(Polar)는 아직 설정되지 않았습니다.'],
+    ['admin_only', '관리자만 쓸 수 있습니다.'],
     ['network', '서버에 연결하지 못했습니다.'],
   ]);
 
@@ -62,12 +71,14 @@
     ['polar_unauthorized', 'Polar 액세스 토큰(polar.accessToken)을 확인해 주세요.'],
   ]);
 
-  // Ledger entry kinds.
+  // Ledger entry kinds (topup / deduct: an admin's adjustment).
   const KIND_TEXTS = new Map([
     ['grant', '충전'],
     ['revoke', '환불로 회수'],
     ['charge', '사용'],
     ['refund', '돌려받음'],
+    ['topup', '충전'],
+    ['deduct', '차감'],
   ]);
 
   const INTERVAL_SUFFIXES = new Map([
@@ -78,7 +89,8 @@
   ]);
 
   // Sync answers that polling again cannot change; any other failure is retried until the timeout.
-  const FINAL_SYNC_CODES = new Set(['checkout_missing', 'bad_request', 'billing_disabled', 'billing_misconfigured']);
+  const FINAL_SYNC_CODES = new Set(['checkout_missing', 'bad_request', 'billing_disabled', 'billing_misconfigured',
+    'polar_disabled']);
   const FAILED_CHECKOUT_STATUSES = new Set(['expired', 'failed']);
 
   /** A credit count as every page shows it: '1,234', '-50'; '' when it is not a number. */
@@ -98,12 +110,16 @@
   }
 
   /**
-   * Korean text for a failed billing request `{ code, error?, status? }`: the
+   * Korean text for a failed billing request `{ code, error?, status?, detail? }`: the
    * mapped code, else the server's own message, else `HTTP <status>`, else the
-   * network text.
+   * network text. insufficient_balance names detail.balance when it has one.
    */
   function apiErrorText(failure) {
     const code = failure && typeof failure.code === 'string' ? failure.code : null;
+    if (code === 'insufficient_balance') {
+      const balance = formatCredits(failure.detail && typeof failure.detail === 'object' ? failure.detail.balance : null);
+      return balance ? `${TEXT.insufficientBalance} (잔액 ${balance})` : TEXT.insufficientBalance;
+    }
     const known = code ? ERROR_TEXTS.get(code) : null;
     if (known) return known;
     const message = failure && typeof failure.error === 'string' ? failure.error.trim() : '';
@@ -163,11 +179,9 @@
     return product && product.recurring === true ? TEXT.subscribe : TEXT.buy;
   }
 
-  /** '1 크레딧 = 예상 모델 비용 $0.01' (100 per dollar), '$0.0067' (150); '' for a bad rate. */
-  function rateText(creditsPerUsd) {
-    if (!Number.isInteger(creditsPerUsd) || creditsPerUsd < 1) return '';
-    const usd = (1 / creditsPerUsd).toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
-    return `${TEXT.rate} $${usd}`;
+  /** How to top up: the config's transferNote as written (line breaks kept), else the default text. */
+  function transferText(note) {
+    return typeof note === 'string' && note.trim() ? note : TEXT.transferDefault;
   }
 
   /** '보유 크레딧 1,234' (negative balances as they are), or '' without a number. */
@@ -228,8 +242,10 @@
   /**
    * What the page shows for a GET /api/billing payload (null when the request failed):
    * { mode: 'offline'|'disabled'|'invalid'|'enabled', message: { kind, text }|null,
-   *   balance, rate, sandbox, free, canManage, products: [productView],
-   *   productsNote: { kind, text }|null, history: [historyView] }.
+   *   balance, rate, transfer, polar, sandbox, free, canManage, isAdmin,
+   *   products: [productView], productsNote: { kind, text }|null, history: [historyView] }.
+   * Without Polar (polar: false) there are no products, no portal and no sync button;
+   * a payload without the field (an older server) counts as Polar on.
    */
   function billingView(payload) {
     const view = {
@@ -237,9 +253,12 @@
       message: null,
       balance: '',
       rate: '',
+      transfer: '',
+      polar: false,
       sandbox: false,
       free: false,
       canManage: false,
+      isAdmin: false,
       products: [],
       productsNote: null,
       history: [],
@@ -260,14 +279,19 @@
     }
     view.mode = 'enabled';
     view.balance = balanceText(payload.balance);
-    view.rate = rateText(payload.creditsPerUsd);
-    view.sandbox = payload.server === 'sandbox';
+    view.rate = TEXT.rate;
+    view.transfer = transferText(payload.transferNote);
+    view.polar = payload.polar !== false;
+    view.sandbox = view.polar && payload.server === 'sandbox';
     view.free = payload.free === true;
-    view.canManage = payload.canManage === true;
-    view.products = (Array.isArray(payload.products) ? payload.products : []).map(productView).filter(Boolean);
-    const productsError = productsErrorText(payload.productsError);
-    if (productsError) view.productsNote = { kind: 'error', text: productsError };
-    else if (view.products.length === 0) view.productsNote = { kind: 'info', text: TEXT.noProducts };
+    view.canManage = view.polar && payload.canManage === true;
+    view.isAdmin = payload.isAdmin === true;
+    if (view.polar) {
+      view.products = (Array.isArray(payload.products) ? payload.products : []).map(productView).filter(Boolean);
+      const productsError = productsErrorText(payload.productsError);
+      if (productsError) view.productsNote = { kind: 'error', text: productsError };
+      else if (view.products.length === 0) view.productsNote = { kind: 'info', text: TEXT.noProducts };
+    }
     view.history = (Array.isArray(payload.history) ? payload.history : []).map(historyView).filter(Boolean);
     return view;
   }
@@ -338,7 +362,7 @@
     formatMoney,
     priceText,
     buyLabel,
-    rateText,
+    transferText,
     balanceText,
     grantedText,
     formatHistoryTime,
@@ -353,7 +377,10 @@
   });
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
-  if (!root || !root.document) return;
+  if (!root) return;
+  // The admin page loads this file for the shared texts only.
+  if (!root.VirtuallyBillingHelpers) root.VirtuallyBillingHelpers = api;
+  if (!root.document || !root.document.getElementById('billingMessage')) return;
 
   // ---- Page ----
   const document = root.document;
@@ -366,9 +393,13 @@
   const sandboxBadge = $('sandboxBadge');
   const sandboxNote = $('sandboxNote');
   const freeNote = $('freeNote');
+  const summaryActions = $('summaryActions');
+  const adminLink = $('adminLink');
   const portalBtn = $('portalBtn');
   const syncBtn = $('syncBtn');
   const summaryStatus = $('summaryStatus');
+  const transferCard = $('transferCard');
+  const transferNote = $('transferNote');
   const productsCard = $('productsCard');
   const productsNote = $('productsNote');
   const productList = $('productList');
@@ -447,7 +478,8 @@
     showMessage(pageMessage, view.message);
     const enabled = view.mode === 'enabled';
     summaryCard.hidden = !enabled;
-    productsCard.hidden = !enabled;
+    transferCard.hidden = !enabled;
+    productsCard.hidden = !enabled || !view.polar;
     historyCard.hidden = !enabled;
     buyButtons = [];
     if (enabled) {
@@ -457,7 +489,11 @@
       sandboxBadge.hidden = !view.sandbox;
       sandboxNote.hidden = !view.sandbox;
       freeNote.hidden = !view.free;
+      adminLink.hidden = !view.isAdmin;
       portalBtn.hidden = !view.canManage;
+      syncBtn.hidden = !view.polar;
+      summaryActions.hidden = adminLink.hidden && portalBtn.hidden && syncBtn.hidden;
+      transferNote.textContent = view.transfer;
       productsNote.textContent = view.productsNote ? view.productsNote.text : '';
       if (view.productsNote) productsNote.dataset.kind = view.productsNote.kind;
       else delete productsNote.dataset.kind;
