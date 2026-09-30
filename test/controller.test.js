@@ -112,12 +112,12 @@ test('animate page never assigns innerHTML/outerHTML or uses insertAdjacentHTML'
 });
 
 const route = (over = {}) => ({
-  id: 'wavespeed/wan-2.2-animate',
+  id: 'wavespeed/wan-2.2-animate-2',
   provider: 'wavespeed',
   providerLabel: 'WaveSpeed',
-  family: 'wan-animate',
-  familyLabel: 'Wan 2.2 Animate',
-  label: 'Wan 2.2 Animate',
+  family: 'wan-animate-2',
+  familyLabel: 'Wan 2.2 Animate 2',
+  label: 'Wan 2.2 Animate 2',
   options: [{ key: 'resolution', field: 'resolution', label: '해상도', values: ['480p', '720p'], default: '720p' }],
   limits: { videoMinSec: 3, videoMaxSec: 120 },
   pricing: { usdPerSecond: 0.08, byOption: { resolution: { '480p': 0.04, '720p': 0.08 } }, minSeconds: 3 },
