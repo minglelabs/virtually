@@ -9,6 +9,9 @@ const AnimateHelpers = (() => {
   const motions = typeof window !== 'undefined' && window.VirtuallyMotions
     ? window.VirtuallyMotions
     : require('./motions.js');
+  // The shared credit formula (credits.js, loaded before this script). Without it the
+  // page shows no credit prices: billingActive() is then false.
+  const credits = typeof window !== 'undefined' ? window.VirtuallyCredits || null : require('./credits.js');
 
   const JOB_STATE_LABELS = Object.freeze({
     queued: '대기',
@@ -46,6 +49,9 @@ const AnimateHelpers = (() => {
     submit_failed: '생성 요청 실패',
     generation_failed: 'AI 생성 실패',
     download_failed: '결과 받기 실패',
+    insufficient_credits: '크레딧이 부족합니다',
+    price_unknown: '이 모델은 가격 정보가 없어 크레딧으로 만들 수 없습니다',
+    billing_misconfigured: '결제 설정에 문제가 있어 지금은 만들 수 없습니다',
   });
 
   /** Korean text for an API error `{ code, error|message, detail }`. */
@@ -57,6 +63,10 @@ const AnimateHelpers = (() => {
     }
     if (code === 'driving_too_short' && error.detail) {
       const text = tooShortText(error.detail.duration, error.detail.minSec);
+      if (text) return text;
+    }
+    if (code === 'insufficient_credits' && error.detail) {
+      const text = insufficientText(error.detail.needed, error.detail.balance);
       if (text) return text;
     }
     if (code && ERROR_TEXT[code]) return ERROR_TEXT[code];
@@ -102,6 +112,82 @@ const AnimateHelpers = (() => {
 
   function formatUsd(usd) {
     return Number.isFinite(usd) ? `약 $${usd.toFixed(2)}` : '';
+  }
+
+  // ---- Credits (GET /api/billing, via window.VirtuallyBilling from auth.js) ----
+
+  /** A credit count as every page shows it: '1,234', '-50'; '' when it is not a number. */
+  function formatCredits(value) {
+    return typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString('ko-KR') : '';
+  }
+
+  /** True when paid jobs cost this account credits: billing on and working, not a free account. */
+  function billingActive(billing) {
+    return Boolean(credits && billing && typeof billing === 'object' && billing.enabled === true
+      && billing.mode === 'enabled' && billing.free !== true);
+  }
+
+  /** Credits a paid job with this USD estimate costs (null: unknown price or billing not active). */
+  function creditsForEstimate(usd, billing) {
+    return billingActive(billing) ? credits.creditsFor(usd, billing.creditsPerUsd) : null;
+  }
+
+  /** "40 크레딧", "크레딧 가격 없음" for an unknown price, '' when billing is not active. */
+  function creditsText(usd, billing) {
+    if (!billingActive(billing)) return '';
+    const needed = creditsForEstimate(usd, billing);
+    return needed == null ? '크레딧 가격 없음' : `${formatCredits(needed)} 크레딧`;
+  }
+
+  /** What the estimate text gains: " · 40 크레딧", " · 크레딧 가격 없음", or ''. */
+  function creditsSuffix(usd, billing) {
+    const text = creditsText(usd, billing);
+    return text ? ` · ${text}` : '';
+  }
+
+  /**
+   * A route's cost text: '무료' for the mock route, '약 $0.40 · 40 크레딧' with billing
+   * active, '' until the driving length is known (as before billing).
+   */
+  function routeCostText(route, seconds, options, billing) {
+    if (isMockRoute(route)) return '무료';
+    if (typeof seconds !== 'number' || !Number.isFinite(seconds)) return '';
+    const usd = estimateUsd(route, seconds, options);
+    const usdText = formatUsd(usd);
+    // A known estimate gains the credit suffix; an unknown one shows only the credit note.
+    return usdText ? usdText + creditsSuffix(usd, billing) : creditsText(usd, billing);
+  }
+
+  /** Credits a job on this route would cost, or null (mock route, unknown price, billing not active). */
+  function jobCredits(route, seconds, options, billing) {
+    if (isMockRoute(route) || !billingActive(billing)) return null;
+    return creditsForEstimate(estimateUsd(route, seconds, options), billing);
+  }
+
+  /** The paid confirmation's credit line, or '' without both numbers. */
+  function confirmCreditsText(needed, balance) {
+    if (!Number.isFinite(needed) || !Number.isFinite(balance)) return '';
+    return `${formatCredits(needed)} 크레딧이 차감됩니다 (보유 ${formatCredits(balance)}).`;
+  }
+
+  /** "크레딧이 부족합니다 (필요 40, 보유 12)", or '' without both numbers. */
+  function insufficientText(needed, balance) {
+    if (!Number.isFinite(needed) || !Number.isFinite(balance)) return '';
+    return `크레딧이 부족합니다 (필요 ${formatCredits(needed)}, 보유 ${formatCredits(balance)})`;
+  }
+
+  /** A job row's "40 크레딧" / "40 크레딧 돌려받음": only for a charged job (billing record, not free, known credits). */
+  function jobCreditsText(job) {
+    const billing = job?.billing;
+    if (!billing || typeof billing !== 'object' || billing.free === true) return '';
+    if (typeof billing.credits !== 'number' || !Number.isFinite(billing.credits)) return '';
+    const text = `${formatCredits(billing.credits)} 크레딧`;
+    return billing.refunded === true ? `${text} 돌려받음` : text;
+  }
+
+  /** True when `next` (a job update) shows a refund that `previous` (the same job before, if any) did not. */
+  function refundTurnedOn(previous, next) {
+    return next?.billing?.refunded === true && previous?.billing?.refunded !== true;
   }
 
   /** "2.5초" below 10 s (one decimal, no trailing .0), "12초" from 10 s, '' when unknown. */
@@ -355,6 +441,17 @@ const AnimateHelpers = (() => {
     effectiveOptions,
     estimateUsd,
     formatUsd,
+    formatCredits,
+    billingActive,
+    creditsForEstimate,
+    creditsText,
+    creditsSuffix,
+    routeCostText,
+    jobCredits,
+    confirmCreditsText,
+    insufficientText,
+    jobCreditsText,
+    refundTurnedOn,
     formatSeconds,
     LENGTH_TOLERANCE_SEC,
     routeMaxSeconds,
@@ -416,6 +513,7 @@ if (typeof document !== 'undefined') (() => {
   const jobsEmpty = $('jobsEmpty');
   const jobList = $('jobList');
   const confirmDialog = $('confirmDialog');
+  const confirmCredits = $('confirmCredits');
 
   const state = {
     ffmpeg: null,
@@ -435,6 +533,7 @@ if (typeof document !== 'undefined') (() => {
     marginRouteId: null, // the route `margin` was last reset for
     jobs: [],
     libraryIds: null,
+    billing: null, // GET /api/billing payload (auth.js VirtuallyBilling); null until known
     busy: { fetch: false, restore: false, driving: false, character: false, create: false },
   };
 
@@ -984,9 +1083,7 @@ if (typeof document !== 'undefined') (() => {
   }
 
   function routeCost(route) {
-    if (H.isMockRoute(route)) return '무료';
-    const seconds = selectedDriving()?.duration;
-    return H.formatUsd(H.estimateUsd(route, seconds, routeOptionsFor(route)));
+    return H.routeCostText(route, selectedDriving()?.duration, routeOptionsFor(route), state.billing);
   }
 
   function renderRoutes() {
@@ -1276,11 +1373,32 @@ if (typeof document !== 'undefined') (() => {
     $('confirmModel').textContent = `${route.label} · ${route.providerLabel}`;
     $('confirmLength').textContent = H.formatSeconds(driving.duration) || '알 수 없음';
     $('confirmCost').textContent = routeCost(route) || '알 수 없음';
+    const needed = H.jobCredits(route, driving.duration, routeOptionsFor(route), state.billing);
+    const creditLine = H.confirmCreditsText(needed, state.billing?.balance);
+    confirmCredits.textContent = creditLine;
+    confirmCredits.hidden = !creditLine;
     return new Promise((resolve) => {
       confirmDialog.returnValue = '';
       confirmDialog.addEventListener('close', () => resolve(confirmDialog.returnValue === 'ok'), { once: true });
       confirmDialog.showModal();
     });
+  }
+
+  // ---- Credits (auth.js fills the chip and shares the GET /api/billing payload) ----
+  const sharedBilling = window.VirtuallyBilling || null;
+
+  function applyBilling(billing) {
+    // A failed request (null) keeps the last payload: the server still charges.
+    if (!billing) return;
+    state.billing = billing;
+    // Before the routes arrive there is no price to redraw (their first render reads state.billing).
+    if (state.routes.length > 0) renderRoutes();
+  }
+
+  /** Redraw the credits chip and the credit prices from a fresh GET /api/billing. */
+  function refreshBilling() {
+    if (!sharedBilling || typeof sharedBilling.refresh !== 'function') return;
+    sharedBilling.refresh().then(applyBilling).catch(() => {});
   }
 
   createBtn.addEventListener('click', async () => {
@@ -1307,9 +1425,14 @@ if (typeof document !== 'undefined') (() => {
       jobList.firstElementChild?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     } catch (error) {
       setStatus(createStatus, error.message, 'error');
+      if (error.code === 'insufficient_credits') {
+        createStatus.append(' ', el('a', { className: 'link', href: '/billing', text: '크레딧 충전' }));
+      }
     } finally {
       state.busy.create = false;
       renderCreate();
+      // A charge (or a refused one) changes what the chip should say.
+      refreshBilling();
     }
   });
 
@@ -1364,11 +1487,15 @@ if (typeof document !== 'undefined') (() => {
   function updateRow(row, job) {
     const stateLabel = H.JOB_STATE_LABELS[job.state] || String(job.state ?? '');
     row.li.dataset.state = String(job.state ?? '');
-    row.head.replaceChildren(
+    const creditsLabel = H.jobCreditsText(job);
+    row.head.replaceChildren(...[
       el('span', { className: `badge badge-state state-${job.state}`, text: stateLabel }),
       el('span', { className: 'job-title', text: `${job.routeLabel || job.routeId || ''} · ${job.drivingLabel || ''}` }),
+      creditsLabel
+        ? el('span', { className: 'badge job-credits' + (job.billing.refunded === true ? ' is-refunded' : ''), text: creditsLabel })
+        : null,
       el('time', { className: 'job-time', dateTime: String(job.createdAt ?? ''), text: H.formatTime(job.createdAt) }),
-    );
+    ].filter(Boolean));
 
     let info = '';
     let infoKind = null;
@@ -1512,10 +1639,13 @@ if (typeof document !== 'undefined') (() => {
 
   async function loadJobs() {
     const data = await api('GET', '/api/animate/jobs');
+    const before = new Map(state.jobs.map(job => [job.id, job]));
     // Replace wholesale (newest first) so jobs removed on the server disappear too.
     state.jobs = [];
     for (const job of Array.isArray(data?.jobs) ? data.jobs : []) state.jobs = H.upsertJob(state.jobs, job);
     renderJobs();
+    // A reload after a reconnect may bring refunds made while disconnected.
+    if (before.size > 0 && state.jobs.some(job => H.refundTurnedOn(before.get(job.id), job))) refreshBilling();
   }
 
   // ---- Live updates ----
@@ -1530,7 +1660,10 @@ if (typeof document !== 'undefined') (() => {
     let data;
     try { data = JSON.parse(event.data); } catch { return; }
     if (data?.type === 'animate-job' && data.job) {
+      const previous = state.jobs.find(job => job.id === data.job.id);
       upsertJob(data.job);
+      // A failed or canceled job gave its credits back.
+      if (H.refundTurnedOn(previous, data.job)) refreshBilling();
     } else if (data?.type === 'library') {
       const list = Array.isArray(data.library?.motions) ? data.library.motions : [];
       state.libraryIds = new Set(list.filter(m => m && typeof m.id === 'string').map(m => m.id));
@@ -1543,6 +1676,9 @@ if (typeof document !== 'undefined') (() => {
   renderCharacters();
   renderDrivings();
   renderCreate();
+  if (sharedBilling && sharedBilling.ready && typeof sharedBilling.ready.then === 'function') {
+    sharedBilling.ready.then(applyBilling).catch(() => {});
+  }
   (async () => {
     const results = await Promise.allSettled([
       api('GET', '/api/animate/status').then(applyStatus),

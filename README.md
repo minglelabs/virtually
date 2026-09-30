@@ -88,9 +88,9 @@ The server never writes this file. Every allowed account shares one library and 
 
 ### What login protects
 
-- **Public**: `/login`, the sign-in routes under `/auth/google/`, `POST /auth/logout`, `GET /api/auth/status` and the static `.css`/`.js` files (the source is public anyway).
+- **Public**: `/login`, the sign-in routes under `/auth/google/`, `POST /auth/logout`, `GET /api/auth/status`, the static `.css`/`.js` files (the source is public anyway) and the Polar webhook `POST /api/billing/polar/webhook` (checked by its signature instead; see [Billing (Polar)](#billing-polar)).
 - **Login or overlay key**: `/overlay` and the calls it makes — `GET /api/library`, `GET /api/events`, media files (`/api/media/<id>`) and `GET`/`POST /api/obs-source` (the overlay reports its size).
-- **Login**: everything else — the controller, the 동작 만들기 page and every other API call (triggers, uploads, deletes, `/api/animate/*`). A page opened without a login goes to `/login` and comes back afterwards; an API call gets `401` with the header `X-Virtually-Auth: required`.
+- **Login**: everything else — the controller, the 동작 만들기 page, the 크레딧 page (`/billing`) and every other API call (triggers, uploads, deletes, `/api/animate/*`, `/api/billing/*`). A page opened without a login goes to `/login` and comes back afterwards; an API call gets `401` with the header `X-Virtually-Auth: required`.
 
 A login lasts 30 days and is extended while you use it. **로그아웃**, next to your name on the controller and the 동작 만들기 page, ends it in that browser.
 
@@ -107,6 +107,80 @@ Google accepts plain `http` redirect URIs only for `localhost` and loopback addr
 ### Secrets
 
 `data/auth/` holds secrets: the client secret in `config.json`, and the keys that sign logins and the overlay key in `state.json` (created by the server with file mode 0600). `data/` is ignored by Git — never commit it or copy it into the repository, which is public. Deleting `state.json` and restarting the server logs everyone out and replaces the overlay URL.
+
+## Billing (Polar)
+
+Billing is off by default. With it on, paid 동작 만들기 generations cost **credits** (크레딧) that each Google account buys on [Polar](https://polar.sh), a merchant of record: Polar runs the checkout, charges the card, handles sales tax and receipts, and pays you out. Credits come as one-time packs or as subscriptions; every paid Polar order grants its product's credits, subscription renewals included. Balances are kept per Google account in a local ledger, `data/billing/ledger.json`.
+
+- **Price of a job**: its estimated model cost — the estimate the 동작 만들기 page shows — at `creditsPerUsd` credits per US dollar, rounded up. The default is 100, so 1 credit = $0.01 and a $0.24 job costs 24 credits. The page shows the credits next to each estimate and in the confirmation. A route without a known price cannot be paid for with credits (`price_unknown`); the local mock route stays free.
+- **Charge and refund**: the credits are taken when the job is created (the balance must cover them) and given back automatically when the job ends `failed` or `canceled`, also for jobs that ended while the server was down.
+- **The 크레딧 page** (`/billing`, or the 크레딧 chip next to your name on every page) shows the balance and the rate, the credit products with **구매** (one-time) or **구독** (subscription), **결제 관리** (Polar's customer portal: receipts, cancelling a subscription, changing the card; shown after the first payment), **결제 내역 다시 확인** (asks Polar for this account's orders again) and the last 30 credit changes (**사용 내역**).
+- **After paying**, Polar sends the browser back to `/billing?checkout_id=...`. The page checks that payment at once and every 2 seconds, for up to a minute, and says when the credits have arrived.
+
+Billing turns on when `data/billing/config.json` exists **and** [Google login](#google-login-optional) is on: credits belong to Google accounts. The server re-reads the file when it changes (at most once a second), so no restart is needed; delete it to turn billing off again (the ledger is kept). A file that is present but unusable (broken JSON, a missing or malformed field), or the file with login off, stops paid generations and payments until it is fixed, and the 크레딧 page names the problem. Payment notifications from Polar are still accepted while login is off, as long as the webhook secret is valid, so no payment is lost.
+
+### Set up Polar (sandbox first)
+
+Start in Polar's [sandbox](https://sandbox.polar.sh): a separate Polar environment, with its own account, organization, products and tokens, where no real money moves.
+
+1. Create an account and an organization on sandbox.polar.sh.
+2. **Settings → Developers → New Token**: an Organization Access Token with the scopes `products:read`, `checkouts:read`, `checkouts:write`, `orders:read` and `customer_sessions:write`. Copy it (`polar_oat_...`).
+3. **Products → New Product**, once per credit pack or plan: one-time or recurring (daily, weekly, monthly or yearly), with a fixed, pay-what-you-want or free price, and under **Metadata** the key `virtually_credits` with the credits one purchase grants, for example `500`. Only products with that key are sold on the 크레딧 page; archived products and products with metered or seat-based prices are not listed.
+4. **Settings → Webhooks → Add Endpoint**: URL `<publicUrl>/api/billing/polar/webhook`, format **Raw**, API version **2026-10**, events `order.paid`, `order.updated` and `order.refunded`. Copy the endpoint's secret (`whsec_...`).
+5. Write `data/billing/config.json` (below) with `"server": "sandbox"`, the token and the secret. The 크레딧 page then shows the badge **테스트 결제(샌드박스)**; pay with the test card `4242 4242 4242 4242`, any future expiry date and any CVC.
+
+### Billing config.json
+
+```json
+{
+  "polar": {
+    "server": "sandbox",
+    "accessToken": "polar_oat_...",
+    "webhookSecret": "whsec_...",
+    "apiVersion": "2026-10"
+  },
+  "creditsPerUsd": 100,
+  "freeEmails": ["owner@gmail.com", "@example.com"]
+}
+```
+
+- `polar.server` (required): `sandbox` (`https://sandbox-api.polar.sh`) or `production` (`https://api.polar.sh`).
+- `polar.accessToken` (required): the Organization Access Token from step 2.
+- `polar.webhookSecret` (required): the webhook endpoint's secret, starting with `whsec_`.
+- `polar.apiVersion` (optional, default `2026-10`): the Polar API version, sent as the `Polar-Version` header on every call (`YYYY-MM`).
+- `creditsPerUsd` (optional, default `100`): credits per US dollar of estimated model cost, an integer from 1 to 100000.
+- `freeEmails` (optional): **free accounts**, which make paid motions without credits (their chip says 크레딧 무료). Matched like `allowedEmails`: case-insensitive, and an entry such as `@example.com` covers every address at that domain. They still need to be allowed to log in.
+
+The server never writes this file. `data/billing/` holds secrets (the token and the webhook secret) and the ledger (file mode 0600); like the rest of `data/`, never commit it.
+
+### Local use without a public URL
+
+Polar can deliver webhooks only to a public URL, but a local server (`http://127.0.0.1:8787`) still gets its credits: back from the checkout, the 크레딧 page asks Polar for that payment right away, and **결제 내역 다시 확인** asks for all of this account's orders (at most once every 5 seconds). Without the webhook, subscription renewals and refunds made later in Polar reach an account only when it presses **결제 내역 다시 확인**. For the full flow, run the server behind an HTTPS tunnel (see [Remote use](#remote-use)) and register the webhook with its `publicUrl`.
+
+### Going live
+
+1. Create the organization on [polar.sh](https://polar.sh) and the same products, with the same `virtually_credits` metadata.
+2. Create a new production access token (the same five scopes) and a new webhook endpoint (the same URL, format, API version and events) with its own secret: sandbox tokens and secrets do not work in production.
+3. Put `"server": "production"`, the new token and the new secret in `config.json`.
+4. Before the first payout, Polar reviews the account: under **Finance → Account**, submit the business for approval, verify the owner's identity and connect a payout account. The first review can take up to 14 days; payouts wait for it. Do not test with real cards in production (Polar flags it as card testing); use a free product or a 100% discount code instead.
+
+### Refunds, renewals and plan changes
+
+- **Grants**: every paid order grants its product's credits once (times the quantity bought) — a one-time purchase, a new subscription and every renewal. An order belongs to the Google account that started the checkout; an order paid outside Virtually is matched by the Polar customer's email and, when no account has that email yet, credited as soon as an account with that email opens Virtually (every page reads the balance).
+- **Refunds**: a refund in Polar takes the order's credits back — all of them for a full refund, a proportional share (rounded up) for a partial one. The balance can go negative; paid generations then wait until it is topped up.
+- **Plan changes**: switching a subscription to another plan grants nothing at once; the new plan's credits come with its next renewal. Cancelling in 결제 관리 stops future renewals; credits already granted stay.
+
+### Billing API
+
+JSON bodies need `Content-Type: application/json`; errors are `{ "error", "code", "detail"? }` like the rest of the API.
+
+| Method and path | Purpose |
+|---|---|
+| `GET /api/billing` | Billing state for the signed-in account: `{ "enabled": false }` when off; else `mode` (`enabled` / `invalid`), `problem`, and when enabled `server`, `creditsPerUsd`, `free`, `balance`, `products` (`[{ id, name, description, credits, recurring, interval, price: { type, amount, currency } }]`, amounts in the currency's minor unit), `productsError` (`polar_unreachable` / `polar_unauthorized`), `history` (the newest 30 entries: `{ id, at, delta, kind, label }`, kind `grant` / `revoke` / `charge` / `refund`) and `canManage` |
+| `POST /api/billing/checkout` | `{ "productId" }` → `{ url }`, a Polar checkout for that credit product. Errors: `400 unknown_product`, `502 polar_error`, `503 billing_misconfigured`, `409 billing_disabled` |
+| `POST /api/billing/sync` | `{ "checkoutId"? }` → `{ balance, applied, checkout }`: applies this account's paid orders now — one checkout's (`checkout` = `{ status, granted }`, `404 checkout_missing` for another account's checkout), or all of them at most once every 5 seconds |
+| `POST /api/billing/portal` | `{}` → `{ url }`, the Polar customer portal. `404 no_customer` before the first order |
+| `POST /api/billing/polar/webhook` | Polar's webhook (no login; the signature is checked) |
 
 ## Set up OBS
 
@@ -140,7 +214,7 @@ Open `http://127.0.0.1:8787/animate` (or **+ 동작 추가하러 가기** on the
 
 1. **동작 영상** — pick an example driving video, or upload your own MP4/MOV/WebM (up to 200 MB) by clicking or dropping files on the first tile. The clips form a horizontal strip (mouse wheel scrolls it sideways) that loads 12 more cards as you near the right end.
 2. **캐릭터** — drop PNG/JPEG/WebP images (up to 20 MB each) anywhere on the card, or click the drop zone. Every uploaded character stays in a horizontal strip; click a tile to use it. The most recently selected character comes first and stays selected after a reload; a new upload becomes the selected one. With no uploaded character, the library's PNG/WebP idle image is used. Transparent pixels are sent as a plain key-colour background (green, or blue / magenta when green would key or despill the character's colours — see step 4). Deleting a character does not affect jobs already started with it.
-3. **모델** — pick a route: Wan 2.2 Animate 2 (WaveSpeed, the default), DreamActor V2 (M2.0) or Kling motion control, through WaveSpeed, fal.ai, Replicate, Higgsfield or Kling directly. Wan 2.2 Animate 2 ignores the backgrounds of the character image and the driving video and generates the output background from its prompt; we ask for a plain solid chroma-key background (green `#00FF00` by default, see step 4) so it can be keyed later, and send the motion wording separately as `motion_prompt`. Routes marked "검증 전" have an endpoint or field name that was not confirmed against the vendor's docs; see [docs/animate-providers.md](docs/animate-providers.md). The page shows an estimated cost when the route has a known price and asks for confirmation before any paid request. **여백** (margin: 없음 / 보통 / 넓게) pads the driving video with black on the left, right and top (never the bottom) before it is sent, by 12 % (보통) or 25 % (넓게) of its long edge, so the performer — and the generated character, since Wan 2.2 Animate 2 follows the driving framing — keeps room inside the frame instead of being cut off. The default is 보통 for Wan 2.2 Animate 2 and 없음 for every other route. A margin makes the character smaller in the output (fewer pixels, less detail); its effect on DreamActor and Kling framing is unverified.
+3. **모델** — pick a route: Wan 2.2 Animate 2 (WaveSpeed, the default), DreamActor V2 (M2.0) or Kling motion control, through WaveSpeed, fal.ai, Replicate, Higgsfield or Kling directly. Wan 2.2 Animate 2 ignores the backgrounds of the character image and the driving video and generates the output background from its prompt; we ask for a plain solid chroma-key background (green `#00FF00` by default, see step 4) so it can be keyed later, and send the motion wording separately as `motion_prompt`. Routes marked "검증 전" have an endpoint or field name that was not confirmed against the vendor's docs; see [docs/animate-providers.md](docs/animate-providers.md). The page shows an estimated cost when the route has a known price and asks for confirmation before any paid request; with [billing](#billing-polar) on, it also shows the price in credits and the confirmation says how many credits will be taken. **여백** (margin: 없음 / 보통 / 넓게) pads the driving video with black on the left, right and top (never the bottom) before it is sent, by 12 % (보통) or 25 % (넓게) of its long edge, so the performer — and the generated character, since Wan 2.2 Animate 2 follows the driving framing — keeps room inside the frame instead of being cut off. The default is 보통 for Wan 2.2 Animate 2 and 없음 for every other route. A margin makes the character smaller in the output (fewer pixels, less detail); its effect on DreamActor and Kling framing is unverified.
 4. **결과** — jobs update live. When a result arrives, its solid key-colour background is removed automatically ("배경 지우는 중") into a transparent WebM (VP9 with alpha) by the local `ffmpeg` — no upload and no cost. The page plays the transparent clip over a checkerboard, with a toggle to view the original MP4. **동작으로 추가하기** copies the transparent WebM into the motion list (older results are keyed at that moment). Its default name is the preset label of the example (for example `인사 (Hi)`), so it lands on that preset button. The key colour is chosen automatically per job from the character image: green, else blue, else magenta — the first whose keying would not touch the character's colours (a colour near the key colour, or one the key colour's despill would shift, such as green or bright yellow for green); the job card says so when it is not green. Limits: character pixels close to the chosen key colour are removed too, and a background that is not one uniform key colour (the model painted a scene, a gradient or another colour) is skipped — the page says so and the original MP4 is added instead. Keying never fails a job. See [docs/animate-providers.md](docs/animate-providers.md#background-keying) for the filter and the detection rule. The keyed clip's character box is measured from its alpha channel (`fit`, below) and travels with the motion, so the overlay can show the motion at the size and place of the idle character.
 
 **Overlay size fit.** When a keyed motion carries a `fit` record, the overlay scales and positions the motion video so that its first-frame character matches the idle character (the demo avatar or the idle asset): the same height, horizontally centred on the idle character, with the feet on the idle feet. A motion whose frames reach the bottom edge of its video is lowered onto the bottom of the canvas so the cut stays hidden (the character then stands a little lower than the idle one). A motion whose first frame is already cut at the bottom (an upper-body clip) keeps the head at the idle head height and fills down to the bottom of the canvas, so its size can differ. The placement is recomputed whenever the OBS source is resized, and the controller's 캔버스 preview shows the same result. Motions without a `fit` (MP4, opaque video) keep the default bottom-centred layout. Parts of the character that left the generated video (see **여백**) cannot come back; the job card warns about them.
@@ -198,7 +272,7 @@ All errors are JSON `{ "error", "code"?, "detail"? }`. JSON bodies need `Content
 | `POST /api/animate/drivings?name=<file>` | Upload a driving video (raw body) |
 | `DELETE /api/animate/drivings/<id>` | Delete an upload, or hide an example for this install (its downloaded files are removed) |
 | `GET /api/animate/drivings/<id>/video`, `/poster` | Driving video (byte ranges) and poster |
-| `GET /api/animate/jobs`, `POST /api/animate/jobs` | List jobs; start one: `{ "drivingId", "routeId", "options"?, "margin"?, "confirmed": true }`. `margin` = `none` / `normal` / `wide` (default: the route's `defaultMargin`; anything else is `400 bad_margin`); the job view echoes it (older jobs: `none`) |
+| `GET /api/animate/jobs`, `POST /api/animate/jobs` | List jobs; start one: `{ "drivingId", "routeId", "options"?, "margin"?, "confirmed": true }`. `margin` = `none` / `normal` / `wide` (default: the route's `defaultMargin`; anything else is `400 bad_margin`); the job view echoes it (older jobs: `none`). With [billing](#billing-polar) on, a paid route can also answer `402 insufficient_credits` (detail `{ needed, balance }`), `400 price_unknown` or `503 billing_misconfigured` (detail `{ problem }`), and the job view carries `billing` = `{ credits, free, refunded }` (absent for jobs made while billing was off) |
 | `GET /api/animate/jobs/<id>`, `POST .../cancel` | One job; cancel it |
 | `GET /api/animate/jobs/<id>/result`, `/poster` | Result MP4 (byte ranges) and poster |
 | `GET /api/animate/jobs/<id>/result?variant=keyed` | The transparent WebM (byte ranges); the job's `result.keyedUrl` points here, or is `null` when there is none (`result.keySkipped` = `not_key_color` / `not_uniform` (older jobs: `not_green`), or `result.keyFailed`); `keyColor` = `{ name, hex }` of the job's chroma-key background; `result.fit` = the keyed clip's character box (`null` when not keyed) |
@@ -264,6 +338,6 @@ The second command should show `TAG:alpha_mode=1`. We verified this encoding pat
 
 ## Scope and limitations
 
-The PoC uses a local HTTP server and server-sent events to synchronize the controller, preview, and OBS Browser Source. It supports a single library; the optional Google login only admits allowlisted accounts, which all share it (no per-user libraries or roles). It does not include remote viewer triggers, live AI generation, background removal, or a broadcasting platform. Browser playback and the transparent page background were tested locally; OBS scene rendering and long-running performance with many clips still need live validation.
+The PoC uses a local HTTP server and server-sent events to synchronize the controller, preview, and OBS Browser Source. It supports a single library; the optional Google login only admits allowlisted accounts, which all share it (no per-user libraries or roles). Only the optional [credits](#billing-polar) are per account. It does not include remote viewer triggers, live AI generation, background removal, or a broadcasting platform. Browser playback and the transparent page background were tested locally; OBS scene rendering and long-running performance with many clips still need live validation.
 
-Run `pnpm test` for API, login, media-range, persistence, port rotation, and event-stream checks. The animate tests use the mock route, local fixture servers and ffmpeg-generated clips; they never call a provider. The login tests use a local fake Google; they never call Google.
+Run `pnpm test` for API, login, media-range, persistence, port rotation, and event-stream checks. The animate tests use the mock route, local fixture servers and ffmpeg-generated clips; they never call a provider. The login tests use a local fake Google; they never call Google. The billing tests use a local fake Polar; they never call Polar.
