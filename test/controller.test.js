@@ -194,6 +194,7 @@ test('errorText prefers known Korean codes, then the server message', () => {
   assert.equal(H.errorText({ error: 'Something broke', code: 'weird' }), 'Something broke');
   assert.equal(H.errorText({ code: 'weird', message: 'Provider said no' }), 'Provider said no');
   assert.equal(H.errorText(null), '알 수 없는 오류');
+  assert.equal(H.errorText({ code: 'timeout', message: 'Generation timed out.' }), '시간 초과');
   assert.equal(H.errorText({ error: 'x', code: 'driving_too_short', detail: { minSec: 3, duration: 2.5 } }),
     '영상(2.5초)이 이 모델의 최소 길이(3초)보다 짧습니다');
   assert.equal(H.errorText({ error: 'x', code: 'driving_too_short' }), '영상이 모델 최소 길이보다 짧습니다');

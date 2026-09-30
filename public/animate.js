@@ -40,6 +40,7 @@ const AnimateHelpers = (() => {
     not_ready: '아직 완료되지 않았습니다',
     already_added: '이미 추가했습니다',
     interrupted: '서버 재시작으로 중단됐습니다',
+    timeout: '시간 초과',
     canceled: '취소됐습니다',
     moderation: '콘텐츠 정책에 걸렸습니다',
     upload_failed: '파일 업로드 실패',
