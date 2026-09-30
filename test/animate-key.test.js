@@ -46,7 +46,7 @@ async function tmpDir() {
   return fs.mkdtemp(path.join(os.tmpdir(), 'virtually-key-'));
 }
 
-test('decideKeyColor: median, green dominance and uniformity', () => {
+test('decideKeyColor: median, distance to the expected colour and uniformity', () => {
   const green = Array.from({ length: 40 }, (_, i) => [0, 250 + (i % 3) - 1, 2]);
   assert.deepEqual(key.decideKeyColor(green), { color: '#00FA02', rgb: [0, 250, 2] });
   // 25 % outliers is still uniform; more is not.
@@ -54,10 +54,18 @@ test('decideKeyColor: median, green dominance and uniformity', () => {
   assert.equal(key.decideKeyColor(mixed).color, '#00FA02');
   const tooMixed = [...green.slice(0, 29), ...Array.from({ length: 11 }, () => [200, 30, 40])];
   assert.equal(key.decideKeyColor(tooMixed).reason, 'not_uniform');
-  // Uniform but not green enough.
-  assert.equal(key.decideKeyColor(Array.from({ length: 40 }, () => [0, 0, 255])).reason, 'not_green');
-  assert.equal(key.decideKeyColor(Array.from({ length: 40 }, () => [90, 180, 90])).reason, 'not_green'); // margin 90
-  assert.equal(key.decideKeyColor(Array.from({ length: 40 }, () => [0, 140, 0])).reason, 'not_green'); // G < 150
+  // Uniform but farther than RGB distance 100 from the expected green.
+  assert.equal(key.decideKeyColor(Array.from({ length: 40 }, () => [0, 0, 255])).reason, 'not_key_color');
+  assert.equal(key.decideKeyColor(Array.from({ length: 40 }, () => [90, 180, 90])).reason, 'not_key_color'); // 147
+  assert.equal(key.decideKeyColor(Array.from({ length: 40 }, () => [0, 140, 0])).reason, 'not_key_color'); // 115
+  assert.deepEqual(key.decideKeyColor(Array.from({ length: 40 }, () => [0, 160, 0])), { color: '#00A000', rgb: [0, 160, 0] }); // 95
+  // Another expected colour: blue accepts a near-blue border and rejects green.
+  const blue = { name: 'blue', hex: '#0000FF' };
+  assert.deepEqual(key.decideKeyColor(Array.from({ length: 40 }, () => [10, 30, 240]), blue), { color: '#0A1EF0', rgb: [10, 30, 240] });
+  assert.equal(key.decideKeyColor(green, blue).reason, 'not_key_color');
+  const magenta = { name: 'magenta', hex: '#FF00FF' };
+  assert.equal(key.decideKeyColor(Array.from({ length: 40 }, () => [240, 10, 230]), magenta).color, '#F00AE6');
+  assert.equal(key.decideKeyColor(Array.from({ length: 40 }, () => [10, 30, 240]), magenta).reason, 'not_key_color');
   assert.equal(key.decideKeyColor([]).reason, 'not_uniform');
 });
 
@@ -73,6 +81,10 @@ test('patchRects: 4 corners + 4 edge midpoints, up to 16 px', () => {
 test('keyFilter uses the detected colour, not a hardcoded one', () => {
   assert.equal(key.keyFilter('#10E020'),
     'format=rgba,colorkey=0x10E020:0.3:0.12,despill=type=green:mix=0.5:expand=0,format=yuva420p');
+  assert.equal(key.keyFilter('#10E020', 'green'), key.keyFilter('#10E020'));
+  assert.equal(key.keyFilter('#0A1EF0', 'blue'),
+    'format=rgba,colorkey=0x0A1EF0:0.3:0.12,despill=type=blue:mix=0.5:expand=0:green=0:blue=-1,format=yuva420p');
+  assert.equal(key.keyFilter('#F00AE6', null), 'format=rgba,colorkey=0xF00AE6:0.3:0.12,format=yuva420p');
 });
 
 test('detectKeyColor: uniform green -> the source colour; testsrc -> null', { skip }, async () => {
@@ -95,11 +107,13 @@ test('detectKeyColor: uniform green -> the source colour; testsrc -> null', { sk
     ffmpeg(['-f', 'lavfi', '-i', 'testsrc=size=320x240:rate=15', '-t', '3', '-pix_fmt', 'yuv420p', '-c:v', 'libx264', '-preset', 'ultrafast', testsrc]);
     const none = await key.detectKeyColor(FFMPEG, FFPROBE, testsrc);
     assert.equal(none.color, null);
-    assert.ok(['not_uniform', 'not_green'].includes(none.reason), none.reason);
+    assert.ok(['not_uniform', 'not_key_color'].includes(none.reason), none.reason);
 
     const blue = path.join(dir, 'blue.mp4');
     greenClip(blue, { color: '0x0020F0', size: '128x128', seconds: 1 });
-    assert.equal((await key.detectKeyColor(FFMPEG, FFPROBE, blue)).reason, 'not_green');
+    assert.equal((await key.detectKeyColor(FFMPEG, FFPROBE, blue)).reason, 'not_key_color');
+    const asBlue = await key.detectKeyColor(FFMPEG, FFPROBE, blue, { expected: { name: 'blue' } });
+    assert.ok(asBlue.color && asBlue.rgb[2] > 200, JSON.stringify(asBlue));
 
     const missing = await key.detectKeyColor(FFMPEG, FFPROBE, path.join(dir, 'nope.mp4'));
     assert.deepEqual(missing, { color: null, reason: 'unreadable', samples: 0 });

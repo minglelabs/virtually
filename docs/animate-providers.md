@@ -3,8 +3,9 @@
 The "동작 만들기" page (`/animate`) sends a driving video and a character image to one of the
 routes below and shows the returned MP4. How the pipeline uses a route:
 
-1. **preparing** — the character is placed on a plain `#00FF00` canvas (transparent pixels become
-   green) and fitted into the route's image limits; the driving video is re-encoded to H.264
+1. **preparing** — the character is placed on a plain key-colour canvas (transparent pixels take
+   that colour; `#00FF00` unless the character has green in it, see
+   [Background keying](#background-keying)) and fitted into the route's image limits; the driving video is re-encoded to H.264
    (long edge <= 1280, <= 30 fps, no audio) and trimmed to the route's maximum length.
 2. **submitting** — both files are uploaded with the provider's own upload API (Kling direct
    relays the video through WaveSpeed/fal/Higgsfield, see below) and the job is submitted
@@ -25,14 +26,15 @@ other route leaves them unset and its request body is unchanged):
   preset prompt (or the generic one) plus `' Static camera, no zoom, no camera movement.'`
   (`presets.composeMotionPrompt`) there; the `promptSuffix` is not appended.
 - `backgroundPrompt` — fixed text sent at `fields.prompt` instead of the composed preset prompt;
-  `promptSuffix` is ignored. Animate 2 generates its output background from `prompt`, so it asks
-  for a plain `#00FF00` chroma-key background.
+  `promptSuffix` is ignored. `{color}` / `{hex}` in it are replaced with the job's key colour.
+  Animate 2 generates its output background from `prompt`, so it asks for a plain chroma-key
+  background of that colour (`green (#00FF00)` by default).
 - `pricing.roundUpSeconds` — bill the sent length rounded up to whole seconds before
   `minSeconds` applies (server `registry.estimateUsd` and the page's estimate both honour it).
 
 `mock/local-demo` (provider `mock`, enabled with `VIRTUALLY_ANIMATE_MOCK=1` or
 `createAppServer({ animateMock: true })`) is not AI and never uses the network: it renders the
-prepared character bobbing over the green canvas with ffmpeg for the driving video's length
+prepared character bobbing over the job's key-colour canvas with ffmpeg for the driving video's length
 (max 6 s).
 
 Keys are stored in `data/animate/config.json` (mode 0600) or read from the environment variables
@@ -267,13 +269,29 @@ ffmpeg error the MP4 stays the result and `job.result.keyed = null` with `keySki
 `keyError` (message). A cancel during keying kills ffmpeg and cancels the job as usual; a restart
 during keying re-runs only the keying.
 
+The key colour is chosen automatically per job (`lib/animate/key-color.js`), when the job is
+created, from the source character image: green `#00FF00`, else blue `#0000FF`, else magenta
+`#FF00FF`. The image is decoded to RGBA at most 128 px; pixels with alpha >= 128 count (all
+pixels when none do). A pixel conflicts with a candidate when (a) its RGB distance to the pure
+candidate is < 200 — colorkey 0.30 / 0.12 is fully opaque only from
+`(0.30 + 0.12) * sqrt(3) * 255` = 185.5 (measured: alpha 0 up to ~132, 42 at 141, 178 at 170,
+253 at 185), plus a margin for a rendered key colour that is not exactly pure — or (b) the
+candidate's despill would change it by more than 40 (green lowers G by `g - (r + b) / 2`, blue
+lowers B by `b - (r + g) / 2`; magenta has no despill), which catches e.g. bright yellow, far from
+green but turned orange by green despill. The first candidate whose conflict share is below 0.5 %
+wins; otherwise the smallest share. It is stored as `job.keyColor = { name, hex }` (jobs without it are green)
+and used for the character canvas, the mock canvas, Animate 2's background prompt, the default
+`promptSuffix` wording (only while the config still holds the default) and keying. With green,
+every request body and keyed output is the same as before the colour was chosen. The page notes
+a blue / magenta background on the job card.
+
 Detection (the colour is measured, never hardcoded):
 
 - 8 border patches — 4 corners and 4 edge midpoints, 16x16 px (smaller on tiny frames) — at 5
   timestamps spread over the clip, each averaged to one RGB value: 40 samples.
-- The per-channel median is the key colour when it is green-dominant (`G >= 150` and
-  `G - max(R, B) >= 100`) and at least 75 % of the samples lie within RGB distance 40 of it.
-  Otherwise the clip is skipped with `not_green` or `not_uniform`.
+- The per-channel median is the key colour when at least 75 % of the samples lie within RGB
+  distance 40 of it and it lies within RGB distance 100 of the job's key colour. Otherwise the
+  clip is skipped with `not_uniform` or `not_key_color` (older jobs may carry `not_green`).
 
 Keying (measured on a real Animate 2 result, 800x1136, 2.97 s: clean edges, 1.1 MB, ~4.9 s):
 
@@ -281,6 +299,12 @@ Keying (measured on a real Animate 2 result, 800x1136, 2.97 s: clean edges, 1.1 
 -vf "format=rgba,colorkey=0x<RRGGBB>:0.30:0.12,despill=type=green:mix=0.5:expand=0,format=yuva420p"
 -c:v libvpx-vp9 -pix_fmt yuva420p -auto-alt-ref 0 -b:v 0 -crf 30 -row-mt 1 -an
 ```
+
+`despill=type=blue:mix=0.5:expand=0:green=0:blue=-1` for a blue key colour (despill's `green` /
+`blue` options default to -1 / 0 for either type, so `type=blue` alone would subtract the spill
+from the green channel: `[100,150,200]` -> `[100,75,200]` instead of `[100,150,125]`); no despill for magenta (ffmpeg's despill only has green
+and blue). Only the green filter was measured on a real result; blue and magenta were checked on
+the mock route only.
 
 Written to a tmp file and renamed; timeout `max(120 s, 10 x duration)`. `chromakey` without
 despill was rejected (green/teal fringe on every edge). The alpha plane only decodes with the
