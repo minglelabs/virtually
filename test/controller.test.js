@@ -283,7 +283,7 @@ test('controller previews a true-scale canvas at the reported OBS source size', 
   assert.match(html, /<div class="pane-title-row">\s*<h2 id="previewTitle" class="pane-title">캔버스<\/h2>\s*<button type="button" id="refreshOverlayBtn"/);
   assert.equal((html.match(/<h2 [^>]*class="pane-title"/g) || []).length, 2);
   assert.doesNotMatch(html, /class="subtitle"/);
-  assert.match(html, /<p class="caption" id="canvasCaption">1920 × 1080 \(OBS 연결 전\) · 체크무늬 부분은 투명하게 송출됩니다\.<\/p>/);
+  assert.match(html, /<p class="caption" id="canvasCaption">800 × 600 \(OBS 연결 전\) · 체크무늬 부분은 투명하게 송출됩니다\.<\/p>/);
   assert.match(html,
     /<div class="stage">\s*<div class="canvas" id="canvasBox">\s*<iframe id="overlayPreviewFrame" src="\.\/overlay" title="OBS 캔버스 미리보기"><\/iframe>\s*<\/div>\s*<\/div>/);
   // OBS guide: the source matches the OBS canvas instead of a fixed 1920 x 1080.
@@ -304,8 +304,12 @@ test('controller previews a true-scale canvas at the reported OBS source size', 
 
   const box = css.match(/\.canvas \{([^}]*)\}/);
   assert.ok(box, 'app.css has a .canvas rule');
-  assert.match(box[1], /--canvas-w:\s*1920px;/);
-  assert.match(box[1], /--canvas-h:\s*1080px;/);
+  // Until OBS reports a size, the canvas uses the OBS browser-source default (800 x 600),
+  // and the CSS, the script and the initial caption agree on it.
+  assert.match(box[1], /--canvas-w:\s*800px;/);
+  assert.match(box[1], /--canvas-h:\s*600px;/);
+  assert.match(fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8'),
+    /const DEFAULT_CANVAS = \{ width: 800, height: 600 \};/);
   assert.match(box[1], /width:\s*calc\(var\(--canvas-w\) \* var\(--canvas-scale\)\);/);
   assert.match(box[1], /height:\s*calc\(var\(--canvas-h\) \* var\(--canvas-scale\)\);/);
   const rule = css.match(/\.stage iframe \{([^}]*)\}/);

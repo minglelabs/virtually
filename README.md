@@ -65,7 +65,7 @@ Recommended properties, in OBS order:
 
 - **Local file**: off.
 - **URL**: the overlay URL printed by the server (default `http://127.0.0.1:8787/overlay`).
-- **Width** / **Height**: the same as your OBS canvas (**Settings → Video → Base (Canvas) Resolution**; the source defaults to 800 / 600). The overlay reports this size to the controller, whose 캔버스 preview then shows the same size.
+- **Width** / **Height**: the same as your OBS canvas (**Settings → Video → Base (Canvas) Resolution**; the source defaults to 800 / 600). The overlay reports this size to the controller, whose 캔버스 preview then shows the same size (800 × 600, the OBS default, until the first report).
 - **Control audio via OBS**: off — motion clips have no audio.
 - **Use custom frame rate**: off — follow the OBS output frame rate.
 - **Custom CSS**: leave the default — it is what makes the background transparent.

@@ -35,8 +35,8 @@
 
   // ---- True-scale canvas preview ----
   // The overlay renders at the OBS browser-source size (reported by the overlay running
-  // inside OBS; 1920 x 1080 until then) and is scaled to fit the stage.
-  const DEFAULT_CANVAS = { width: 1920, height: 1080 };
+  // inside OBS; 800 x 600, the OBS browser-source default, until then) and is scaled to fit the stage.
+  const DEFAULT_CANVAS = { width: 800, height: 600 };
   const CANVAS_BORDER = 2; // 1px border on each side, outside the scaled box
   const CAPTION_TAIL = ' · 체크무늬 부분은 투명하게 송출됩니다.';
   const stage = document.querySelector('.stage');
