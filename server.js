@@ -9,15 +9,23 @@ const { once } = require('node:events');
 
 const { createAnimateApi } = require('./lib/animate/api');
 const { measureFit } = require('./lib/animate/fit');
+const { processMotionUpload } = require('./lib/animate/motion-upload');
 const { createAuth } = require('./lib/auth');
+const {
+  CharacterStore, characterError, checkName, cleanFilename,
+  CHARACTER_ID_RE, PHOTO_ID_RE, MAX_CHARACTERS, MAX_PHOTOS, PHOTO_MAX_BYTES,
+} = require('./lib/characters');
 
 const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const EXAMPLES_MANIFEST = path.join(__dirname, 'examples', 'driving.json');
 const STATIC_FILES = new Map([
-  ['/', ['index.html', 'text/html; charset=utf-8']],
+  ['/', ['characters.html', 'text/html; charset=utf-8']],
+  ['/broadcast', ['index.html', 'text/html; charset=utf-8']],
   ['/overlay', ['overlay.html', 'text/html; charset=utf-8']],
   ['/animate', ['animate.html', 'text/html; charset=utf-8']],
+  ['/characters.css', ['characters.css', 'text/css; charset=utf-8']],
+  ['/characters.js', ['characters.js', 'text/javascript; charset=utf-8']],
   ['/app.css', ['app.css', 'text/css; charset=utf-8']],
   ['/app.js', ['app.js', 'text/javascript; charset=utf-8']],
   ['/animate.css', ['animate.css', 'text/css; charset=utf-8']],
@@ -49,6 +57,28 @@ const EXT_BY_MIME = {
 
 function extForMime(mime) {
   return EXT_BY_MIME[mime] || '.webm';
+}
+
+// Library item ids (motions, idles) are UUIDs; photo ids have their own pattern.
+const MEDIA_ID_RE = /^[0-9a-f-]{36}$/;
+
+// library.json `idles`: { <photoId>: idle item } uploaded for one photo.
+// Anything malformed is dropped.
+function parseIdles(value) {
+  const idles = {};
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return idles;
+  for (const [photoId, item] of Object.entries(value)) {
+    if (PHOTO_ID_RE.test(photoId) && item && typeof item === 'object' && typeof item.id === 'string' && MEDIA_ID_RE.test(item.id)) {
+      idles[photoId] = item;
+    }
+  }
+  return idles;
+}
+
+function requireJson(req) {
+  if (String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase() !== 'application/json') {
+    throw Object.assign(new Error('Expected application/json.'), { status: 415, code: 'expected_json' });
+  }
 }
 
 // Bounds for the OBS browser-source size the overlay reports.
@@ -182,6 +212,16 @@ async function serveMedia(req, res, filePath, mime) {
   fs.createReadStream(filePath).pipe(res);
 }
 
+// serveMedia, answering 404 when the file itself is gone.
+async function serveFile(req, res, filePath, mime) {
+  try {
+    await serveMedia(req, res, filePath, mime);
+  } catch (error) {
+    if (error.code !== 'ENOENT' || res.headersSent) throw error;
+    sendJson(res, 404, { error: 'Media not found.' });
+  }
+}
+
 async function createAppServer({
   dataDir = path.join(__dirname, 'data'),
   ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg',
@@ -198,10 +238,13 @@ async function createAppServer({
   const mediaDir = path.join(dataDir, 'media');
   const manifestPath = path.join(dataDir, 'library.json');
   await fsp.mkdir(mediaDir, { recursive: true });
-  let library = { idle: null, motions: [] };
+  // { idle, motions, idles }: `idle` is the legacy idle (shown while no photo
+  // is on air), every motion has a photoId (null = no photo), `idles` maps a
+  // photo id to the idle uploaded for that photo.
+  let library = { idle: null, motions: [], idles: {} };
   try {
     const stored = JSON.parse(await fsp.readFile(manifestPath, 'utf8'));
-    if (stored && Array.isArray(stored.motions)) library = { idle: stored.idle || null, motions: stored.motions };
+    if (stored && Array.isArray(stored.motions)) library = { idle: stored.idle || null, motions: stored.motions, idles: parseIdles(stored.idles) };
   } catch (error) {
     if (error.code !== 'ENOENT') throw error;
   }
@@ -235,19 +278,59 @@ async function createAppServer({
       }
     }
   }
-  async function save(next) {
+  // The photo's own image as the idle item, while no idle was uploaded for it.
+  function photoIdle(character, photo) {
+    return {
+      id: photo.id, name: character.name, kind: 'idle', mime: photo.mime, url: `/api/media/${photo.id}`,
+      createdAt: photo.createdAt, fit: photo.fit ?? null, source: { photoId: photo.id },
+    };
+  }
+  // What the controller and the overlay see (GET /api/library, SSE): the
+  // on-air photo's idle and motions, or with nothing on air the legacy idle
+  // and the motions without a photo.
+  function libraryView() {
+    const active = characters.active();
+    if (!active) return { idle: library.idle, motions: library.motions.filter(item => !item.photoId), character: null, photo: null };
+    const { character, photo } = active;
+    return {
+      idle: library.idles[photo.id] || photoIdle(character, photo),
+      motions: library.motions.filter(item => item.photoId === photo.id),
+      character: { id: character.id, name: character.name },
+      photo: { id: photo.id, url: `/api/media/${photo.id}`, width: photo.width, height: photo.height, hasAlpha: photo.hasAlpha },
+    };
+  }
+  function libraryMessage() {
+    return JSON.stringify({ type: 'library', library: libraryView() });
+  }
+  // Called after anything that may change the view; sends it only when it did.
+  let lastLibraryMessage = null;
+  function broadcastLibrary() {
+    const message = libraryMessage();
+    if (message === lastLibraryMessage) return;
+    lastLibraryMessage = message;
+    broadcast(JSON.parse(message));
+  }
+  async function writeLibrary(next) {
+    const value = { idle: next.idle || null, motions: next.motions, idles: next.idles || {} };
     const temporary = `${manifestPath}.${crypto.randomUUID()}.tmp`;
     try {
-      await fsp.writeFile(temporary, JSON.stringify(next, null, 2) + '\n');
+      await fsp.writeFile(temporary, JSON.stringify(value, null, 2) + '\n');
       await fsp.rename(temporary, manifestPath);
-      library = next;
+      library = value;
     } finally {
       await fsp.rm(temporary, { force: true });
     }
-    broadcast({ type: 'library', library });
+  }
+  async function save(next) {
+    await writeLibrary(next);
+    broadcastLibrary();
   }
   function mediaPathForItem(item) {
     return path.join(mediaDir, `${item.id}${extForMime(item.mime)}`);
+  }
+  // Every library item a GET /api/media/<id> may serve (photos are looked up separately).
+  function findLibraryItem(id) {
+    return [library.idle, ...Object.values(library.idles), ...library.motions].find(item => item && item.id === id) || null;
   }
   function obsSourceMessage() {
     return { type: 'obs-source', width: obsSource ? obsSource.width : null, height: obsSource ? obsSource.height : null };
@@ -264,6 +347,10 @@ async function createAppServer({
     broadcast(obsSourceMessage());
   }
 
+  // Characters and the on-air photo (migrates the old character library once).
+  const characters = await new CharacterStore({ dataDir, ffmpegPath, ffprobePath }).load({ library, writeLibrary });
+  lastLibraryMessage = libraryMessage();
+
   // Before the animate API, so a failing auth setup cannot leave its jobs running.
   const auth = await createAuth({ ...authOptions, dataDir, sendJson, readBody, isPublicStatic });
 
@@ -271,8 +358,200 @@ async function createAppServer({
     dataDir, mediaDir, ffmpegPath, ffprobePath, mock: animateMock, pollIntervalMs: animatePollIntervalMs,
     examplesManifestPath, allowHttpExamples,
     getLibrary: () => library, mediaPathForItem, enqueue, save, broadcast,
+    getPhoto: id => characters.getPhoto(id),
     sendJson, readBody, receiveFile, serveMedia, sanitizeName,
   });
+
+  // --- characters (/api/characters*, /api/active-photo) ----------------------
+
+  const listView = () => characters.listView(library);
+  const characterView = id => characters.characterView(id, library);
+  // Malformed ids are refused before any lookup or path use.
+  const characterIdFrom = value => {
+    if (!CHARACTER_ID_RE.test(value)) throw characterError('character_missing');
+    return value;
+  };
+  const photoIdFrom = value => {
+    if (!PHOTO_ID_RE.test(value)) throw characterError('photo_missing');
+    return value;
+  };
+
+  // Stream a raw image body (<= 20 MB) to a temp file and hand it to
+  // `register`, which moves it into the store; what is left is removed.
+  async function receivePhoto(req, register) {
+    if (Number(req.headers['content-length']) > PHOTO_MAX_BYTES) throw characterError('too_large');
+    const tmpPath = path.join(characters.dir, `photo-upload.${crypto.randomUUID()}.tmp`);
+    try {
+      try {
+        await receiveFile(req, tmpPath, PHOTO_MAX_BYTES, characterError('too_large').message);
+      } catch (error) {
+        if (error.status === 400) throw characterError('unsupported_image'); // an empty body
+        throw error;
+      }
+      return await register(tmpPath);
+    } finally {
+      await fsp.rm(tmpPath, { force: true }).catch(() => {});
+    }
+  }
+
+  // Run a store deletion (`run(beforeCommit)`) inside the library queue: the
+  // photos' motions and uploaded idles leave library.json first, then the
+  // store commits (and removes the photo files); their media files go once
+  // both records are saved. Deleting the on-air photo takes it off air.
+  async function removeWithMedia(run) {
+    let dropped = [];
+    const result = await enqueue(() => run(async photoIds => {
+      const ids = new Set(photoIds);
+      const idles = { ...library.idles };
+      dropped = library.motions.filter(item => ids.has(item.photoId));
+      for (const photoId of ids) {
+        if (!idles[photoId]) continue;
+        dropped.push(idles[photoId]);
+        delete idles[photoId];
+      }
+      if (dropped.length) await writeLibrary({ ...library, motions: library.motions.filter(item => !ids.has(item.photoId)), idles });
+    }));
+    broadcastLibrary();
+    for (const item of dropped) await fsp.rm(mediaPathForItem(item), { force: true }).catch(() => {});
+    return result;
+  }
+
+  // POST /api/characters/<id>/photos/<photoId>/motions: a finished video,
+  // processed (motion-upload.js) before the answer. Temp files always go; a
+  // failed upload leaves no record.
+  async function uploadMotion(req, res, url, characterId, photoId) {
+    if (!characters.getCharacter(characterId)) throw characterError('character_missing');
+    const entry = characters.getPhoto(photoId);
+    if (!entry || entry.character.id !== characterId) throw characterError('photo_missing');
+    if (Number(req.headers['content-length']) > MAX_UPLOAD_BYTES) throw characterError('too_large_video');
+    await animate.requireFfmpeg();
+    const workDir = path.join(mediaDir, `motion-upload.${crypto.randomUUID()}.tmp`);
+    await fsp.mkdir(workDir);
+    let answer;
+    try {
+      const sourcePath = path.join(workDir, 'upload');
+      try {
+        await receiveFile(req, sourcePath, MAX_UPLOAD_BYTES, characterError('too_large_video').message);
+      } catch (error) {
+        if (error.status === 413) throw characterError('too_large_video');
+        if (error.status === 400) throw characterError('unsupported_video'); // an empty body
+        throw error;
+      }
+      const result = await processMotionUpload({ ffmpegPath, ffprobePath, sourcePath, workDir });
+      const filename = cleanFilename(url.searchParams.get('filename'), '');
+      const requested = (url.searchParams.get('name') || '').trim();
+      const id = crypto.randomUUID();
+      const item = {
+        id,
+        name: sanitizeName(requested || path.basename(filename, path.extname(filename))),
+        kind: 'motion',
+        mime: result.mime,
+        url: `/api/media/${id}`,
+        createdAt: new Date().toISOString(),
+        photoId,
+        source: { upload: { filename: filename || null, alpha: result.alpha, keyed: result.keyed, keyColor: result.keyColor, keyReason: result.keyReason } },
+        fit: result.fit,
+      };
+      const target = mediaPathForItem(item);
+      let committed = false;
+      try {
+        await enqueue(async () => {
+          // Photo deletions run in this queue too, so this check cannot go stale.
+          if (!characters.getPhoto(photoId)) throw characterError('photo_missing');
+          await fsp.rename(result.path, target);
+          await save({ ...library, motions: [...library.motions, item] });
+          committed = true;
+        });
+      } catch (error) {
+        if (!committed) await fsp.rm(target, { force: true }).catch(() => {});
+        throw error;
+      }
+      answer = { motion: item, keyed: result.keyed, keyReason: result.keyReason, character: characterView(characterId), ...listView() };
+    } finally {
+      // Before the answer, so a client never sees the work directory.
+      await fsp.rm(workDir, { recursive: true, force: true }).catch(() => {});
+    }
+    return sendJson(res, 201, answer);
+  }
+
+  // Returns true when the request was handled.
+  async function handleCharacters(req, res, url) {
+    const { pathname } = url;
+    const method = req.method;
+    if (pathname === '/api/active-photo' && method === 'PUT') {
+      requireJson(req);
+      const body = await readBody(req);
+      const photoId = body && typeof body === 'object' ? body.photoId : undefined;
+      if (photoId !== null && typeof photoId !== 'string') throw characterError('photo_missing', 400);
+      const { changed } = await characters.setActive(photoId);
+      if (changed) broadcastLibrary();
+      sendJson(res, 200, { activePhotoId: characters.activePhotoId, activeCharacterId: characters.activeCharacterId(), library: libraryView() });
+      return true;
+    }
+    if (pathname === '/api/characters') {
+      if (method === 'GET') {
+        sendJson(res, 200, listView());
+        return true;
+      }
+      if (method === 'POST') {
+        // Name and count are checked before the upload is read.
+        const name = checkName(url.searchParams.get('name') || '');
+        if (characters.characters.length >= MAX_CHARACTERS) throw characterError('too_many_characters');
+        const filename = url.searchParams.get('filename');
+        const { character } = await receivePhoto(req, tmpPath => characters.create(tmpPath, { name, filename }));
+        sendJson(res, 201, { character: characterView(character.id), ...listView() });
+        return true;
+      }
+      return false;
+    }
+    if (!pathname.startsWith('/api/characters/')) return false;
+    const parts = pathname.slice('/api/characters/'.length).split('/');
+    const id = characterIdFrom(parts[0]);
+    if (parts.length === 1 && method === 'PATCH') {
+      requireJson(req);
+      const body = await readBody(req);
+      if (!characters.getCharacter(id)) throw characterError('character_missing');
+      const character = await characters.rename(id, body && typeof body === 'object' ? body.name : undefined);
+      // The on-air character's name is in the view (character.name, the photo idle's name).
+      if (character.photos.some(photo => photo.id === characters.activePhotoId)) broadcastLibrary();
+      sendJson(res, 200, { character: characterView(id), ...listView() });
+      return true;
+    }
+    if (parts.length === 1 && method === 'DELETE') {
+      await removeWithMedia(beforeCommit => characters.remove(id, { beforeCommit }));
+      sendJson(res, 200, listView());
+      return true;
+    }
+    if (parts.length === 2 && parts[1] === 'base' && method === 'PUT') {
+      requireJson(req);
+      const body = await readBody(req);
+      const photoId = body && typeof body === 'object' && typeof body.photoId === 'string' ? body.photoId : '';
+      await characters.setBase(id, photoId);
+      sendJson(res, 200, { character: characterView(id), ...listView() });
+      return true;
+    }
+    if (parts.length === 2 && parts[1] === 'photos' && method === 'POST') {
+      const existing = characters.getCharacter(id);
+      if (!existing) throw characterError('character_missing');
+      if (existing.photos.length >= MAX_PHOTOS) throw characterError('too_many_photos');
+      const filename = url.searchParams.get('filename');
+      const added = await receivePhoto(req, tmpPath => characters.addPhoto(id, tmpPath, { filename }));
+      const character = characters.getCharacter(id) || added.character;
+      sendJson(res, 201, { photo: characters.photoView(added.photo, character, library), character: characterView(character), ...listView() });
+      return true;
+    }
+    if (parts.length === 3 && parts[1] === 'photos' && method === 'DELETE') {
+      const photoId = photoIdFrom(parts[2]);
+      await removeWithMedia(beforeCommit => characters.removePhoto(id, photoId, { beforeCommit }));
+      sendJson(res, 200, { character: characterView(id), ...listView() });
+      return true;
+    }
+    if (parts.length === 4 && parts[1] === 'photos' && parts[3] === 'motions' && method === 'POST') {
+      await uploadMotion(req, res, url, id, photoIdFrom(parts[2]));
+      return true;
+    }
+    return false;
+  }
 
   const server = http.createServer((req, res) => {
     (async () => {
@@ -301,7 +580,7 @@ async function createAppServer({
       const access = auth.gate(req, res, url);
       if (!access) return;
       if (await auth.handleApi(req, res, url, access)) return;
-      if (req.method === 'GET' && pathname === '/api/library') return sendJson(res, 200, library);
+      if (req.method === 'GET' && pathname === '/api/library') return sendJson(res, 200, libraryView());
       if (req.method === 'GET' && pathname === '/api/events') {
         res.writeHead(200, {
           'Content-Type': 'text/event-stream; charset=utf-8',
@@ -319,7 +598,7 @@ async function createAppServer({
         res.on('error', cleanup);
         clients.add(res);
         // One write, so the library and the OBS source size arrive together.
-        res.write(`data: ${JSON.stringify({ type: 'library', library })}\n\ndata: ${JSON.stringify(obsSourceMessage())}\n\n`);
+        res.write(`data: ${libraryMessage()}\n\ndata: ${JSON.stringify(obsSourceMessage())}\n\n`);
         return;
       }
       if (req.method === 'GET' && pathname === '/api/obs-source') return sendJson(res, 200, obsSource);
@@ -355,10 +634,20 @@ async function createAppServer({
           const item = { id, name: sanitizeName(path.basename(originalName, type.ext)), kind, mime: type.mime, url: `/api/media/${id}`, createdAt: new Date().toISOString(), fit };
           let priorIdle;
           await enqueue(async () => {
-            priorIdle = library.idle;
-            const next = kind === 'idle'
-              ? { ...library, idle: item }
-              : { ...library, motions: [...library.motions, item] };
+            // Goes to the photo on air when the upload is saved (none: the legacy idle / no-photo motions).
+            const active = characters.active();
+            const photoId = active ? active.photo.id : null;
+            let next;
+            if (kind === 'motion') {
+              item.photoId = photoId;
+              next = { ...library, motions: [...library.motions, item] };
+            } else if (photoId) {
+              priorIdle = library.idles[photoId] || null;
+              next = { ...library, idles: { ...library.idles, [photoId]: item } };
+            } else {
+              priorIdle = library.idle;
+              next = { ...library, idle: item };
+            }
             await save(next);
           });
           committed = true;
@@ -377,7 +666,8 @@ async function createAppServer({
         }
         const body = await readBody(req);
         if (!body || typeof body.id !== 'string') return sendJson(res, 400, { error: 'Motion id is required.' });
-        if (body.id !== 'demo' && !library.motions.some(item => item.id === body.id)) return sendJson(res, 404, { error: 'Motion not found.' });
+        // Only the motions the overlay can see: those of the on-air photo (or of no photo).
+        if (body.id !== 'demo' && !libraryView().motions.some(item => item.id === body.id)) return sendJson(res, 404, { error: 'Motion not found.' });
         const seq = ++sequence;
         broadcast({ type: 'play', id: body.id, seq });
         return sendJson(res, 200, { ok: true, seq });
@@ -394,13 +684,16 @@ async function createAppServer({
         return sendJson(res, 200, { ok: true, seq });
       }
       if (req.method === 'DELETE' && pathname.startsWith('/api/media/')) {
+        // Motions and idles only: photos are deleted through the character API.
         const id = pathname.slice('/api/media/'.length);
-        if (!/^[0-9a-f-]{36}$/.test(id)) return sendJson(res, 404, { error: 'Media not found.' });
+        if (!MEDIA_ID_RE.test(id)) return sendJson(res, 404, { error: 'Media not found.' });
         let removed;
         await enqueue(async () => {
-          removed = [library.idle, ...library.motions].find(item => item && item.id === id);
+          removed = findLibraryItem(id);
           if (!removed) return;
-          const next = { idle: library.idle?.id === id ? null : library.idle, motions: library.motions.filter(item => item.id !== id) };
+          // An idle uploaded for a photo: the photo shows its own image again.
+          const idles = Object.fromEntries(Object.entries(library.idles).filter(([, item]) => item.id !== id));
+          const next = { idle: library.idle?.id === id ? null : library.idle, motions: library.motions.filter(item => item.id !== id), idles };
           await save(next);
         });
         if (!removed) return sendJson(res, 404, { error: 'Media not found.' });
@@ -409,10 +702,14 @@ async function createAppServer({
       }
       if ((req.method === 'GET' || req.method === 'HEAD') && pathname.startsWith('/api/media/')) {
         const id = pathname.slice('/api/media/'.length);
-        const item = [library.idle, ...library.motions].find(value => value && value.id === id);
-        if (!item) return sendJson(res, 404, { error: 'Media not found.' });
-        return serveMedia(req, res, mediaPathForItem(item), item.mime);
+        const item = findLibraryItem(id);
+        if (item) return serveFile(req, res, mediaPathForItem(item), item.mime);
+        // A character photo (the on-air photo is the overlay's idle image).
+        const entry = characters.getPhoto(id);
+        if (entry) return serveFile(req, res, entry.path, entry.photo.mime);
+        return sendJson(res, 404, { error: 'Media not found.' });
       }
+      if (await handleCharacters(req, res, url)) return;
       if (await animate.handle(req, res, url)) return;
       if ((req.method === 'GET' || req.method === 'HEAD') && STATIC_FILES.has(pathname)) {
         const [filename, mime] = STATIC_FILES.get(pathname);
@@ -437,7 +734,7 @@ async function createAppServer({
   // listens, without delaying it. server.fitBackfill resolves when done.
   let closed = false;
   async function backfillFits() {
-    const pending = [library.idle, ...library.motions].filter(item => item && !('fit' in item));
+    const pending = [library.idle, ...Object.values(library.idles), ...library.motions].filter(item => item && !('fit' in item));
     if (!pending.length) return;
     const measured = new Map();
     for (const item of pending) {
@@ -455,7 +752,8 @@ async function createAppServer({
         changed = true;
         return { ...item, fit: measured.get(item.id) };
       };
-      const next = { ...library, idle: apply(library.idle), motions: library.motions.map(apply) };
+      const idles = Object.fromEntries(Object.entries(library.idles).map(([photoId, item]) => [photoId, apply(item)]));
+      const next = { ...library, idle: apply(library.idle), idles, motions: library.motions.map(apply) };
       if (changed && !closed) await save(next);
     });
   }
@@ -469,6 +767,7 @@ async function createAppServer({
   server.on('close', () => { closed = true; animate.close().catch(() => {}); });
   server.animate = animate;
   server.auth = auth;
+  server.characters = characters;
   return server;
 }
 

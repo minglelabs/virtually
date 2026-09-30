@@ -149,6 +149,15 @@ function upload(base, pathname, filePath, contentType = 'application/octet-strea
   return fetch(`${base}${pathname}`, { method: 'POST', headers: { 'Content-Type': contentType }, body: fsSync.readFileSync(filePath) });
 }
 
+// A character whose base photo is `filePath`; resolves the character view.
+async function createCharacter(base, filePath, name = '테스트 캐릭터', filename = 'c.png') {
+  const response = await fetch(`${base}/api/characters?name=${encodeURIComponent(name)}&filename=${encodeURIComponent(filename)}`, {
+    method: 'POST', body: fsSync.readFileSync(filePath),
+  });
+  assert.equal(response.status, 201);
+  return (await response.json()).character;
+}
+
 async function waitForJob(base, id, states, timeoutMs = 30000) {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
@@ -190,7 +199,7 @@ test('full flow: fetch examples -> character -> mock job -> result -> add as mot
   try {
     const status = await (await fetch(`${app.base}/api/animate/status`)).json();
     assert.equal(status.ffmpeg.available, true);
-    assert.equal(status.character, null);
+    assert.ok(!('character' in status), 'photos come from the character API now');
     const mockRoute = status.routes.find(route => route.id === 'mock/local-demo');
     assert.ok(mockRoute, 'mock route is listed');
     assert.equal(mockRoute.available, true);
@@ -212,24 +221,32 @@ test('full flow: fetch examples -> character -> mock job -> result -> add as mot
     assert.ok(drivings.every(item => item.kind === 'example' && item.available === false && item.url === null && item.posterUrl === null));
     assert.deepEqual(drivings[0].credit, { author: 'Fixture Author', license: 'Test License', licenseUrl: 'https://example.com/license', sourcePage: 'https://example.com/source' });
 
-    // No character yet.
+    // No photo yet.
     let response = await json(app.base, 'POST', '/api/animate/jobs', { drivingId: 'hi-wave', routeId: 'mock/local-demo' });
     assert.equal(response.status, 400);
-    assert.equal((await response.json()).code, 'character_missing');
+    assert.deepEqual(await response.json(), { error: '사진을 찾을 수 없습니다.', code: 'photo_missing' });
 
-    response = await upload(app.base, '/api/animate/character?name=my%20char.png', fixtures.character, 'image/png');
-    assert.equal(response.status, 201);
-    const character = await response.json();
-    assert.match(character.id, /^ch-[0-9a-f-]{36}$/);
-    assert.deepEqual(character, { source: 'upload', id: character.id, filename: 'my char.png', width: 64, height: 96, hasAlpha: true, url: `/api/animate/characters/${character.id}/image` });
-    response = await fetch(`${app.base}/api/animate/character/image`);
+    const character = await createCharacter(app.base, fixtures.character, '내 캐릭터', 'my char.png');
+    const photoId = character.basePhotoId;
+    assert.match(photoId, /^ph-[0-9a-f-]{36}$/);
+    response = await fetch(`${app.base}/api/media/${photoId}`);
     assert.equal(response.status, 200);
     assert.equal(response.headers.get('content-type'), 'image/png');
     assert.equal(response.headers.get('cache-control'), 'no-store');
     await response.arrayBuffer();
+    // The old character library routes are gone.
+    for (const [method, pathname] of [['GET', '/api/animate/characters'], ['POST', '/api/animate/character'], ['GET', '/api/animate/character/image']]) {
+      response = await fetch(`${app.base}${pathname}`, { method });
+      assert.equal(response.status, 404, `${method} ${pathname}`);
+      await response.arrayBuffer();
+    }
+    // On air, so the motion added below is in the overlay's library.
+    response = await json(app.base, 'PUT', '/api/active-photo', { photoId });
+    assert.equal(response.status, 200);
+    await response.arrayBuffer();
 
     // Examples are not downloaded yet.
-    response = await json(app.base, 'POST', '/api/animate/jobs', { drivingId: 'hi-wave', routeId: 'mock/local-demo' });
+    response = await json(app.base, 'POST', '/api/animate/jobs', { drivingId: 'hi-wave', routeId: 'mock/local-demo', photoId });
     assert.equal(response.status, 400);
     assert.equal((await response.json()).code, 'driving_unavailable');
 
@@ -278,12 +295,15 @@ test('full flow: fetch examples -> character -> mock job -> result -> add as mot
     assert.deepEqual(retried.results.map(result => result.id).sort(), ['bad-redirect', 'gone', 'not-video']);
 
     // Run the mock job.
-    response = await json(app.base, 'POST', '/api/animate/jobs', { drivingId: 'hi-wave', routeId: 'mock/local-demo' });
+    response = await json(app.base, 'POST', '/api/animate/jobs', { drivingId: 'hi-wave', routeId: 'mock/local-demo', photoId });
     assert.equal(response.status, 202);
     const created = (await response.json()).job;
     assert.equal(created.drivingId, 'hi-wave');
     assert.equal(created.presetKey, 'hi');
     assert.equal(created.routeLabel, '로컬 테스트 (AI 아님)');
+    assert.equal(created.photoId, photoId);
+    assert.equal(created.characterId, character.id);
+    assert.equal(created.characterLabel, '내 캐릭터');
     assert.equal(created.result, null);
     const done = await waitForJob(app.base, created.id, ['succeeded', 'failed']);
     assert.equal(done.state, 'succeeded', JSON.stringify(done.error));
@@ -310,7 +330,7 @@ test('full flow: fetch examples -> character -> mock job -> result -> add as mot
     assert.equal(done.result.height, 96);
     assert.ok(done.result.duration > 2.5 && done.result.duration < 3.5, `result duration ${done.result.duration}`);
     assert.deepEqual(Object.keys(done).sort(), ['characterId', 'characterLabel', 'createdAt', 'drivingId', 'drivingLabel', 'error', 'estimate', 'familyLabel', 'id', 'keyColor', 'margin', 'motionId',
-      'motionName', 'presetKey', 'progress', 'providerLabel', 'providerStatus', 'result', 'routeId', 'routeLabel', 'state', 'updatedAt']);
+      'motionName', 'photoId', 'presetKey', 'progress', 'providerLabel', 'providerStatus', 'result', 'routeId', 'routeLabel', 'state', 'updatedAt']);
 
     const list = (await (await fetch(`${app.base}/api/animate/jobs`)).json()).jobs;
     assert.equal(list[0].id, done.id);
@@ -348,6 +368,7 @@ test('full flow: fetch examples -> character -> mock job -> result -> add as mot
     assert.equal(added.keyed, true);
     assert.equal(added.keyReason, null);
     assert.equal(added.motion.url, `/api/media/${added.motion.id}`);
+    assert.equal(added.motion.photoId, photoId, 'the motion belongs to the job photo');
     assert.deepEqual(added.motion.source, { jobId: done.id });
     assert.deepEqual(added.motion.fit, fit, 'the motion carries the job fit');
     assert.equal(added.job.motionId, added.motion.id);
@@ -396,7 +417,7 @@ test('full flow: fetch examples -> character -> mock job -> result -> add as mot
   }
 });
 
-test('job validation, uploads, config, cancel and the idle fallback', { skip }, async () => {
+test('job validation, uploads, config, cancel, and no idle-image fallback', { skip }, async () => {
   const fixtures = await makeFixtures();
   const fixtureServer = await startFixtureServer(fixtures.clip);
   const manifestPath = await writeManifest(fixtures.dir, fixtureServer.base);
@@ -409,21 +430,12 @@ test('job validation, uploads, config, cancel and the idle fallback', { skip }, 
       assert.notEqual(staticResponse.status, 404, `${pathname} is routed`);
     }
 
-    // The library idle image stands in for a missing character.
+    // The library idle image no longer stands in for a photo: a job always names one.
     let response = await upload(app.base, '/api/upload?kind=idle&name=Idle%20pose.png', fixtures.character, 'image/png');
     assert.equal(response.status, 201);
     let status = await (await fetch(`${app.base}/api/animate/status`)).json();
-    assert.deepEqual(status.character, { source: 'idle', id: null, filename: 'Idle pose.png', width: 64, height: 96, hasAlpha: true, url: '/api/animate/character/image' });
-
-    // Character uploads are checked by signature.
-    response = await fetch(`${app.base}/api/animate/character?name=x.png`, { method: 'POST', body: Buffer.from('not an image at all') });
-    assert.equal(response.status, 415);
-    response = await upload(app.base, '/api/animate/character?name=c.png', fixtures.character);
-    assert.equal(response.status, 201);
-    assert.equal((await response.json()).source, 'upload');
-    response = await fetch(`${app.base}/api/animate/character`, { method: 'DELETE' });
-    assert.equal(response.status, 200);
-    assert.equal((await response.json()).character.source, 'idle');
+    assert.ok(!('character' in status));
+    const photoId = (await createCharacter(app.base, fixtures.character)).basePhotoId;
 
     // Driving uploads.
     response = await fetch(`${app.base}/api/animate/drivings?name=bad.mp4`, { method: 'POST', body: Buffer.from('garbage bytes that are no video') });
@@ -449,11 +461,16 @@ test('job validation, uploads, config, cancel and the idle fallback', { skip }, 
     assert.equal(drivings[0].id, 'hi-wave');
 
     // Job validation.
-    const post = body => json(app.base, 'POST', '/api/animate/jobs', body);
+    const post = body => json(app.base, 'POST', '/api/animate/jobs', { photoId, ...body });
     response = await fetch(`${app.base}/api/animate/jobs`, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: '{}' });
     assert.equal(response.status, 415);
     response = await post({ drivingId: mine.id, routeId: 'nope/nope' });
     assert.equal((await response.json()).code, 'unknown_route');
+    for (const bad of [undefined, null, 42, 'ph-00000000-0000-0000-0000-000000000000', '../index.json']) {
+      response = await post({ drivingId: mine.id, routeId: 'mock/local-demo', photoId: bad });
+      assert.equal(response.status, 400, String(bad));
+      assert.deepEqual(await response.json(), { error: '사진을 찾을 수 없습니다.', code: 'photo_missing' }, String(bad));
+    }
     const locked = status.routes.find(route => !route.available && route.unavailableCode === 'no_credentials');
     if (locked) {
       response = await post({ drivingId: mine.id, routeId: locked.id, confirmed: true });
@@ -536,7 +553,7 @@ test('job validation, uploads, config, cancel and the idle fallback', { skip }, 
   }
 });
 
-test('deleting an example hides it; restore brings it back unavailable', { skip }, async () => {
+test('deleting an example hides it; restore brings it back unavailable', { skip }, async t => {
   const fixtures = await makeFixtures();
   const fixtureServer = await startFixtureServer(fixtures.clip);
   const manifestPath = await writeManifest(fixtures.dir, fixtureServer.base);
@@ -546,14 +563,22 @@ test('deleting an example hides it; restore brings it back unavailable', { skip 
   const exampleFile = (id, ext) => path.join(drivingsDir, 'examples', `${id}.${ext}`);
   const list = async base => (await fetch(`${base}/api/animate/drivings`)).json();
   let app = await start(dataDir, manifestPath);
+  // The second half runs only when the first passed; whatever fails, the
+  // fixture server, the app and the temp dirs go (a listening fixture server
+  // would keep the test process alive).
+  t.after(async () => {
+    if (app.server.listening) await stop(app.server);
+    if (fixtureServer.server.listening) await new Promise(resolve => fixtureServer.server.close(resolve));
+    await cleanup(dataDir, fixtures.dir);
+  });
   try {
-    await upload(app.base, '/api/animate/character?name=c.png', fixtures.character);
+    const photoId = (await createCharacter(app.base, fixtures.character)).basePhotoId;
     await (await json(app.base, 'POST', '/api/animate/examples/fetch', {})).json();
     assert.ok(fsSync.existsSync(exampleFile('hi-wave', 'mp4')));
     assert.equal((await list(app.base)).hiddenExamples, 0);
 
     // A job made from the example before it is hidden.
-    let response = await json(app.base, 'POST', '/api/animate/jobs', { drivingId: 'hi-wave', routeId: 'mock/local-demo' });
+    let response = await json(app.base, 'POST', '/api/animate/jobs', { drivingId: 'hi-wave', routeId: 'mock/local-demo', photoId });
     const job = await waitForJob(app.base, (await response.json()).job.id, ['succeeded', 'failed']);
     assert.equal(job.state, 'succeeded', JSON.stringify(job.error));
     const mine = await (await upload(app.base, '/api/animate/drivings?name=mine.mp4', fixtures.clip)).json();
@@ -570,7 +595,7 @@ test('deleting an example hides it; restore brings it back unavailable', { skip 
     assert.deepEqual((await fs.readdir(drivingsDir)).filter(name => name.endsWith('.tmp')), [], 'no temp files left');
     response = await fetch(`${app.base}/api/animate/drivings/hi-wave/video`);
     assert.equal(response.status, 404);
-    response = await json(app.base, 'POST', '/api/animate/jobs', { drivingId: 'hi-wave', routeId: 'mock/local-demo' });
+    response = await json(app.base, 'POST', '/api/animate/jobs', { drivingId: 'hi-wave', routeId: 'mock/local-demo', photoId });
     assert.equal((await response.json()).code, 'driving_missing');
     response = await fetch(`${app.base}/api/animate/drivings/hi-wave`, { method: 'DELETE' });
     assert.equal(response.status, 404, 'an already hidden example is not found');
@@ -645,8 +670,6 @@ test('deleting an example hides it; restore brings it back unavailable', { skip 
     assert.equal(refetched.drivings.find(item => item.id === 'hi-wave').available, true);
   } finally {
     await stop(app.server);
-    await new Promise(resolve => fixtureServer.server.close(resolve));
-    await cleanup(dataDir, fixtures.dir);
   }
 });
 
@@ -658,9 +681,9 @@ test('jobs survive a restart: polling resumes, a mid-submit job becomes interrup
   let app = await start(dataDir, manifestPath);
   let job;
   try {
-    await upload(app.base, '/api/animate/character?name=c.png', fixtures.character);
+    const photoId = (await createCharacter(app.base, fixtures.character)).basePhotoId;
     const driving = await (await upload(app.base, '/api/animate/drivings?name=clip.mp4', fixtures.clip)).json();
-    const response = await json(app.base, 'POST', '/api/animate/jobs', { drivingId: driving.id, routeId: 'mock/local-demo', options: { delayMs: 1500 } });
+    const response = await json(app.base, 'POST', '/api/animate/jobs', { drivingId: driving.id, routeId: 'mock/local-demo', photoId, options: { delayMs: 1500 } });
     job = (await response.json()).job;
     await waitForJob(app.base, job.id, ['running']);
   } finally {
@@ -705,10 +728,10 @@ test('keying: resume after a restart, on-demand keying, and the non-green skip p
   let app = await start(dataDir, manifestPath);
   const ids = [];
   try {
-    await upload(app.base, '/api/animate/character?name=c.png', fixtures.character);
+    const photoId = (await createCharacter(app.base, fixtures.character)).basePhotoId;
     const driving = await (await upload(app.base, '/api/animate/drivings?name=clip.mp4', fixtures.clip)).json();
     for (let i = 0; i < 3; i += 1) {
-      const response = await json(app.base, 'POST', '/api/animate/jobs', { drivingId: driving.id, routeId: 'mock/local-demo' });
+      const response = await json(app.base, 'POST', '/api/animate/jobs', { drivingId: driving.id, routeId: 'mock/local-demo', photoId });
       const done = await waitForJob(app.base, (await response.json()).job.id, ['succeeded', 'failed']);
       assert.equal(done.state, 'succeeded', JSON.stringify(done.error));
       assert.ok(done.result.keyedUrl, 'keyed during the run');

@@ -35,7 +35,8 @@ test('media library, triggers, byte ranges, and persistence', async () => {
   const first = await start(dataDir);
   try {
     const initial = await (await fetch(`${first.base}/api/library`)).json();
-    assert.deepEqual(initial, { idle: null, motions: [] });
+    // No photo on air: the legacy view (no idle = demo avatar, the motions without a photo).
+    assert.deepEqual(initial, { idle: null, motions: [], character: null, photo: null });
 
     const demo = await fetch(`${first.base}/api/trigger`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: 'demo' }),
@@ -199,6 +200,27 @@ test('library media extensions come from one helper', () => {
   assert.equal(extForMime('video/mp4'), '.mp4');
   assert.equal(extForMime('image/png'), '.png');
   assert.equal(extForMime('image/webp'), '.webp');
+});
+
+test('pages: / is the character list, /broadcast the controller', async () => {
+  const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'virtually-pages-'));
+  const { server, base } = await start(dataDir);
+  const publicFile = name => fs.readFile(path.join(__dirname, '..', 'public', name));
+  try {
+    for (const [pathname, file, type] of [
+      ['/', 'characters.html', 'text/html'], ['/broadcast', 'index.html', 'text/html'],
+      ['/characters.js', 'characters.js', 'text/javascript'], ['/characters.css', 'characters.css', 'text/css'],
+    ]) {
+      const response = await fetch(`${base}${pathname}`);
+      assert.equal(response.status, 200, pathname);
+      assert.match(response.headers.get('content-type'), new RegExp(`^${type}`), pathname);
+      assert.deepEqual(Buffer.from(await response.arrayBuffer()), await publicFile(file), pathname);
+      assert.equal((await fetch(`${base}${pathname}`, { method: 'HEAD' })).status, 200, `HEAD ${pathname}`);
+    }
+  } finally {
+    await stop(server);
+    await fs.rm(dataDir, { recursive: true, force: true });
+  }
 });
 
 test('an mp4 library motion is served, and deleting it removes the .mp4 file', async () => {

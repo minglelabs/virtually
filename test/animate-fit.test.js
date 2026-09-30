@@ -186,17 +186,18 @@ test('job margin option: validation, padded reference, job view, lazy fit after 
   let app = await start(dataDir);
   let jobId;
   try {
-    let response = await fetch(`${app.base}/api/animate/characters?name=c.png`, { method: 'POST', body: fsSync.readFileSync(character) });
+    let response = await fetch(`${app.base}/api/characters?name=${encodeURIComponent('캐릭터')}&filename=c.png`, { method: 'POST', body: fsSync.readFileSync(character) });
     assert.equal(response.status, 201);
+    const photoId = (await response.json()).character.basePhotoId;
     response = await fetch(`${app.base}/api/animate/drivings?name=clip.mp4`, { method: 'POST', body: fsSync.readFileSync(clip) });
     assert.equal(response.status, 201);
     const driving = await response.json();
 
-    response = await post(app.base, '/api/animate/jobs', { drivingId: driving.id, routeId: 'mock/local-demo', margin: 'huge' });
+    response = await post(app.base, '/api/animate/jobs', { drivingId: driving.id, routeId: 'mock/local-demo', photoId, margin: 'huge' });
     assert.equal(response.status, 400);
     assert.equal((await response.json()).code, 'bad_margin');
 
-    response = await post(app.base, '/api/animate/jobs', { drivingId: driving.id, routeId: 'mock/local-demo', margin: 'normal' });
+    response = await post(app.base, '/api/animate/jobs', { drivingId: driving.id, routeId: 'mock/local-demo', photoId, margin: 'normal' });
     assert.equal(response.status, 202);
     const created = (await response.json()).job;
     assert.equal(created.margin, 'normal');
@@ -246,9 +247,14 @@ test('library: uploads store fit, startup backfill fills missing fits and leaves
   ffmpeg(['-f', 'lavfi', '-i', "nullsrc=s=64x96,format=rgba,geq=r=255:g=0:b=0:a='255*between(X\\,16\\,47)*between(Y\\,24\\,71)'",
     '-frames:v', '1', path.join(mediaDir, `${idleId}.png`)]);
   const record = (id, name, mime) => ({ id, name, kind: 'motion', mime, url: `/api/media/${id}`, createdAt: new Date().toISOString() });
+  // An idle uploaded for one character photo (library.json `idles`) is measured too.
+  const photoIdleId = '44444444-4444-4444-8444-444444444444';
+  const photoId = 'ph-55555555-5555-4555-8555-555555555555';
+  await fs.copyFile(path.join(mediaDir, `${idleId}.png`), path.join(mediaDir, `${photoIdleId}.png`));
   await fs.writeFile(path.join(dataDir, 'library.json'), JSON.stringify({
     idle: { ...record(idleId, 'idle', 'image/png'), kind: 'idle' },
     motions: [record(missingId, 'old motion', 'video/webm'), { ...record(nullId, 'measured', 'video/webm'), fit: null }],
+    idles: { [photoId]: { ...record(photoIdleId, 'photo idle', 'image/png'), kind: 'idle' } },
   }));
   const server = await createAppServer({ dataDir, examplesManifestPath: path.join(dir, 'no-examples.json') });
   // Backfill runs after listen and must not hold it up.
@@ -264,6 +270,7 @@ test('library: uploads store fit, startup backfill fills missing fits and leaves
     assert.deepEqual(library.idle.fit.first, expected);
     const persisted = JSON.parse(await fs.readFile(path.join(dataDir, 'library.json'), 'utf8'));
     assert.deepEqual(persisted.motions[0].fit, library.motions[0].fit);
+    assert.deepEqual(persisted.idles[photoId].fit.first, expected, 'a per-photo idle is backfilled too');
 
     // Uploads: a transparent WebM motion and a PNG idle get a fit.
     let response = await fetch(`${base}/api/upload?kind=motion&name=new&filename=new.webm`, {
