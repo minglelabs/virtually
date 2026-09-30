@@ -444,8 +444,16 @@ test('job validation, uploads, config, cancel and the idle fallback', { skip }, 
     response = await post({ drivingId: mine.id, routeId: paidRoute.id });
     assert.equal(response.status, 400);
     assert.equal((await response.json()).code, 'not_confirmed');
-    response = await post({ drivingId: short.id, routeId: paidRoute.id, confirmed: true });
-    assert.equal((await response.json()).code, 'driving_too_short');
+    // WaveSpeed Wan has no input minimum (3 s is billing only): the 2 s clip passes the length
+    // check and stops at the confirmation. Kling documents 3-30 s and refuses it.
+    response = await post({ drivingId: short.id, routeId: paidRoute.id });
+    assert.equal((await response.json()).code, 'not_confirmed');
+    const klingRoute = configured.routes.find(route => route.id === 'wavespeed/kling-v3-motion-control-std');
+    assert.equal(klingRoute.available, true);
+    response = await post({ drivingId: short.id, routeId: klingRoute.id, confirmed: true });
+    const klingShort = await response.json();
+    assert.equal(klingShort.code, 'driving_too_short');
+    assert.equal(klingShort.detail.minSec, 3);
     response = await json(app.base, 'PUT', '/api/animate/config', { providers: { wavespeed: { apiKey: '' } } });
     assert.equal(response.status, 200);
     assert.equal((await (await fetch(`${app.base}/api/animate/jobs`)).json()).jobs.length, 0, 'no job was created for a paid route');
