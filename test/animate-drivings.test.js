@@ -408,13 +408,21 @@ test('fetch-examples skips bundled examples', async () => {
   }
 });
 
-test('the manifest lists the committed demo idle clip first', async () => {
+test('the manifest lists the human idle loops first, then the committed demo idle clip', async () => {
   const { value: examples, warnings } = await captureWarnings(() => loadManifest(path.join(ROOT, 'examples', 'driving.json')));
   assert.deepEqual(warnings, [], 'every manifest entry is valid');
-  assert.equal(examples[0].id, 'demo-idle');
-  assert.equal(examples[0].file, 'demo-idle.mp4');
-  assert.equal(examples[0].presetKey, null);
-  assert.deepEqual(examples[0].credit, { author: 'Virtually', license: null, licenseUrl: null, sourcePage: null });
+  assert.deepEqual(examples.slice(0, 3).map(item => item.id), ['human-idle-neutral', 'human-idle-smile', 'demo-idle']);
+  for (const human of examples.slice(0, 2)) {
+    assert.equal(human.file, null, `${human.id} is downloaded, not bundled`);
+    assert.match(human.downloadUrl, /^https:\/\/videos\.pexels\.com\/video-files\//);
+    assert.equal(human.presetKey, null);
+    assert.equal(human.credit.license, 'Pexels License');
+    assert.ok(human.trim.duration >= 4 && human.trim.duration <= 6, `${human.id}: ${human.trim.duration} s loop`);
+  }
+  const demo = examples[2];
+  assert.equal(demo.file, 'demo-idle.mp4');
+  assert.equal(demo.presetKey, null);
+  assert.deepEqual(demo.credit, { author: 'Virtually', license: null, licenseUrl: null, sourcePage: null });
   for (const name of ['demo-idle.mp4', 'demo-idle.jpg']) {
     const stat = await fs.stat(path.join(ROOT, 'assets', 'drivings', name));
     assert.ok(stat.size > 0 && stat.size < 1024 * 1024, `${name}: ${stat.size} bytes`);
