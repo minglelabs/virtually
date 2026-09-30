@@ -6,6 +6,7 @@
   <title>Virtually 컨트롤러</title>
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="./app.css">
+  <link rel="stylesheet" href="./auth.css">
 </head>
 <body>
   <main class="layout">
@@ -13,6 +14,7 @@
     <section class="pane pane-control" aria-labelledby="controlTitle">
       <div class="brand-row">
         <h1 class="brand">Virtually</h1>
+        <div id="authSlot" class="auth-slot" hidden></div>
       </div>
       <h2 id="controlTitle" class="pane-title">컨트롤러</h2>
 
@@ -23,6 +25,14 @@
             <label for="overlayUrlInput" class="visually-hidden">OBS 오버레이 URL</label>
             <input type="text" id="overlayUrlInput" readonly>
             <button type="button" id="copyUrlBtn" class="btn">URL 복사</button>
+          </div>
+          <!-- Login on only (app.js): the URL above carries the overlay key. -->
+          <div id="overlayKeyBox" class="overlay-key" hidden>
+            <p class="overlay-key-note">로그인이 켜져 있어 이 주소에 비밀 키가 들어 있습니다. 방송 화면이나 다른 사람에게 보이지 않게 해 주세요.</p>
+            <div class="overlay-key-actions">
+              <button type="button" id="rotateKeyBtn" class="btn btn-ghost">주소 새로 만들기</button>
+              <p id="overlayKeyStatus" class="overlay-key-status" aria-live="polite"></p>
+            </div>
           </div>
 
           <h3>연결 순서</h3>
@@ -90,6 +100,7 @@
       </div>
     </section>
   </main>
+  <script src="./auth.js"></script>
   <script src="./motions.js"></script>
   <script src="./app.js"></script>
 </body>

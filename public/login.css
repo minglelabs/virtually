@@ -1,0 +1,153 @@
+/* Login page. Same palette and font as the controller (app.css is not loaded here). */
+:root {
+  --bg: #0f1115;
+  --panel: #171a21;
+  --border: #2a2f3a;
+  --text: #e6e8ee;
+  --muted: #9aa3b2;
+  --accent: #6c8cff;
+  --danger: #ff8a8a;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+[hidden] { display: none !important; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.5 system-ui, -apple-system, "Apple SD Gothic Neo", sans-serif;
+}
+
+/* One centered card; the page scrolls when the viewport is shorter than the card. */
+.login-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: 24px 16px;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 400px;
+  padding: 32px 28px 28px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.login-header { text-align: center; }
+/* Matches the controller's "Virtually" brand. */
+.brand { margin: 0; font-size: 20px; font-weight: 700; line-height: 30px; }
+.subtitle { margin: 2px 0 0; font-size: 13px; color: var(--muted); }
+.login-title {
+  margin: 28px 0 16px;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 28px;
+  text-align: center;
+}
+
+/*
+ * "Sign in with Google" button, dark theme (Google Identity branding guidelines):
+ * #131314 fill, 1px #8E918F stroke, #E3E3E3 text in Roboto Medium 14/20, 40px tall,
+ * pill shape, 18px four-colour "G", 12px side padding and a 10px gap to the label.
+ * The ::before layer is the white state overlay (8% hover, 12% focus/pressed).
+ */
+.gsi-button {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  height: 40px;
+  padding: 0 12px;
+  overflow: hidden;
+  background: #131314;
+  border: 1px solid #8E918F;
+  border-radius: 20px;
+  color: #E3E3E3;
+  font-family: Roboto, system-ui, -apple-system, "Apple SD Gothic Neo", sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  letter-spacing: 0.25px;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: box-shadow 0.218s;
+}
+.gsi-button::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: #fff;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.218s;
+}
+/* Keep the logo and label above the state overlay. */
+.gsi-button > * { position: relative; }
+.gsi-button:hover { box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.3), 0 1px 3px 1px rgba(0, 0, 0, 0.15); }
+.gsi-button:hover::before { opacity: 0.08; }
+.gsi-button:focus-visible::before, .gsi-button:active::before { opacity: 0.12; }
+.gsi-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.gsi-icon { flex: none; display: block; width: 18px; height: 18px; }
+.gsi-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+/* Messages (role="alert"): one boxed line each, errors in red. Kept rendered while
+   empty (no height) so screen readers announce the first message. */
+.login-message:empty { margin-top: 0; }
+.login-message { margin-top: 16px; display: flex; flex-direction: column; gap: 8px; }
+.login-message p {
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+.login-message p[data-kind="error"] { color: var(--danger); border-color: rgba(255, 138, 138, 0.4); }
+
+/* Shown instead of the Google button while login is off. */
+.login-link {
+  display: block;
+  margin-top: 16px;
+  padding: 9px 12px;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  text-align: center;
+  text-decoration: none;
+  font-weight: 600;
+}
+.login-link:hover { filter: brightness(1.08); }
+.login-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Setup hint: config file path and redirect URI. */
+.login-help {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--muted);
+}
+.login-help p { margin: 0; }
+.login-help p + p { margin-top: 6px; }
+.login-help code {
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 400px) {
+  .login-card { padding: 28px 20px 24px; }
+}

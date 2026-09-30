@@ -6,12 +6,14 @@
   <title>동작 만들기 · Virtually</title>
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="./animate.css">
+  <link rel="stylesheet" href="./auth.css">
 </head>
 <body>
   <main class="page">
     <header class="page-header">
       <a href="./" class="back-link">← 메인으로</a>
       <h1>동작 만들기</h1>
+      <div id="authSlot" class="auth-slot" hidden></div>
     </header>
 
     <p id="globalStatus" class="bar bar-warn" role="alert" hidden></p>
@@ -113,6 +115,7 @@
     </form>
   </dialog>
 
+  <script src="./auth.js"></script>
   <script src="./motions.js"></script>
   <script src="./animate.js"></script>
 </body>

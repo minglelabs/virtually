@@ -17,7 +17,7 @@ By default, the server attempts to bind to port 8787 (or the port set by `PORT`)
 - Controller: `http://127.0.0.1:8787/` (or rotated port)
 - OBS overlay: `http://127.0.0.1:8787/overlay` (or rotated port)
 
-Open the printed controller URL in your browser. It works before you add any files: every button falls back to an original illustrated demo avatar. Clips and the library index live in `data/`, which Git ignores. The server binds to `127.0.0.1` by default; it has no authentication and is intended for local use.
+Open the printed controller URL in your browser. It works before you add any files: every button falls back to an original illustrated demo avatar. Clips and the library index live in `data/`, which Git ignores. The server binds to `127.0.0.1` by default and is intended for local use; it has no authentication unless you turn on [Google login](#google-login-optional).
 
 ## Motion buttons
 
@@ -50,9 +50,67 @@ The **+ 동작 추가하러 가기** button stays visible at the bottom of the l
 
 Motions can be transparent WebM clips (uploaded through the API) or MP4 results added from the 동작 만들기 page. The name decides the link: a motion named `wink` or `윙크` becomes the video of the **윙크** button, and any other name becomes a new button with that name.
 
+## Google login (optional)
+
+Login is off by default. It turns on when `data/auth/config.json` exists; from then on the controller, the 동작 만들기 page and the API need a Google account from your allowlist (open `http://127.0.0.1:8787/login`, or any page, to log in). The server re-reads the file when it changes (at most once a second), so no restart is needed; delete the file to turn login off again. A file that is present but unusable (broken JSON, a missing field) keeps everything locked until it is fixed: every page leads to `/login`, which names the problem. The server's startup output also says whether login is on.
+
+### Create the Google OAuth client
+
+In the [Google Cloud Console](https://console.cloud.google.com/), select or create a project and open **Google Auth Platform**:
+
+1. **Branding**: enter an app name and a user support email.
+2. **Audience**: choose user type **External**, keep the publishing status **Testing**, and add every account that should be able to log in under **Test users**.
+3. **Clients** → **Create client** → application type **Web application**. Add these **Authorized redirect URIs**:
+   - `http://127.0.0.1:8787/auth/google/callback`
+   - `http://localhost:8787/auth/google/callback`
+   - `<publicUrl>/auth/google/callback`, when you use `publicUrl` (see [Remote use](#remote-use))
+
+   Use the port your server actually runs on. While login is off, `/login` shows the redirect URI for the address you opened it with.
+4. Copy the client ID and the client secret. The secret is shown only once, when the client is created, so download the JSON then.
+
+Virtually asks only for `openid email profile`, so no extra scopes are needed.
+
+### config.json
+
+```json
+{
+  "google": { "clientId": "1234567890-abc.apps.googleusercontent.com", "clientSecret": "GOCSPX-..." },
+  "allowedEmails": ["you@gmail.com", "@example.com"],
+  "publicUrl": "https://virtually.example.com"
+}
+```
+
+- `google.clientId`, `google.clientSecret` (required): from the client above.
+- `allowedEmails` (required, at least one entry): the accounts that may log in, compared case-insensitively. An entry that starts with `@`, such as `@example.com`, allows every address at that domain. Google must report the address as verified. The list is checked on every request, so removing an address logs that account out at once.
+- `publicUrl` (optional): the origin the server is reached at from other machines, such as `https://virtually.example.com` — no path, query or hash (a trailing `/` is fine). Leave it out for local use.
+
+The server never writes this file. Every allowed account shares one library and one 동작 만들기 setup: anyone on the list can trigger and delete motions and start paid generations with the saved API keys. There are no per-user libraries or roles.
+
+### What login protects
+
+- **Public**: `/login`, the sign-in routes under `/auth/google/`, `POST /auth/logout`, `GET /api/auth/status` and the static `.css`/`.js` files (the source is public anyway).
+- **Login or overlay key**: `/overlay` and the calls it makes — `GET /api/library`, `GET /api/events`, media files (`/api/media/<id>`) and `GET`/`POST /api/obs-source` (the overlay reports its size).
+- **Login**: everything else — the controller, the 동작 만들기 page and every other API call (triggers, uploads, deletes, `/api/animate/*`). A page opened without a login goes to `/login` and comes back afterwards; an API call gets `401` with the header `X-Virtually-Auth: required`.
+
+A login lasts 30 days and is extended while you use it. **로그아웃**, next to your name on the controller and the 동작 만들기 page, ends it in that browser.
+
+### OBS with login on
+
+OBS cannot log in to Google, so the overlay URL carries a secret key instead. With login on, the controller's **OBS에 연동하기!** section shows the overlay URL with its key (`http://127.0.0.1:8787/overlay?key=...`); copy that URL into the OBS Browser Source (without the key, OBS shows only a one-line notice). Anyone with the URL can watch the overlay — not trigger motions or open the controller — so keep it off stream and do not share it.
+
+**주소 새로 만들기** replaces the key after a confirmation. The old URL stops working at once (a running OBS source stops following the controller), so paste the new URL into the OBS source. The key is kept in `data/auth/state.json` and survives restarts. The controller's own preview needs no key; it uses your login.
+
+### Remote use
+
+Google accepts plain `http` redirect URIs only for `localhost` and loopback addresses such as `127.0.0.1`, so using Virtually from another machine needs HTTPS. Put an HTTPS reverse proxy or tunnel in front of the server that forwards to `127.0.0.1:8787` and passes the original `Host` header through, set `publicUrl` to its origin (for example `https://virtually.example.com`), and add `<publicUrl>/auth/google/callback` to the client's redirect URIs. For requests that arrive with that host, the server accepts the host, sends that redirect URI to Google and marks its cookies `Secure`. Never expose the server with login off: anyone who can reach it controls Virtually.
+
+### Secrets
+
+`data/auth/` holds secrets: the client secret in `config.json`, and the keys that sign logins and the overlay key in `state.json` (created by the server with file mode 0600). `data/` is ignored by Git — never commit it or copy it into the repository, which is public. Deleting `state.json` and restarting the server logs everyone out and replaces the overlay URL.
+
 ## Set up OBS
 
-The controller's collapsible **OBS에 연동하기!** section (closed by default; click it to open) shows a short version of this guide with the actual overlay URL and a copy button.
+The controller's collapsible **OBS에 연동하기!** section (closed by default; click it to open) shows a short version of this guide with the actual overlay URL and a copy button. With [Google login](#google-login-optional) on, that URL includes the overlay key.
 
 1. In the **Sources** dock, click **+** (Add Source).
 2. Under Source Type, choose **Browser**.
@@ -64,7 +122,7 @@ The controller's collapsible **OBS에 연동하기!** section (closed by default
 Recommended properties, in OBS order:
 
 - **Local file**: off.
-- **URL**: the overlay URL printed by the server (default `http://127.0.0.1:8787/overlay`).
+- **URL**: the overlay URL printed by the server (default `http://127.0.0.1:8787/overlay`). With Google login on, copy the URL with its key from the controller instead (see [OBS with login on](#obs-with-login-on)).
 - **Width** / **Height**: the same as your OBS canvas (**Settings → Video → Base (Canvas) Resolution**; the source defaults to 800 / 600). The overlay reports this size to the controller, whose 캔버스 preview then shows the same size (800 × 600, the OBS default, until the first report).
 - **Control audio via OBS**: off — motion clips have no audio.
 - **Use custom frame rate**: off — follow the OBS output frame rate.
@@ -206,6 +264,6 @@ The second command should show `TAG:alpha_mode=1`. We verified this encoding pat
 
 ## Scope and limitations
 
-The PoC uses a local HTTP server and server-sent events to synchronize the controller, preview, and OBS Browser Source. It supports a single local library and does not include accounts, remote viewer triggers, live AI generation, background removal, or a broadcasting platform. Browser playback and the transparent page background were tested locally; OBS scene rendering and long-running performance with many clips still need live validation.
+The PoC uses a local HTTP server and server-sent events to synchronize the controller, preview, and OBS Browser Source. It supports a single library; the optional Google login only admits allowlisted accounts, which all share it (no per-user libraries or roles). It does not include remote viewer triggers, live AI generation, background removal, or a broadcasting platform. Browser playback and the transparent page background were tested locally; OBS scene rendering and long-running performance with many clips still need live validation.
 
-Run `pnpm test` for API, media-range, persistence, port rotation, and event-stream checks. The animate tests use the mock route, local fixture servers and ffmpeg-generated clips; they never call a provider.
+Run `pnpm test` for API, login, media-range, persistence, port rotation, and event-stream checks. The animate tests use the mock route, local fixture servers and ffmpeg-generated clips; they never call a provider. The login tests use a local fake Google; they never call Google.

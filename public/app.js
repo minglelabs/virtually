@@ -18,8 +18,11 @@
   const idleBtn = document.getElementById('idleBtn');
 
   const overlayUrl = new URL('/overlay', window.location.origin).href;
-  urlInput.value = overlayUrl;
-  settingUrl.textContent = overlayUrl;
+  function showOverlayUrl(url) {
+    urlInput.value = url;
+    settingUrl.textContent = url;
+  }
+  showOverlayUrl(overlayUrl);
 
   copyBtn.addEventListener('click', async () => {
     try {
@@ -31,6 +34,52 @@
     }
     copyBtn.textContent = '복사됨';
     setTimeout(() => { copyBtn.textContent = 'URL 복사'; }, 1500);
+  });
+
+  // ---- Google login (auth.js): the OBS URL carries the overlay key ----
+  // Without auth.js, or when /api/auth/me fails or login is off, the plain URL stays.
+  // The preview iframe and the new-window link keep ./overlay (the session covers them).
+  const auth = window.VirtuallyAuth || null;
+  const overlayKeyBox = document.getElementById('overlayKeyBox');
+  const rotateKeyBtn = document.getElementById('rotateKeyBtn');
+  const overlayKeyStatus = document.getElementById('overlayKeyStatus');
+  const ROTATE_CONFIRM = '새 주소를 만들면 지금 OBS에 넣은 주소는 바로 멈춥니다. OBS 브라우저 소스의 URL도 새 주소로 바꿔야 합니다. 계속할까요?';
+  const ROTATED = '새 주소를 만들었습니다. OBS 브라우저 소스의 URL을 바꿔 주세요.';
+
+  function setKeyStatus(text, kind) {
+    overlayKeyStatus.textContent = text;
+    if (kind) overlayKeyStatus.dataset.kind = kind;
+    else delete overlayKeyStatus.dataset.kind;
+  }
+
+  function showOverlayKey(overlayKey) {
+    if (typeof overlayKey === 'string' && overlayKey && typeof auth.overlayUrlFor === 'function') {
+      showOverlayUrl(auth.overlayUrlFor(window.location.origin, overlayKey));
+    }
+  }
+
+  if (auth && auth.ready && typeof auth.ready.then === 'function') {
+    auth.ready.then((me) => {
+      if (!me || me.enabled !== true) return;
+      showOverlayKey(me.overlayKey);
+      overlayKeyBox.hidden = false;
+    }).catch(() => {});
+  }
+
+  rotateKeyBtn.addEventListener('click', async () => {
+    if (!auth || typeof auth.rotateOverlayKey !== 'function') return;
+    if (!window.confirm(ROTATE_CONFIRM)) return;
+    rotateKeyBtn.disabled = true;
+    setKeyStatus('');
+    try {
+      const { overlayKey } = await auth.rotateOverlayKey();
+      showOverlayKey(overlayKey);
+      setKeyStatus(ROTATED, 'success');
+    } catch (error) {
+      setKeyStatus(error.message, 'error');
+    } finally {
+      rotateKeyBtn.disabled = false;
+    }
   });
 
   // ---- True-scale canvas preview ----
@@ -234,6 +283,9 @@
   });
   events.addEventListener('error', () => {
     setStatus('서버 연결이 끊겼습니다. 다시 연결하는 중입니다.', 'connection');
+    // A refused stream (for example after the login ended) is not retried by the
+    // browser: ask the server once, so auth.js can send the browser to /login.
+    if (events.readyState === EventSource.CLOSED) fetch('/api/auth/me', { cache: 'no-store' }).catch(() => {});
   });
   events.addEventListener('message', (event) => {
     let data;

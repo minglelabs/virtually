@@ -9,6 +9,7 @@ const { once } = require('node:events');
 
 const { createAnimateApi } = require('./lib/animate/api');
 const { measureFit } = require('./lib/animate/fit');
+const { createAuth } = require('./lib/auth');
 
 const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -24,7 +25,18 @@ const STATIC_FILES = new Map([
   ['/motions.js', ['motions.js', 'text/javascript; charset=utf-8']],
   ['/overlay.css', ['overlay.css', 'text/css; charset=utf-8']],
   ['/overlay.js', ['overlay.js', 'text/javascript; charset=utf-8']],
+  ['/login', ['login.html', 'text/html; charset=utf-8']],
+  ['/login.css', ['login.css', 'text/css; charset=utf-8']],
+  ['/login.js', ['login.js', 'text/javascript; charset=utf-8']],
+  ['/auth.css', ['auth.css', 'text/css; charset=utf-8']],
+  ['/auth.js', ['auth.js', 'text/javascript; charset=utf-8']],
 ]);
+
+// With login on, anyone may load the non-HTML static files (the repo is public anyway).
+function isPublicStatic(pathname) {
+  const entry = STATIC_FILES.get(pathname);
+  return !!entry && !entry[1].startsWith('text/html');
+}
 
 // The one place a library item's file extension comes from (serve, delete and
 // idle replacement all use it).
@@ -179,6 +191,9 @@ async function createAppServer({
   examplesManifestPath = EXAMPLES_MANIFEST,
   // Test-only: lets example downloads use plain http fixture servers.
   allowHttpExamples = false,
+  // Google login (off unless <dataDir>/auth/config.json exists). Tests inject
+  // { endpoints: { authorize, token, jwks }, now: () => ms, configCheckIntervalMs, log }.
+  auth: authOptions = {},
 } = {}) {
   const mediaDir = path.join(dataDir, 'media');
   const manifestPath = path.join(dataDir, 'library.json');
@@ -249,6 +264,9 @@ async function createAppServer({
     broadcast(obsSourceMessage());
   }
 
+  // Before the animate API, so a failing auth setup cannot leave its jobs running.
+  const auth = await createAuth({ ...authOptions, dataDir, sendJson, readBody, isPublicStatic });
+
   const animate = await createAnimateApi({
     dataDir, mediaDir, ffmpegPath, ffprobePath, mock: animateMock, pollIntervalMs: animatePollIntervalMs,
     examplesManifestPath, allowHttpExamples,
@@ -260,19 +278,29 @@ async function createAppServer({
     (async () => {
       const url = new URL(req.url, 'http://localhost');
       const pathname = url.pathname;
+      // Picks up config.json edits (checked at most once per configCheckIntervalMs).
+      await auth.refresh();
       const listeningAddress = server.address();
       if (listeningAddress && ['127.0.0.1', '::1'].includes(listeningAddress.address)) {
         const allowedHosts = new Set([`127.0.0.1:${listeningAddress.port}`, `localhost:${listeningAddress.port}`, `[::1]:${listeningAddress.port}`]);
+        // A reverse proxy / tunnel forwarding publicUrl's Host to this loopback server.
+        const publicHost = auth.publicHost();
+        if (publicHost) allowedHosts.add(publicHost);
         if (!allowedHosts.has(String(req.headers.host || '').toLowerCase())) {
           return sendJson(res, 403, { error: 'Invalid host.' });
         }
       }
-      if (!['GET', 'HEAD'].includes(req.method) && req.headers.origin && req.headers.origin !== `http://${req.headers.host}`) {
+      if (!['GET', 'HEAD'].includes(req.method) && req.headers.origin && req.headers.origin !== `http://${req.headers.host}` && !auth.isPublicOrigin(req)) {
         return sendJson(res, 403, { error: 'Cross-origin changes are not allowed.' });
       }
       if (!['GET', 'HEAD'].includes(req.method) && req.headers['sec-fetch-site'] && !['same-origin', 'none'].includes(req.headers['sec-fetch-site'])) {
         return sendJson(res, 403, { error: 'Cross-site changes are not allowed.' });
       }
+      // Login routes, then the access gate (sends the refusal itself), then the app.
+      if (await auth.handleRoute(req, res, url)) return;
+      const access = auth.gate(req, res, url);
+      if (!access) return;
+      if (await auth.handleApi(req, res, url, access)) return;
       if (req.method === 'GET' && pathname === '/api/library') return sendJson(res, 200, library);
       if (req.method === 'GET' && pathname === '/api/events') {
         res.writeHead(200, {
@@ -440,6 +468,7 @@ async function createAppServer({
   // Stop running jobs and downloads with the server (tests must not leak).
   server.on('close', () => { closed = true; animate.close().catch(() => {}); });
   server.animate = animate;
+  server.auth = auth;
   return server;
 }
 
@@ -463,6 +492,11 @@ function listenOnce(server, host, port) {
       reject(error);
     }
   });
+}
+
+function isLoopbackHost(host) {
+  const value = String(host).toLowerCase().replace(/^\[|\]$/g, '');
+  return value === 'localhost' || value === '::1' || /^127(?:\.\d{1,3}){3}$/.test(value);
 }
 
 async function listenWithPortRotation(server, { host = '127.0.0.1', startPort = 8787, maxAttempts = 100 } = {}) {
@@ -491,7 +525,17 @@ if (require.main === module) {
     const displayHost = host.includes(':') ? `[${host}]` : host;
     if (port !== startPort) console.log(`Port ${startPort} is in use; using ${port}.`);
     console.log(`Virtually controller: http://${displayHost}:${port}/`);
-    console.log(`OBS Browser Source: http://${displayHost}:${port}/overlay`);
+    const login = server.auth.summary();
+    if (login.mode === 'disabled') {
+      console.log(`OBS Browser Source: http://${displayHost}:${port}/overlay`);
+      if (!isLoopbackHost(host)) {
+        console.warn(`Warning: HOST=${host} is not a loopback address and Google login is off, so anyone who can reach this address controls Virtually. Add data/auth/config.json to require Google login.`);
+      }
+    } else {
+      // "Google login: on (N allowed entries)" or the config problem line.
+      console.log(login.text);
+      console.log('OBS Browser Source: copy the keyed URL from the controller');
+    }
   }).catch(error => { console.error(error); process.exitCode = 1; });
 }
 
