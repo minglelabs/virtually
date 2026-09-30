@@ -1,6 +1,118 @@
-(() => {
-  'use strict';
+'use strict';
 
+// Size fit: pure helpers that place a motion video so its first-frame character
+// box matches the idle character box. Exported for node tests like AnimateHelpers.
+const OverlayFit = (() => {
+  // Demo SVG avatar: viewBox size and the character box inside it (normalized, x1/y1 exclusive).
+  const DEMO_VIEWBOX = Object.freeze({ width: 380, height: 440 });
+  const DEMO_BOX = Object.freeze([0.2561, 0.1083, 0.8640, 0.9091]);
+  // Mirrors .demo-avatar in overlay.css (380x440 px, max 85vw x 75vh, bottom 12 px, centred).
+  const DEMO_CSS = Object.freeze({ width: 380, height: 440, maxW: 0.85, maxH: 0.75, bottom: 12 });
+  // A first-frame box reaching this far down means the frame already cuts the body.
+  const CUT_BOTTOM = 0.99;
+
+  const finite = (...values) => values.every(v => typeof v === 'number' && Number.isFinite(v));
+
+  function validBox(b) {
+    return Array.isArray(b) && b.length === 4 && finite(...b) && b[2] > b[0] && b[3] > b[1];
+  }
+
+  function validCanvas(canvas) {
+    return Boolean(canvas) && finite(canvas.width, canvas.height) && canvas.width > 0 && canvas.height > 0;
+  }
+
+  /** The demo avatar's layout rect computed from the CSS rules (used when no DOM rect is given). */
+  function demoRect(canvas) {
+    const width = Math.min(DEMO_CSS.width, DEMO_CSS.maxW * canvas.width);
+    const height = Math.min(DEMO_CSS.height, DEMO_CSS.maxH * canvas.height);
+    return {
+      left: (canvas.width - width) / 2,
+      top: canvas.height - DEMO_CSS.bottom - height,
+      width,
+      height,
+    };
+  }
+
+  /** Map a normalized box onto a px rect: [x0, y0, x1, y1]. */
+  function mapBox(rect, b) {
+    return [
+      rect.left + b[0] * rect.width,
+      rect.top + b[1] * rect.height,
+      rect.left + b[2] * rect.width,
+      rect.top + b[3] * rect.height,
+    ];
+  }
+
+  /**
+   * The idle character box [x0, y0, x1, y1] in overlay px, or null when unknown.
+   * `idle` null / without url = the demo SVG avatar: `measure.avatarRect` (its
+   * getBoundingClientRect) or else the CSS rules, with the SVG content xMidYMid meet.
+   * Idle media: placed like `.media-element` (never upscaled, centred, bottom-aligned)
+   * from `measure.natural` (or idle.fit's size); the box is idle.fit.first when present.
+   */
+  function idleBox(canvas, idle, measure = {}) {
+    if (!validCanvas(canvas)) return null;
+    if (!idle || !idle.url) {
+      const r = measure.avatarRect || demoRect(canvas);
+      if (!finite(r.left, r.top, r.width, r.height) || r.width <= 0 || r.height <= 0) return null;
+      const s = Math.min(r.width / DEMO_VIEWBOX.width, r.height / DEMO_VIEWBOX.height);
+      const w = DEMO_VIEWBOX.width * s;
+      const h = DEMO_VIEWBOX.height * s;
+      return mapBox({ left: r.left + (r.width - w) / 2, top: r.top + (r.height - h) / 2, width: w, height: h }, DEMO_BOX);
+    }
+    const fit = idle.fit && typeof idle.fit === 'object' ? idle.fit : null;
+    const natW = measure.natural?.width || fit?.width;
+    const natH = measure.natural?.height || fit?.height;
+    if (!finite(natW, natH) || natW <= 0 || natH <= 0) return null;
+    const r = Math.min(1, canvas.width / natW, canvas.height / natH);
+    const width = natW * r;
+    const height = natH * r;
+    const rect = { left: (canvas.width - width) / 2, top: canvas.height - height, width, height };
+    return mapBox(rect, fit && validBox(fit.first) ? fit.first : [0, 0, 1, 1]);
+  }
+
+  /**
+   * Where to draw a motion video so its first-frame character box matches `box`
+   * (the idle box): { left, top, width, height, mode } in px, or null to keep the CSS.
+   * 'cut'  - the first frame reaches the bottom (upper-body clip): head at the idle
+   *          head height, frame bottom on the overlay bottom.
+   * 'full' - first-frame feet on the idle feet at the idle height; a motion whose
+   *          frames touch the bottom edge is lowered onto the overlay bottom so the cut is hidden.
+   */
+  function placeMotion(canvas, box, fit) {
+    if (!fit || typeof fit !== 'object' || !validCanvas(canvas) || !validBox(box)) return null;
+    const W = fit.width;
+    const H = fit.height;
+    const b = fit.first;
+    if (!finite(W, H) || W <= 0 || H <= 0 || !validBox(b)) return null;
+    const ih = box[3] - box[1];
+    const cx = (box[0] + box[2]) / 2;
+    let s;
+    let top;
+    let mode;
+    if (b[3] >= CUT_BOTTOM) {
+      mode = 'cut';
+      s = (canvas.height - box[1]) / ((1 - b[1]) * H);
+      top = canvas.height - H * s;
+    } else {
+      mode = 'full';
+      s = ih / ((b[3] - b[1]) * H);
+      top = box[3] - b[3] * H * s;
+      if (fit.touches && fit.touches.bottom && top + H * s < canvas.height) top = canvas.height - H * s;
+    }
+    const width = W * s;
+    const height = H * s;
+    const left = cx - ((b[0] + b[2]) / 2) * width;
+    if (!finite(s, top, left, width, height) || s <= 0) return null;
+    return { left, top, width, height, mode };
+  }
+
+  return { DEMO_BOX, DEMO_VIEWBOX, CUT_BOTTOM, demoRect, idleBox, placeMotion };
+})();
+
+if (typeof module !== 'undefined' && module.exports) module.exports = OverlayFit;
+
+if (typeof document !== 'undefined') (() => {
   // DOM Elements
   const demoLayer = document.getElementById('demo-layer');
   const demoAvatar = document.getElementById('demo-avatar');
@@ -141,7 +253,62 @@
     idleImage.removeAttribute('src');
   }
 
+  // Motion size fit: inline placement of #reaction-video from the motion's `fit`,
+  // recomputed on resize (an OBS source size change resizes the viewport).
+  const FIT_STYLE_PROPS = ['position', 'left', 'top', 'width', 'height', 'max-width', 'max-height', 'margin'];
+  let activeFit = null; // fit of the playing video motion, or null
+
+  function currentIdleBox(canvas) {
+    const idle = library.idle && library.idle.url ? library.idle : null;
+    if (idle) {
+      const natural = isVideoMedia(idle)
+        ? { width: idleVideo.videoWidth, height: idleVideo.videoHeight }
+        : { width: idleImage.naturalWidth, height: idleImage.naturalHeight };
+      return OverlayFit.idleBox(canvas, idle, { natural: natural.width > 0 && natural.height > 0 ? natural : null });
+    }
+    // The demo layer keeps its layout while hidden (visibility/opacity only).
+    const r = demoAvatar.getBoundingClientRect();
+    const avatarRect = r.width > 0 && r.height > 0
+      ? { left: r.left, top: r.top, width: r.width, height: r.height }
+      : null;
+    return OverlayFit.idleBox(canvas, null, { avatarRect });
+  }
+
+  function clearMotionFit() {
+    for (const prop of FIT_STYLE_PROPS) reactionVideo.style.removeProperty(prop);
+    delete reactionVideo.dataset.fit;
+  }
+
+  function applyMotionFit() {
+    if (!activeFit) {
+      clearMotionFit();
+      return;
+    }
+    const canvas = { width: window.innerWidth, height: window.innerHeight };
+    const place = OverlayFit.placeMotion(canvas, currentIdleBox(canvas), activeFit);
+    if (!place) {
+      clearMotionFit();
+      return;
+    }
+    const style = reactionVideo.style;
+    style.setProperty('position', 'absolute');
+    style.setProperty('left', `${place.left}px`);
+    style.setProperty('top', `${place.top}px`);
+    style.setProperty('width', `${place.width}px`);
+    style.setProperty('height', `${place.height}px`);
+    style.setProperty('max-width', 'none');
+    style.setProperty('max-height', 'none');
+    style.setProperty('margin', '0');
+    reactionVideo.dataset.fit = place.mode;
+  }
+
+  window.addEventListener('resize', () => {
+    if (activeFit) applyMotionFit();
+  });
+
   function cleanupReactionMedia() {
+    activeFit = null;
+    clearMotionFit();
     stopVideo(reactionVideo);
     reactionImage.classList.remove('visible');
     reactionImage.onerror = null;
@@ -201,6 +368,9 @@
     if (isVideoMedia(motion)) {
       // Video motion reaction
       reactionImage.classList.remove('visible');
+      // Size fit before the first frame shows; motions without a fit keep the CSS placement.
+      activeFit = motion.fit && typeof motion.fit === 'object' ? motion.fit : null;
+      applyMotionFit();
       reactionVideo.classList.add('visible');
       showOnlyLayer('reaction');
 
@@ -232,6 +402,7 @@
       const onPlaying = () => {
         if (activeTriggerToken !== token) return;
         hasStarted = true;
+        applyMotionFit();
         pauseIdleVideoIfPlaying();
         reportPreviewState('playing', id);
       };

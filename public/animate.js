@@ -227,6 +227,50 @@ const AnimateHelpers = (() => {
     return '';
   }
 
+  /** The driving margin choices from the routes payload (`margins`), or [] when absent. */
+  function marginOptions(payload) {
+    return (Array.isArray(payload?.margins) ? payload.margins : [])
+      .filter(m => m && typeof m.value === 'string' && m.value && typeof m.label === 'string');
+  }
+
+  /** A route's default margin when it is one of `margins`, else 'none' (or the first choice). */
+  function routeDefaultMargin(route, margins) {
+    const values = margins.map(m => m.value);
+    if (values.includes(route?.defaultMargin)) return route.defaultMargin;
+    if (values.includes('none')) return 'none';
+    return values[0] ?? null;
+  }
+
+  /** "여백 보통" for a job made with a margin other than 'none', else ''. Labels come from `margins`. */
+  function marginText(job, margins) {
+    const value = job?.margin;
+    if (typeof value !== 'string' || !value || value === 'none') return '';
+    const label = (Array.isArray(margins) ? margins : []).find(m => m && m.value === value)?.label;
+    return label ? `여백 ${label}` : '';
+  }
+
+  const FIT_CUT_BOTTOM = 0.99;
+
+  /** One note from a succeeded job's result.fit: the character leaves the frame, or the bottom is cut; else ''. */
+  function fitNote(job) {
+    const fit = job?.result?.fit;
+    if (!fit || typeof fit !== 'object') return '';
+    const t = fit.touches || {};
+    if (t.left || t.right || t.top) return '캐릭터가 영상 밖으로 나가 잘린 선이 보일 수 있습니다. 여백을 넓혀 다시 만들어 보세요.';
+    if (Array.isArray(fit.first) && Number(fit.first[3]) >= FIT_CUT_BOTTOM) {
+      return '영상 아래쪽이 잘려 있어 대기 캐릭터와 크기가 조금 다를 수 있습니다.';
+    }
+    return '';
+  }
+
+  /** The POST /api/animate/jobs body. `margin` is sent only when the server offers margins. */
+  function jobPayload({ drivingId, route, options, margin, margins, mock }) {
+    const payload = { drivingId, routeId: route?.id, options: options || {} };
+    if (Array.isArray(margins) && margins.some(m => m.value === margin)) payload.margin = margin;
+    if (!mock) payload.confirmed = true;
+    return payload;
+  }
+
   /** "12:34" today, "9/28 12:34" otherwise. */
   function formatTime(value, now = Date.now()) {
     const t = timeValue(value);
@@ -324,6 +368,11 @@ const AnimateHelpers = (() => {
     isAdded,
     keyNote,
     keyColorNote,
+    marginOptions,
+    routeDefaultMargin,
+    marginText,
+    fitNote,
+    jobPayload,
     formatTime,
     progressText,
     videoContentType,
@@ -358,6 +407,8 @@ if (typeof document !== 'undefined') (() => {
   const characterStatus = $('characterStatus');
   const routeList = $('routeList');
   const routeOptions = $('routeOptions');
+  const marginBox = $('marginBox');
+  const marginSelect = $('marginSelect');
   const keyPanel = $('keyPanel');
   const keyList = $('keyList');
   const createBtn = $('createBtn');
@@ -379,6 +430,9 @@ if (typeof document !== 'undefined') (() => {
     drivingId: null,
     routeId: null,
     options: {}, // routeId -> { key: value }
+    margins: [], // [{ value, label }] from the routes payload; [] hides the 여백 select
+    margin: null, // chosen driving margin value
+    marginRouteId: null, // the route `margin` was last reset for
     jobs: [],
     libraryIds: null,
     busy: { fetch: false, restore: false, driving: false, character: false, create: false },
@@ -954,8 +1008,27 @@ if (typeof document !== 'undefined') (() => {
     routeList.replaceChildren(fragment);
     if (focusedId) routeList.querySelector(`input[value="${CSS.escape(focusedId)}"]`)?.focus();
     renderRouteOptions();
+    renderMargin();
     renderCreate();
   }
+
+  /** The 여백 select: choices from the payload, reset to the route's default whenever the route changes. */
+  function renderMargin() {
+    const margins = state.margins;
+    const route = selectedRoute();
+    const values = margins.map(m => m.value);
+    if (state.routeId !== state.marginRouteId || !values.includes(state.margin)) {
+      state.margin = H.routeDefaultMargin(route, margins);
+      state.marginRouteId = state.routeId;
+    }
+    marginSelect.replaceChildren(...margins.map(m => el('option', { value: m.value, text: m.label })));
+    if (state.margin != null) marginSelect.value = state.margin;
+    marginBox.hidden = margins.length === 0;
+  }
+
+  marginSelect.addEventListener('change', () => {
+    state.margin = marginSelect.value;
+  });
 
   /** "최소 3초" / "최소 없음", or a warning when the selected driving is shorter. */
   function minLengthBadge(route, rs) {
@@ -1150,7 +1223,11 @@ if (typeof document !== 'undefined') (() => {
 
   function applyStatus(data) {
     if (!data || typeof data !== 'object') return;
-    if (Array.isArray(data.routes)) state.routes = data.routes;
+    if (Array.isArray(data.routes)) {
+      state.routes = data.routes;
+      state.margins = H.marginOptions(data);
+      renderJobs(); // job cards show margin labels from the payload
+    }
     if (Array.isArray(data.providers)) {
       state.providers = data.providers;
       renderKeys();
@@ -1216,8 +1293,14 @@ if (typeof document !== 'undefined') (() => {
     renderCreate();
     setStatus(createStatus, '');
     try {
-      const payload = { drivingId: driving.id, routeId: route.id, options: routeOptionsFor(route) };
-      if (!mock) payload.confirmed = true;
+      const payload = H.jobPayload({
+        drivingId: driving.id,
+        route,
+        options: routeOptionsFor(route),
+        margin: state.margin,
+        margins: state.margins,
+        mock,
+      });
       const data = await api('POST', '/api/animate/jobs', { json: payload });
       if (data?.job) upsertJob(data.job);
       setStatus(createStatus, '요청했습니다', 'success');
@@ -1270,10 +1353,12 @@ if (typeof document !== 'undefined') (() => {
     const info = el('p', { className: 'job-info' });
     const colorNote = el('p', { className: 'job-info job-key-color' });
     colorNote.hidden = true;
+    const fitNote = el('p', { className: 'job-info job-fit' });
+    fitNote.hidden = true;
     const media = el('div', { className: 'job-media' });
     const actions = el('div', { className: 'job-actions' });
-    const li = el('li', { className: 'job' }, [head, info, colorNote, media, actions]);
-    return { li, head, info, colorNote, media, actions, mediaKey: null, actionsKey: null };
+    const li = el('li', { className: 'job' }, [head, info, colorNote, fitNote, media, actions]);
+    return { li, head, info, colorNote, fitNote, media, actions, mediaKey: null, actionsKey: null };
   }
 
   function updateRow(row, job) {
@@ -1290,6 +1375,7 @@ if (typeof document !== 'undefined') (() => {
     if (H.ACTIVE_STATES.has(job.state)) info = H.progressText(job);
     else if (job.state === 'failed') { info = H.errorText(job.error); infoKind = 'error'; }
     else if (job.state === 'succeeded') info = H.keyNote(job);
+    info = [H.marginText(job, state.margins), info].filter(Boolean).join(' · ');
     row.info.textContent = info;
     row.info.hidden = !info;
     if (infoKind) row.info.dataset.kind = infoKind;
@@ -1298,6 +1384,10 @@ if (typeof document !== 'undefined') (() => {
     const colorNote = H.keyColorNote(job);
     row.colorNote.textContent = colorNote;
     row.colorNote.hidden = !colorNote;
+
+    const fitNote = job.state === 'succeeded' ? H.fitNote(job) : '';
+    row.fitNote.textContent = fitNote;
+    row.fitNote.hidden = !fitNote;
 
     // The keyed WebM plays over the checkerboard; a toggle shows the original MP4.
     const keyedUrl = job.state === 'succeeded' ? job.result?.keyedUrl || null : null;
