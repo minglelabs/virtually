@@ -358,6 +358,46 @@ const AnimateHelpers = (() => {
   }
 
   /**
+   * Image files from a paste's clipboard data (ClipboardEvent.clipboardData),
+   * for the character library. A copied screenshot arrives as an unnamed or
+   * generic 'image.png' item, so each file gets a stable name with an extension
+   * that matches its type. Files seen through both .files and .items count once.
+   */
+  function pastedImages(clipboardData, now = Date.now()) {
+    if (!clipboardData) return [];
+    const seen = new Set();
+    const files = [];
+    const add = (file) => {
+      if (!file || seen.has(file)) return;
+      seen.add(file);
+      files.push(file);
+    };
+    for (const file of Array.from(clipboardData.files || [])) add(file);
+    for (const item of Array.from(clipboardData.items || [])) {
+      if (item && item.kind === 'file' && typeof item.getAsFile === 'function') add(item.getAsFile());
+    }
+    const images = files.filter(file => fileKind(file.name, file.type) === 'image');
+    // The same image can surface as two distinct File objects (files + items) in some browsers.
+    const unique = [];
+    const keys = new Set();
+    for (const file of images) {
+      const key = `${file.name}|${file.type}|${file.size}`;
+      if (keys.has(key)) continue;
+      keys.add(key);
+      unique.push(file);
+    }
+    return unique.map((file, index) => ({ file, name: pastedName(file, now, index) }));
+  }
+
+  function pastedName(file, now, index) {
+    const name = String(file.name ?? '');
+    if (name && name.toLowerCase() !== 'image.png' && /\.[a-z0-9]+$/i.test(name)) return name;
+    const ext = { 'image/jpeg': 'jpg', 'image/webp': 'webp' }[String(file.type ?? '').toLowerCase()] || 'png';
+    const stamp = new Date(now).toISOString().replace(/[-:]/g, '').replace(/\..*$/, '');
+    return `pasted-${stamp}${index ? `-${index + 1}` : ''}.${ext}`;
+  }
+
+  /**
    * Horizontal scroll delta for a wheel event over a strip, or 0 to leave the
    * event to the page: only mostly-vertical wheels, only when the strip can
    * scroll, and not past either end.
@@ -377,6 +417,7 @@ const AnimateHelpers = (() => {
     DRIVING_BATCH_SIZE,
     drivingRenderCount,
     fileKind,
+    pastedImages,
     stripWheelDelta,
     JOB_STATE_LABELS,
     ACTIVE_STATES,
@@ -1010,6 +1051,24 @@ if (typeof document !== 'undefined') (() => {
     uploadCharacters(files);
   });
   acceptDrops(characterCard, characterDrop, uploadCharacters);
+
+  // Paste (Cmd+V / Ctrl+V) anywhere on the page adds copied images to the
+  // character library -- no focus needed, since only this card takes images.
+  // A paste with no image (plain text into a field) is left to the browser.
+  document.addEventListener('paste', (event) => {
+    const pasted = H.pastedImages(event.clipboardData);
+    if (pasted.length === 0) return;
+    event.preventDefault();
+    if (state.busy.character) {
+      setStatus(characterStatus, '올리는 중에는 붙여넣을 수 없습니다. 끝난 뒤 다시 붙여넣어 주세요', 'error');
+      return;
+    }
+    characterDrop.classList.add('is-dragover');
+    setTimeout(() => characterDrop.classList.remove('is-dragover'), 600);
+    characterCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    uploadCharacters(pasted.map(({ file, name }) =>
+      name === file.name ? file : new File([file], name, { type: file.type || 'image/png' })));
+  });
 
   // ---- 3. Routes ----
   function routeOptionsFor(route) {
