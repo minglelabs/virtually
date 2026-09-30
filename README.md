@@ -166,13 +166,15 @@ Deleting an example on the page (×) hides it for this install: its id is kept i
 
 Only the manifest's `https:` URLs are fetched (redirects must stay on `https:`), each file is limited to 100 MB and 60 seconds.
 
-**기본 캐릭터 대기 (idle)** (`demo-idle`, listed first) is the idle loop of the overlay's demo avatar — 540x720 on white, 30 fps, a seamless 3.8 s loop — for animating a new character photo into an idle motion. `scripts/render-demo-idle.js` renders it from the `#demo-avatar` markup of `public/overlay.html` and `public/overlay.css` with headless Chrome (`CHROME_PATH`, default: Google Chrome on macOS) and ffmpeg, and fails unless the loop closes pixel-exactly. After changing the demo avatar, re-render it and commit both files:
+**사람 대기 (idle · 무표정)** (`human-idle-neutral`) and **사람 대기 (idle · 옅은 미소)** (`human-idle-smile`) are listed first, so once they are downloaded the page selects the neutral one by default (it picks the first available driving). Both are Pexels clips of a man standing still, framed head to thighs with both hands in view, cut to a near-seamless loop (5.0 s and 4.0 s at 30 fps): the last and first frames differ only in a few hair and hand pixels. They are downloaded like the other Pexels examples and are the references to use for animating a human-shaped character photo into an idle motion.
+
+**기본 캐릭터 대기 (idle)** (`demo-idle`) is the idle loop of the overlay's demo avatar — 540x720 on white, 30 fps, a seamless 3.8 s loop. `scripts/render-demo-idle.js` renders it from the `#demo-avatar` markup of `public/overlay.html` and `public/overlay.css` with headless Chrome (`CHROME_PATH`, default: Google Chrome on macOS) and ffmpeg, and fails unless the loop closes pixel-exactly. After changing the demo avatar, re-render it and commit both files:
 
 ```bash
 node scripts/render-demo-idle.js
 ```
 
-The demo avatar is not human-shaped, so pose-based models may not track it; for a human-shaped character, a human idle reference works better.
+The demo avatar is not human-shaped, so pose-based models may not track it; for a human-shaped character, use one of the human idle references above.
 
 ### API keys
 
