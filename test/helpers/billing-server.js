@@ -77,6 +77,7 @@ async function readLedger(ctx) {
 
 async function launch(ctx) {
   ctx.server = await createAppServer({
+    ...ctx.serverOptions,
     dataDir: ctx.dataDir,
     examplesManifestPath: ctx.manifestPath,
     animateMock: ctx.mock,
@@ -102,7 +103,8 @@ async function stopApp(ctx) {
   await server.billing.close().catch(() => {});
 }
 
-async function restartApp(ctx) {
+async function restartApp(ctx, serverOptions) {
+  if (serverOptions) ctx.serverOptions = serverOptions;
   await stopApp(ctx);
   return launch(ctx);
 }
