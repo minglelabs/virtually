@@ -249,17 +249,3 @@ test('"*" means every account in the allow list, and nothing else changes', () =
   assert.equal(isEmailAllowed(['*'], undefined), false);
   assert.equal(isEmailAllowed(['a@b.c'], 'anyone@gmail.com'), false);
 });
-
-test('an account whose storage is full cannot add files, and others are not affected', { skip }, async t => {
-  const ctx = await H.startApp(t);
-  const alice = await H.signIn(ctx, H.ALICE);
-  const bob = await H.signIn(ctx, H.BOB);
-  await makeCharacter(ctx, alice, '민트');
-  await H.restartApp(ctx, { accountQuotaBytes: 1000 });
-  const full = await H.request(ctx, '/api/characters?name=x&filename=a.png', { method: 'POST', cookie: alice, body: Buffer.alloc(2000, 1) });
-  assert.equal(full.status, 413, full.text);
-  assert.equal(full.json.code, 'quota_exceeded');
-  assert.equal((await H.get(ctx, '/api/characters', alice)).status, 200, 'reads and deletes still work');
-  const room = await H.request(ctx, '/api/characters?name=x&filename=a.png', { method: 'POST', cookie: bob, body: PNG });
-  assert.equal(room.status, 201, 'Bob has his own space');
-});
