@@ -17,6 +17,7 @@ const {
   CHARACTER_ID_RE, PHOTO_ID_RE, MAX_CHARACTERS, MAX_PHOTOS, PHOTO_MAX_BYTES,
 } = require('./lib/characters');
 const { WEBHOOK_PATH, createBilling } = require('./lib/billing');
+const { createSite } = require('./lib/site');
 
 const MAX_UPLOAD_BYTES = 500 * 1024 * 1024;
 const PUBLIC_DIR = path.join(__dirname, 'public');
@@ -663,6 +664,8 @@ async function createAppServer({
     return false;
   }
 
+  const site = createSite();
+
   const server = http.createServer((req, res) => {
     (async () => {
       const url = new URL(req.url, 'http://localhost');
@@ -686,6 +689,8 @@ async function createAppServer({
       if (!['GET', 'HEAD'].includes(req.method) && req.headers['sec-fetch-site'] && !['same-origin', 'none'].includes(req.headers['sec-fetch-site'])) {
         return sendJson(res, 403, { error: 'Cross-site changes are not allowed.' });
       }
+      // The public pages need no session either (and no config reads).
+      if (site.handle(req, res, pathname)) return;
       // The Polar webhook comes without a session: before the login routes and the gate
       // (it verifies its own signature).
       if (await billing.handleWebhook(req, res, url)) return;
