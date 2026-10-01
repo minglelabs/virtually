@@ -5,11 +5,145 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>캐릭터 · Virtually</title>
   <link rel="icon" href="data:,">
-  <link rel="stylesheet" href="./auth.css">
   <link rel="stylesheet" href="./characters.css">
+  <link rel="stylesheet" href="./auth.css">
 </head>
 <body>
-  <main id="app"></main>
+  <main class="page">
+    <div class="brand-row">
+      <h1 class="brand">Virtually</h1>
+      <nav class="page-links" aria-label="다른 화면">
+        <a href="/broadcast" class="nav-link">방송 화면</a>
+        <a href="/animate" class="nav-link">동작 만들기</a>
+      </nav>
+      <div id="authSlot" class="auth-slot" hidden></div>
+    </div>
+
+    <div class="page-head">
+      <div class="page-head-text">
+        <h2 class="page-title">캐릭터</h2>
+        <p class="page-sub">사진을 고르고 '이 캐릭터로 방송하기'를 누르면 그 사진이 방송에 나갑니다. 동작은 사진마다 따로 만듭니다.</p>
+      </div>
+      <!-- What is on air right now (characters.js); opens the controller | canvas page. -->
+      <a id="onAirPill" class="onair" href="/broadcast" title="방송 화면(컨트롤러 | 캔버스) 열기" hidden>
+        <span class="live-dot" aria-hidden="true"></span><span>방송 중</span><strong id="onAirName" class="onair-name"></strong><span id="onAirPhoto" class="muted"></span><span class="onair-open">방송 화면 열기 →</span>
+      </a>
+      <span id="onAirNone" class="onair onair-none" hidden>방송 중인 캐릭터가 없습니다</span>
+    </div>
+
+    <p id="pageStatus" class="status page-status" aria-live="polite"></p>
+
+    <!-- 새 캐릭터 만들기: always the first row of the list, empty and dashed -->
+    <section id="createPanel" class="create-row" aria-labelledby="createTitle">
+      <button type="button" id="createDrop" class="dropzone create-drop" aria-label="기본 사진 올리기: 끌어다 놓거나, 눌러서 고르거나, 붙여넣기 (필수)">
+        <span class="req">필수</span>
+        <span id="createPreview" class="create-preview checkerboard" hidden><img id="createPreviewImg" alt="" draggable="false"></span>
+        <svg id="createDropIcon" class="dropzone-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M7 17.5h-.5a4 4 0 0 1-.6-7.95A6 6 0 0 1 17.6 8.1 4.5 4.5 0 0 1 17.5 17.5H17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M12 20v-8m0 0-3 3m3-3 3 3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span class="dropzone-text">
+          <span id="createDropTitle" class="dropzone-title">+ 기본 사진 올리기</span>
+          <span id="createDropSub" class="dropzone-sub">끌어다 놓기 · 붙여넣기<br>PNG · JPEG · WebP · 20MB까지</span>
+          <span id="createDropFileSub" class="dropzone-sub" hidden>눌러서 다른 사진으로 바꾸기</span>
+        </span>
+      </button>
+      <div class="create-body">
+        <h3 id="createTitle">새 캐릭터 만들기</h3>
+        <p class="create-lead">기본 사진 한 장과 이름만 있으면 만들 수 있습니다. 사진은 끌어다 놓거나 붙여넣을 수 있고(⌘V / Ctrl+V), 만든 뒤에도 더 추가할 수 있습니다. 흰색 같은 단색 배경은 방송에서 자동으로 지웁니다.</p>
+        <div class="create-form">
+          <label class="visually-hidden" for="createName">캐릭터 이름</label>
+          <input id="createName" class="text-input" type="text" maxlength="40" autocomplete="off" placeholder="캐릭터 이름 (40자까지)" required>
+          <button type="button" id="createBtn" class="btn" disabled>만들기</button>
+        </div>
+        <p id="createStatus" class="field-hint" aria-live="polite"></p>
+      </div>
+      <input type="file" id="createInput" accept="image/png,image/jpeg,image/webp" hidden>
+    </section>
+
+    <div id="emptyState" class="empty-state" hidden>
+      <strong>첫 캐릭터를 만들어 주세요</strong>
+      <span>이름과 기본 사진 한 장이면 됩니다.</span>
+    </div>
+
+    <div id="charList" class="char-list"></div>
+  </main>
+
+  <!-- One character (characters.js clones it and fills every text with textContent):
+       the base photo, name and 방송하기 on the left; the photo strip and the selected photo's detail on the right. -->
+  <template id="rowTemplate">
+    <section class="card char-row">
+      <div class="base-col">
+        <div class="base-thumb checkerboard">
+          <img alt="" decoding="async" draggable="false" data-part="baseImg">
+          <div class="corner"><span class="tag">기본 사진</span></div>
+        </div>
+        <div class="name-line" data-part="nameLine">
+          <h3 class="row-name" data-part="name"></h3>
+          <span class="pill-live" data-part="live" hidden>방송 중</span>
+        </div>
+        <form class="row-rename" data-part="renameForm" hidden>
+          <label class="visually-hidden" data-part="renameLabel">캐릭터 이름</label>
+          <input type="text" class="text-input rename-input" maxlength="40" autocomplete="off" required data-part="renameInput">
+          <button type="submit" class="btn btn-sm" data-part="renameSave">저장</button>
+          <button type="button" class="btn btn-ghost btn-sm" data-part="renameCancel">취소</button>
+        </form>
+        <div class="row-meta" data-part="meta"></div>
+        <div class="row-tools" data-part="tools">
+          <button type="button" class="btn btn-ghost btn-sm" data-part="rename">이름 바꾸기</button>
+          <button type="button" class="btn btn-ghost btn-sm btn-danger" data-part="delete">삭제</button>
+        </div>
+        <button type="button" class="btn btn-go" data-part="go">이 캐릭터로 방송하기</button>
+        <p class="go-hint" data-part="hint"></p>
+        <p class="status row-status" data-part="status" aria-live="polite"></p>
+      </div>
+      <div class="main-col">
+        <div class="strip" data-part="strip">
+          <div class="strip-scroller" role="group" data-part="scroller">
+            <button type="button" class="dropzone thumb-add" data-part="add">
+              <svg class="dropzone-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M7 17.5h-.5a4 4 0 0 1-.6-7.95A6 6 0 0 1 17.6 8.1 4.5 4.5 0 0 1 17.5 17.5H17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M12 20v-8m0 0-3 3m3-3 3 3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <span class="dropzone-title" data-part="addTitle">+ 사진 추가</span>
+              <span class="dropzone-sub">끌어다 놓기<br>PNG · JPEG · WebP</span>
+            </button>
+          </div>
+        </div>
+        <div class="detail" data-part="detail">
+          <div class="detail-head">
+            <span class="detail-title" data-part="detailTitle"></span>
+            <span class="tag tag-live" data-part="detailLive" hidden>방송 중</span>
+            <div class="detail-tools">
+              <button type="button" class="btn btn-ghost btn-sm" data-part="makeBase">기본으로</button>
+              <button type="button" class="btn btn-ghost btn-sm btn-danger" data-part="deletePhoto">사진 삭제</button>
+            </div>
+          </div>
+          <div class="detail-motions">
+            <span class="ph-count" data-part="count"></span>
+            <div class="chips" data-part="chips"></div>
+          </div>
+          <div class="detail-foot">
+            <a class="add-motion" data-part="addMotion">+ 동작 추가하러 가기</a>
+            <span class="foot-hint">이 사진으로 AI 동작을 만들거나 완성된 영상을 올립니다</span>
+          </div>
+        </div>
+      </div>
+      <input type="file" accept="image/png,image/jpeg,image/webp" multiple hidden data-part="input">
+    </section>
+  </template>
+
+  <!-- One small photo: a click selects it; the row button puts the selected photo on air. -->
+  <template id="photoTemplate">
+    <button type="button" class="thumb">
+      <span class="thumb-img checkerboard">
+        <img alt="" loading="lazy" decoding="async" draggable="false" data-part="img">
+        <span class="thumb-badges" data-part="badges"></span>
+      </span>
+      <span class="thumb-cap" data-part="cap"></span>
+    </button>
+  </template>
+
   <script src="./auth.js"></script>
   <script src="./characters.js"></script>
 </body>

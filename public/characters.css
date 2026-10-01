@@ -1,0 +1,414 @@
+/* Character list (/). Same palette and components as app.css / animate.css / auth.css (copied, since each page
+   loads only its own stylesheet; a test keeps the palette equal to animate.css). */
+:root {
+  --bg: #0f1115;
+  --panel: #171a21;
+  --border: #2a2f3a;
+  --text: #e6e8ee;
+  --muted: #9aa3b2;
+  --accent: #6c8cff;
+  --danger: #ff8a8a;
+  --warn: #ffc46b;
+  --ok: #7fd89a;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.5 system-ui, -apple-system, "Apple SD Gothic Neo", sans-serif;
+}
+
+[hidden] { display: none !important; }
+
+.visually-hidden {
+  position: absolute;
+  width: 1px; height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ---- Buttons ---- */
+.btn {
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+a.btn { display: inline-block; text-align: center; text-decoration: none; }
+.btn-sm { padding: 4px 10px; font-size: 12px; }
+.btn-ghost { background: transparent; color: var(--text); border: 1px solid var(--border); }
+.btn-ghost:hover { border-color: #4a5263; }
+.btn-danger { color: var(--danger); }
+.btn:disabled { opacity: 0.5; cursor: default; }
+.btn:focus-visible, .nav-link:focus-visible, .onair:focus-visible, .add-motion:focus-visible, .thumb:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+}
+
+/* white-space: a list of upload errors keeps its line breaks. */
+.status { margin: 0; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; white-space: pre-line; }
+.status:empty { display: none; }
+.status[data-kind="error"] { color: var(--danger); }
+.status[data-kind="success"] { color: var(--accent); }
+
+/* ---- Page frame ---- */
+.page {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 20px 24px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+/* "Virtually", the page links and the signed-in chip (auth.css); the chip wraps onto its own row when narrow. */
+.brand-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; min-height: 30px; }
+.brand { margin: 0; font-size: 20px; line-height: 30px; }
+.page-links { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.nav-link { color: var(--muted); text-decoration: none; }
+.nav-link:hover { color: var(--text); }
+
+.page-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+}
+.page-head-text { min-width: 0; }
+.page-title { margin: 0; font-size: 18px; font-weight: 700; line-height: 28px; }
+.page-sub { margin: 2px 0 0; font-size: 13px; color: var(--muted); word-break: keep-all; }
+.page-status { margin-top: -6px; font-size: 13px; }
+
+/* What is on air right now; opens the controller | canvas page. */
+.onair {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 13px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+a.onair:hover { border-color: #4a5263; }
+.onair-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.onair-none { color: var(--muted); }
+.live-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--danger); box-shadow: 0 0 0 3px rgba(255, 138, 138, 0.2); }
+.onair .muted { flex: none; color: var(--muted); }
+.onair-open { flex: none; color: var(--accent); }
+
+/* ---- Drop zones (animate.css .dropzone) ---- */
+.dropzone {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 12px;
+  border: 1.5px dashed #4a5263;
+  border-radius: 14px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  text-align: center;
+  /* Korean: break lines between words, not inside them. */
+  word-break: keep-all;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease;
+}
+.dropzone-icon { width: 30px; height: 30px; color: var(--accent); flex: none; }
+.dropzone-title { font-weight: 600; font-size: 13px; line-height: 1.35; overflow-wrap: anywhere; }
+.dropzone-sub { font-size: 11px; color: var(--muted); line-height: 1.35; }
+.dropzone-text { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; }
+.dropzone:hover, .dropzone:focus-visible, .dropzone.is-dragover {
+  border-color: var(--accent);
+  background-color: #1a2031;
+  box-shadow: 0 0 0 3px rgba(108, 140, 255, 0.18), 0 6px 22px rgba(108, 140, 255, 0.18);
+  outline: none;
+}
+.dropzone.is-dragover { border-style: solid; }
+.dropzone[aria-busy="true"] { cursor: progress; border-style: solid; }
+.dropzone[aria-busy="true"] .dropzone-icon { animation: dropzone-pulse 1.1s ease-in-out infinite; }
+.dropzone:disabled { cursor: default; opacity: 0.6; }
+@keyframes dropzone-pulse { 50% { opacity: 0.35; } }
+
+.checkerboard {
+  background-color: #cfd3da;
+  background-image:
+    linear-gradient(45deg, #9aa0aa 25%, transparent 25%, transparent 75%, #9aa0aa 75%),
+    linear-gradient(45deg, #9aa0aa 25%, transparent 25%, transparent 75%, #9aa0aa 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 8px 8px;
+}
+
+.req {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: rgba(108, 140, 255, 0.16);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.tag {
+  padding: 0 7px;
+  border-radius: 4px;
+  background: rgba(15, 17, 21, 0.82);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 19px;
+  white-space: nowrap;
+}
+.tag-live { display: inline-flex; align-items: center; gap: 4px; background: var(--danger); color: #1b0d0f; }
+.tag-live::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.pill-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: rgba(255, 138, 138, 0.14);
+  color: var(--danger);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 20px;
+  white-space: nowrap;
+}
+.pill-live::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+/* ---- 새 캐릭터 만들기: an empty dashed first row ---- */
+.create-row {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 20px;
+  min-width: 0;
+  padding: 16px;
+  border: 1.5px dashed #4a5263;
+  border-radius: 10px;
+}
+.create-drop { min-height: 150px; }
+/* The chosen base photo, on the checkerboard like every photo. */
+.create-preview { display: flex; align-items: center; justify-content: center; width: 96px; height: 96px; border-radius: 8px; overflow: hidden; flex: none; }
+.create-preview img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.create-drop.has-file .dropzone-icon { display: none; }
+.create-body { display: flex; flex-direction: column; justify-content: center; gap: 8px; min-width: 0; }
+.create-body h3 { margin: 0; font-size: 16px; }
+.create-lead { margin: 0; font-size: 13px; color: var(--muted); word-break: keep-all; }
+.create-form { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.text-input {
+  width: 320px;
+  max-width: 100%;
+  padding: 8px 10px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+}
+.text-input::placeholder { color: #6b7385; }
+.text-input:focus-visible { border-color: var(--accent); outline: 2px solid rgba(108, 140, 255, 0.25); outline-offset: 0; }
+.field-hint { margin: 0; font-size: 12px; color: var(--muted); word-break: keep-all; overflow-wrap: anywhere; }
+.field-hint:empty { display: none; }
+.field-hint[data-kind="warn"] { color: var(--warn); }
+.field-hint[data-kind="error"] { color: var(--danger); }
+.field-hint[data-kind="success"] { color: var(--accent); }
+
+/* ---- Empty state ---- */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 2px;
+  color: var(--muted);
+  font-size: 13px;
+  word-break: keep-all;
+}
+.empty-state strong { color: var(--text); font-size: 15px; }
+
+/* ---- One character per row: base photo column | photo strip + selected-photo detail ---- */
+.char-list { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.char-list:empty { display: none; }
+.char-row { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 20px; min-width: 0; }
+.base-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.base-thumb { position: relative; height: 222px; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); }
+.base-thumb img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.corner { position: absolute; left: 8px; bottom: 8px; display: flex; gap: 4px; }
+.name-line { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; margin-top: 2px; min-width: 0; }
+.row-name { margin: 0; min-width: 0; font-size: 17px; font-weight: 700; line-height: 26px; overflow-wrap: anywhere; }
+.row-meta { font-size: 13px; color: var(--muted); }
+.row-tools { display: flex; gap: 6px; }
+.row-rename { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 2px; min-width: 0; }
+.row-rename .rename-input { flex: 1 1 100%; width: 100%; padding: 4px 8px; }
+.btn-go { width: 100%; margin-top: 4px; font-weight: 600; }
+.go-hint { margin: -2px 0 0; font-size: 12px; color: var(--muted); text-align: center; }
+.row-status { margin-top: 2px; }
+
+.main-col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+
+/* ---- Horizontal photo strip (animate.css .strip): small photos, then the '+ 사진 추가' tile ---- */
+.strip { position: relative; min-width: 0; }
+.strip-scroller {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  margin: 0 -4px;
+  padding: 4px 4px 8px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.strip-scroller::-webkit-scrollbar { height: 6px; }
+.strip-scroller::-webkit-scrollbar-track { background: transparent; }
+.strip-scroller::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+.strip-scroller > * { flex: 0 0 auto; }
+/* Soft fade edges while more photos are hidden in that direction. */
+.strip::before, .strip::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 8px;
+  width: 44px;
+  pointer-events: none;
+  opacity: 0;
+  z-index: 2;
+  transition: opacity 0.2s ease;
+}
+.strip::before { left: -4px; background: linear-gradient(to right, var(--panel), rgba(23, 26, 33, 0)); }
+.strip::after { right: -4px; background: linear-gradient(to left, var(--panel), rgba(23, 26, 33, 0)); }
+.strip[data-more-left]::before, .strip[data-more-right]::after { opacity: 1; }
+
+/* Small photo: a click selects it (accent ring) and shows its motions below. */
+.thumb {
+  display: flex;
+  flex-direction: column;
+  width: 132px;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.thumb:hover { border-color: #4a5263; }
+.thumb.is-selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 4px 16px rgba(108, 140, 255, 0.2); }
+.thumb:disabled { cursor: default; }
+.thumb-img { position: relative; display: block; height: 164px; border-radius: 7px; overflow: hidden; }
+.thumb-img img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.thumb-badges { position: absolute; left: 4px; bottom: 4px; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; pointer-events: none; }
+.thumb-badges:empty { display: none; }
+.thumb-cap { padding: 4px 2px 0; font-size: 11px; color: var(--muted); }
+.thumb.is-selected .thumb-cap { color: var(--text); }
+.thumb-add { width: 124px; min-height: 196px; border-radius: 10px; padding: 8px; }
+.thumb-add .dropzone-icon { width: 26px; height: 26px; }
+
+/* ---- The selected photo: its motions and '동작 추가하러 가기' ---- */
+.detail {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+.detail-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; }
+.detail-title { font-weight: 600; }
+.detail-tools { display: flex; gap: 6px; margin-left: auto; }
+.detail-motions { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+.ph-count { flex: none; font-size: 12px; color: var(--muted); line-height: 20px; }
+.ph-count.has-motions { color: var(--text); font-weight: 600; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px 6px; min-width: 0; }
+.chip {
+  max-width: 100%;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #1b1f28;
+  font-size: 12px;
+  line-height: 20px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.chip-more { color: var(--muted); }
+.empty { margin: 0; font-size: 12px; color: var(--muted); line-height: 20px; }
+.detail-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin-top: auto; }
+/* motion-add-btn (app.css) */
+.add-motion {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 7px 16px;
+  border: 1px dashed var(--muted);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.add-motion:hover { border-color: var(--accent); color: var(--accent); background: rgba(108, 140, 255, 0.08); }
+.foot-hint { font-size: 12px; color: var(--muted); word-break: keep-all; }
+
+/* ---- Narrow screens: one column. The base photo, name and counts come first, then the photos and the selected
+   photo's detail, and 방송하기 last: it acts on the photo picked just above it. ---- */
+@media (max-width: 720px) {
+  .page { padding: 14px 12px 32px; gap: 14px; }
+  .create-row { grid-template-columns: 1fr; gap: 14px; padding: 14px; }
+  .create-drop { min-height: 104px; flex-direction: row; gap: 10px; }
+  .create-drop .dropzone-text { align-items: flex-start; text-align: left; }
+  .create-preview { width: 72px; height: 72px; }
+  .create-form .text-input { flex: 1 1 180px; width: auto; }
+  .char-row { display: flex; flex-direction: column; gap: 10px; padding: 14px; }
+  .base-col, .main-col { display: contents; }
+  .base-thumb { order: 1; height: 200px; }
+  .name-line, .row-rename { order: 2; }
+  .row-meta { order: 3; }
+  .row-tools { order: 4; }
+  .strip { order: 5; }
+  .detail { order: 6; flex: none; }
+  .btn-go { order: 7; margin-top: 2px; }
+  .go-hint { order: 8; }
+  .row-status { order: 9; }
+  .onair { padding: 5px 10px; font-size: 12px; gap: 6px; }
+  .detail-tools { margin-left: 0; }
+  .detail-motions { flex-direction: column; gap: 4px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dropzone, .thumb, .strip::before, .strip::after { transition: none; }
+  .dropzone[aria-busy="true"] .dropzone-icon { animation: none; }
+}

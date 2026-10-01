@@ -26,11 +26,24 @@ Open the printed character list URL in your browser. It works before you add any
 
 | Path | Page |
 |---|---|
-| `/` | **캐릭터 목록** (character list): your characters and their photos. Create characters, add photos, pick the photo to put on air (**이 캐릭터로 방송하기**, which then opens `/broadcast`). Every photo card has **동작 추가하러 가기**, which opens `/animate?photo=<photoId>`. |
+| `/` | **캐릭터 목록** (character list): your characters and their photos. Create characters, add photos, pick the photo to put on air (**이 캐릭터로 방송하기**, which then opens `/broadcast`). The selected photo of every character has **동작 추가하러 가기**, which opens `/animate?photo=<photoId>`. |
 | `/broadcast` | **방송 화면**: the controller (motion buttons, OBS guide) next to the true-scale canvas preview, for the photo on air. |
 | `/animate?photo=<photoId>` | **동작 만들기**: make motions for one photo, with AI or by uploading a finished video. |
 | `/overlay` | The OBS Browser Source. Its URL never changes: it follows the photo on air. |
 | `/login` | Google login (only when [login](#google-login-optional) is on); afterwards it returns to the page you came from (default `/`). |
+
+### The character list page
+
+`/` is where a stream starts. The header links to **방송 화면** (`/broadcast`) and **동작 만들기** (`/animate`) and shows what is on air (**방송 중** with the character's name and photo number, a link to the 방송 화면), or that nothing is.
+
+- **One row per character** (oldest first; the page scrolls down). The left column is the character: its **base photo**, name, **방송 중** when one of its photos is on air, the counts (`사진 5장 · 동작 7개`), **이름 바꾸기** (edit the name in place, up to 40 characters; Enter saves, Esc cancels), **삭제**, and **이 캐릭터로 방송하기**. The right column is its photos.
+- **The photo strip** shows small photos the way OBS shows them (a photo whose plain background was cut out appears as its cutout, on a checkerboard) with the badges **기본** (base photo) and **방송 중** and a caption (`동작 2개` / `동작 없음`). It scrolls sideways inside the row; its last tile, **+ 사진 추가**, adds photos (click, or drop image files anywhere on the row).
+- **Clicking a small photo selects it** in its row (accent ring); by default a row selects its photo on air, else its base photo. Under the strip, a detail area belongs to the selected photo: **선택한 사진 · N번째**, its motion count and motion names (or **아직 동작이 없습니다**), **+ 동작 추가하러 가기** (`/animate?photo=<photoId>`, which opens with that photo chosen; you can generate with AI there or upload a finished video), **기본으로** (make it the base photo) and **사진 삭제**.
+- **이 캐릭터로 방송하기** puts the selected photo on air and opens the 방송 화면; the overlay switches to it at once.
+- **Deleting** asks first and says what goes with it: a photo takes its motions and uploaded idle with it, a deleted base photo passes the role to the oldest remaining photo, and a character takes all of its photos and motions. Deleting what is on air leaves nothing on air, so the overlay goes back to the demo avatar. A character's only photo cannot be deleted; the page says so (the server's own `last_photo` text) instead of asking.
+- **새 캐릭터 만들기** is the dashed first row of the list, always there: the **기본 사진** (required: click, drop, or paste an image with ⌘V / Ctrl+V) and the **캐릭터 이름** (required, up to 40 characters). **만들기** stays disabled, with a note on what is missing, until both are set. With no character yet, the page also says **첫 캐릭터를 만들어 주세요**.
+- On a narrow screen (up to 720 px) a row becomes one column: base photo, name and counts, the photo strip and the selected photo's detail, and **이 캐릭터로 방송하기** last, right after the photo it will put on air.
+- The page follows the server: every change is shown from the server's answer, the list is fetched again when the library view changes (`/api/events`) and when the tab comes back into focus, and every refusal shows the server's Korean `error` text.
 
 ## Characters and photos
 
