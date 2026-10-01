@@ -47,6 +47,7 @@
     ['bad_api_version', 'polar.apiVersion은 2026-10 같은 형식이어야 합니다.'],
     ['bad_credits_per_usd', 'creditsPerUsd는 1 이상의 정수여야 합니다.'],
     ['bad_free_emails', 'freeEmails는 이메일 목록이어야 합니다.'],
+    ['bad_welcome_credits', 'welcomeCredits는 0 이상의 정수여야 합니다.'],
     ['bad_transfer_note', 'transferNote는 1000자 이하의 글이어야 합니다.'],
     ['login_required', '크레딧 결제를 쓰려면 Google 로그인을 먼저 켜야 합니다.'],
   ]);
@@ -77,6 +78,7 @@
     ['revoke', '환불로 회수'],
     ['charge', '사용'],
     ['refund', '돌려받음'],
+    ['welcome', '가입 환영'],
     ['topup', '충전'],
     ['deduct', '차감'],
   ]);

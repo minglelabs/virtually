@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>활동 · 자료 · Virtually</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/billing.css">
+  <link rel="stylesheet" href="/admin.css">
+  <link rel="stylesheet" href="/admin-activity.css">
+  <link rel="stylesheet" href="/auth.css">
+</head>
+<body>
+  <main class="page page-wide">
+    <header class="page-header">
+      <nav class="page-links" aria-label="다른 화면">
+        <a href="/" class="back-link">캐릭터 목록</a>
+        <a href="/broadcast" class="back-link">방송 화면</a>
+        <a href="/admin" class="back-link">크레딧 관리</a>
+      </nav>
+      <h1>활동 · 자료</h1>
+      <div id="authSlot" class="auth-slot" hidden></div>
+    </header>
+
+    <!-- admin-activity.js: not an admin, no server. -->
+    <div id="pageMessage" class="messages" role="alert"></div>
+
+    <div id="tabs" class="tabs" role="tablist" aria-label="보기" hidden>
+      <button type="button" class="tab" role="tab" id="tabUsers" data-tab="users" aria-selected="true">사용자</button>
+      <button type="button" class="tab" role="tab" id="tabLibrary" data-tab="library" aria-selected="false">올린 자료</button>
+      <button type="button" class="tab" role="tab" id="tabEvents" data-tab="events" aria-selected="false">이력</button>
+    </div>
+
+    <!-- 사용자: what each account did; a row opens its 이력 -->
+    <section id="panelUsers" class="card" role="tabpanel" aria-labelledby="tabUsers" hidden>
+      <p class="muted note">기록은 이 기능이 켜진 뒤부터 쌓입니다. 이전에 만든 자료는 올린 사람이 <em>기록 이전</em>으로 보입니다. 줄을 누르면 그 사용자의 이력을 봅니다.</p>
+      <p id="usersStatus" class="status" aria-live="polite"></p>
+      <div class="table-wrap">
+        <table id="usersTable" class="users-table" hidden>
+          <thead>
+            <tr>
+              <th scope="col">이메일</th><th scope="col">이름</th>
+              <th scope="col" class="num">올림</th><th scope="col" class="num">수정·삭제</th><th scope="col" class="num">방송 전환</th>
+              <th scope="col" class="num">동작 재생</th><th scope="col" class="num">동작 만들기</th><th scope="col">최근 활동</th>
+            </tr>
+          </thead>
+          <tbody id="usersBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 올린 자료: characters with photos and motions, uploaded driving videos, 동작 만들기 jobs -->
+    <section id="panelLibrary" class="panel-stack" role="tabpanel" aria-labelledby="tabLibrary" hidden>
+      <p id="libraryStatus" class="status" aria-live="polite"></p>
+      <div class="card">
+        <h2>캐릭터 · 사진 · 동작</h2>
+        <div id="characterList" class="char-admin-list"></div>
+        <p id="characterEmpty" class="muted" hidden>아직 캐릭터가 없습니다.</p>
+      </div>
+      <div class="card">
+        <h2>올린 동작 영상</h2>
+        <div id="drivingList" class="driving-list"></div>
+        <p id="drivingEmpty" class="muted" hidden>사용자가 올린 영상이 없습니다.</p>
+      </div>
+      <div class="card">
+        <h2>동작 만들기 작업</h2>
+        <div class="table-wrap">
+          <table id="jobsTable" class="users-table" hidden>
+            <thead>
+              <tr><th scope="col">시각</th><th scope="col">만든 사람</th><th scope="col">캐릭터</th><th scope="col">모델</th><th scope="col">동작 영상</th><th scope="col">상태</th><th scope="col" class="num">크레딧</th><th scope="col">결과</th></tr>
+            </thead>
+            <tbody id="jobsBody"></tbody>
+          </table>
+        </div>
+        <p id="jobsEmpty" class="muted" hidden>아직 작업이 없습니다.</p>
+      </div>
+    </section>
+
+    <!-- 이력: every recorded change, broadcast switch and motion play, newest first -->
+    <section id="panelEvents" class="card" role="tabpanel" aria-labelledby="tabEvents" hidden>
+      <div class="card-head">
+        <h2>이력</h2>
+        <div class="filters">
+          <label class="visually-hidden" for="typeFilter">종류</label>
+          <select id="typeFilter" class="select">
+            <option value="">전체</option>
+            <option value="upload">올림</option>
+            <option value="edit">수정·삭제</option>
+            <option value="onair">방송 전환</option>
+            <option value="play">동작 재생</option>
+            <option value="job">동작 만들기</option>
+          </select>
+          <label class="visually-hidden" for="emailFilter">이메일</label>
+          <input type="search" id="emailFilter" class="search" autocomplete="off" spellcheck="false" maxlength="254" placeholder="이메일로 거르기">
+        </div>
+      </div>
+      <p id="eventsStatus" class="status" aria-live="polite"></p>
+      <ol id="eventList" class="event-list"></ol>
+      <p id="eventsEmpty" class="muted" hidden>조건에 맞는 이력이 없습니다.</p>
+      <div class="row more-row"><button type="button" id="moreBtn" class="btn btn-ghost" hidden>더 보기</button></div>
+    </section>
+  </main>
+  <script src="/auth.js"></script>
+  <script src="/admin-activity.js"></script>
+</body>
+</html>

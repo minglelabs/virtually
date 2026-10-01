@@ -21,7 +21,7 @@ const problemOf = raw => validateBillingConfig(raw).problem;
 test('problem codes are checked in the v2 order', () => {
   assert.deepEqual(PROBLEMS, [
     'invalid_json', 'bad_admin_emails', 'bad_server', 'missing_token', 'bad_webhook_secret', 'bad_api_version',
-    'bad_credits_per_usd', 'bad_free_emails', 'bad_transfer_note', 'login_required',
+    'bad_credits_per_usd', 'bad_free_emails', 'bad_welcome_credits', 'bad_transfer_note', 'login_required',
   ]);
   // Everything wrong at once, then fixed one field at a time: each step reports the next code.
   const raw = {
