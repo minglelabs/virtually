@@ -12,7 +12,7 @@
     "archive": "node scripts/archive-to-r2.js"
   },
   "engines": {
-    "node": ">=20.12"
+    "node": ">=22"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1144.0",
