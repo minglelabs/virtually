@@ -123,14 +123,8 @@ const AnimateHelpers = (() => {
     return Number((rate * billed).toFixed(4));
   }
 
-  /** A model cost in dollars, '$0.30'; '' when it is unknown. Shown only inside the 원가 note. */
-  function formatUsd(usd) {
-    return Number.isFinite(usd) ? `$${usd.toFixed(2)}` : '';
-  }
-
   // ---- Credits (GET /api/billing, via window.VirtuallyBilling from auth.js) ----
-  // Prices are credits in every billing mode (1 credit = 1 KRW). The dollar model
-  // cost is shown only to admins, and to everyone while billing is off.
+  // Prices are credits in every billing mode (1 credit = 1 KRW); the dollar model cost is never shown.
 
   /** A credit count as every page shows it: '1,234', '-50'; '' when it is not a number. */
   function formatCredits(value) {
@@ -143,12 +137,6 @@ const AnimateHelpers = (() => {
       && billing.mode === 'enabled' && billing.free !== true);
   }
 
-  /** True when prices also show the dollar model cost: admins, and everyone while billing is off. */
-  function showsModelCost(billing) {
-    if (!billing || typeof billing !== 'object') return false;
-    return billing.enabled === false || (billing.mode === 'enabled' && billing.isAdmin === true);
-  }
-
   /**
    * Credits for a USD estimate at the payload's creditsPerUsd (credits.js falls back to
    * its default without one, e.g. before GET /api/billing answers); null when unknown.
@@ -158,12 +146,11 @@ const AnimateHelpers = (() => {
     return credits.creditsFor(usd, billing && typeof billing === 'object' ? billing.creditsPerUsd : undefined);
   }
 
-  /** '약 600 크레딧', plus ' (원가 $0.30)' for admins and while billing is off; '가격 정보 없음' when unknown. */
+  /** '약 600 크레딧'; '가격 정보 없음' when unknown. */
   function priceText(usd, billing) {
     const needed = creditsForEstimate(usd, billing);
     if (needed == null) return '가격 정보 없음';
-    const text = `약 ${formatCredits(needed)} 크레딧`;
-    return showsModelCost(billing) ? `${text} (원가 ${formatUsd(usd)})` : text;
+    return `약 ${formatCredits(needed)} 크레딧`;
   }
 
   /** A route's price: '무료' for the free route, '' until the driving length is known, else priceText. */
@@ -786,10 +773,8 @@ const AnimateHelpers = (() => {
     selectableOptions,
     effectiveOptions,
     estimateUsd,
-    formatUsd,
     formatCredits,
     billingActive,
-    showsModelCost,
     creditsForEstimate,
     priceText,
     routeCostText,
