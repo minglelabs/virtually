@@ -52,6 +52,8 @@ async function writeFresh(file, value) {
   await fs.utimes(file, stamp, stamp);
 }
 
+// The tests start every account at 0 credits; the welcome credits have their own tests.
+const noWelcome = value => (value && typeof value === 'object' && !('welcomeCredits' in value) ? { welcomeCredits: 0, ...value } : value);
 const billingConfigPath = dataDir => path.join(dataDir, 'billing', 'config.json');
 const authConfigPath = dataDir => path.join(dataDir, 'auth', 'config.json');
 const ledgerPath = dataDir => path.join(dataDir, 'billing', 'ledger.json');
@@ -59,7 +61,7 @@ const ledgerPath = dataDir => path.join(dataDir, 'billing', 'ledger.json');
 // value null removes the file.
 async function setBillingConfig(ctx, value) {
   if (value === null) await fs.rm(billingConfigPath(ctx.dataDir), { force: true });
-  else await writeFresh(billingConfigPath(ctx.dataDir), value);
+  else await writeFresh(billingConfigPath(ctx.dataDir), noWelcome(value));
 }
 
 async function setAuthConfig(ctx, value) {
@@ -122,7 +124,7 @@ async function startApp(t, { auth = authConfig(), billing = billingConfig(), ani
     await fs.rm(root, { recursive: true, force: true });
   });
   if (auth !== null) await writeFresh(authConfigPath(dataDir), auth);
-  if (billing !== null) await writeFresh(billingConfigPath(dataDir), billing);
+  if (billing !== null) await writeFresh(billingConfigPath(dataDir), noWelcome(billing));
   if (animate) await seedAnimate(dataDir, animate);
   return launch(ctx);
 }

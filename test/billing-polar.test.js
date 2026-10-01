@@ -43,7 +43,7 @@ function authConfig(overrides = {}) {
 // A v2 billing config with Polar on. `polar: null` leaves Polar out; a `polar`
 // object is merged into the default one.
 function billingConfig({ polar = {}, ...rest } = {}) {
-  const config = { adminEmails: [ADMIN.email], ...rest };
+  const config = { adminEmails: [ADMIN.email], welcomeCredits: 0, ...rest };
   if (polar !== null) config.polar = { server: 'sandbox', accessToken: TOKEN, webhookSecret: SECRET, ...polar };
   return config;
 }

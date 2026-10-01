@@ -11,6 +11,7 @@ const { createAnimateApi } = require('./lib/animate/api');
 const { measureFit } = require('./lib/animate/fit');
 const { processMotionUpload } = require('./lib/animate/motion-upload');
 const { createAuth } = require('./lib/auth');
+const { createActivityLog, observe: observeActivity } = require('./lib/activity');
 const {
   CharacterStore, characterError, checkName, cleanFilename, photoDisplay,
   CHARACTER_ID_RE, PHOTO_ID_RE, MAX_CHARACTERS, MAX_PHOTOS, PHOTO_MAX_BYTES,
@@ -48,6 +49,9 @@ const STATIC_FILES = new Map([
   ['/admin', ['admin.html', 'text/html; charset=utf-8']],
   ['/admin.css', ['admin.css', 'text/css; charset=utf-8']],
   ['/admin.js', ['admin.js', 'text/javascript; charset=utf-8']],
+  ['/admin/activity', ['admin-activity.html', 'text/html; charset=utf-8']],
+  ['/admin-activity.css', ['admin-activity.css', 'text/css; charset=utf-8']],
+  ['/admin-activity.js', ['admin-activity.js', 'text/javascript; charset=utf-8']],
 ]);
 
 // With login on, anyone may load the non-HTML static files (the repo is public anyway).
@@ -369,6 +373,8 @@ async function createAppServer({
 
   // Before the animate API, so a failing auth setup cannot leave its jobs running.
   const auth = await createAuth({ ...authOptions, dataDir, sendJson, readBody, isPublicStatic });
+  // Who did what (admin page): written to <dataDir>/activity/events.jsonl.
+  const activity = await createActivityLog({ dataDir, log: message => console.warn(message) });
   // Before the animate API too: jobs are charged and refunded through it.
   const billing = await createBilling({ ...billingOptions, dataDir, auth, sendJson, readBody });
 
@@ -571,6 +577,92 @@ async function createAppServer({
     return false;
   }
 
+  // ---- Admin routes (/api/admin/*): admins only (adminEmails of data/billing/config.json) ----
+  function adminLibrary() {
+    const owner = (kind, id) => activity.ownerOf(kind, id);
+    const motionView = item => ({ id: item.id, name: item.name, mime: item.mime, url: `/api/media/${item.id}`, createdAt: item.createdAt, owner: owner('motion', item.id) });
+    const list = listView();
+    return {
+      activePhotoId: list.activePhotoId,
+      characters: list.characters.map(character => ({
+        id: character.id,
+        name: character.name,
+        createdAt: character.createdAt,
+        onAir: character.onAir,
+        owner: owner('character', character.id),
+        photos: character.photos.map(photo => ({
+          id: photo.id,
+          url: photo.url,
+          displayUrl: photo.displayUrl || photo.url,
+          isBase: photo.isBase,
+          onAir: photo.onAir,
+          createdAt: photo.createdAt,
+          owner: owner('photo', photo.id),
+          motions: photo.motions.map(motion => motionView(motion)),
+        })),
+      })),
+      looseMotions: library.motions.filter(item => !item.photoId).map(motionView),
+    };
+  }
+
+  async function adminAnimate() {
+    const uploads = (await animate.drivings.list()).filter(item => item.kind === 'upload');
+    return {
+      drivings: uploads.map(item => ({
+        id: item.id,
+        label: item.label,
+        url: item.url,
+        posterUrl: item.posterUrl,
+        duration: item.duration,
+        createdAt: (animate.drivings.uploads.get(item.id) || {}).createdAt || null,
+        owner: activity.ownerOf('driving', item.id),
+      })),
+      jobs: animate.pipeline.list().map(job => {
+        const view = animate.pipeline.view(job);
+        return {
+          id: view.id,
+          state: view.state,
+          routeLabel: view.routeLabel,
+          drivingLabel: view.drivingLabel,
+          characterLabel: view.characterLabel,
+          photoId: view.photoId,
+          createdAt: view.createdAt,
+          finishedAt: view.finishedAt,
+          error: view.error ? view.error.message : null,
+          credits: view.billing ? view.billing.credits : null,
+          resultUrl: view.result ? view.result.url : null,
+          posterUrl: view.result ? view.result.posterUrl : null,
+          motionName: view.motionName,
+          owner: activity.ownerOf('job', view.id) || (job.billing && job.billing.email) || null,
+        };
+      }),
+    };
+  }
+
+  async function handleAdmin(req, res, url, access) {
+    const { pathname } = url;
+    if (!pathname.startsWith('/api/admin/')) return false;
+    if (!billing.isAdminAccess(access)) {
+      sendJson(res, 403, { error: '관리자만 볼 수 있습니다.', code: 'admin_only' });
+      return true;
+    }
+    if (req.method !== 'GET') return false;
+    if (pathname === '/api/admin/overview') {
+      sendJson(res, 200, { users: activity.users(), events: activity.events.length });
+      return true;
+    }
+    if (pathname === '/api/admin/library') {
+      sendJson(res, 200, { ...adminLibrary(), ...(await adminAnimate()) });
+      return true;
+    }
+    if (pathname === '/api/admin/activity') {
+      const q = url.searchParams;
+      sendJson(res, 200, { events: activity.list({ type: q.get('type') || '', email: q.get('email') || '', before: q.get('before') || '', limit: q.get('limit') || 100 }) });
+      return true;
+    }
+    return false;
+  }
+
   const server = http.createServer((req, res) => {
     (async () => {
       const url = new URL(req.url, 'http://localhost');
@@ -603,6 +695,8 @@ async function createAppServer({
       if (!access) return;
       if (await auth.handleApi(req, res, url, access)) return;
       if (await billing.handleApi(req, res, url, access)) return;
+      observeActivity(activity, req, res, url, access);
+      if (await handleAdmin(req, res, url, access)) return;
       if (req.method === 'GET' && pathname === '/api/library') return sendJson(res, 200, libraryView());
       if (req.method === 'GET' && pathname === '/api/events') {
         res.writeHead(200, {
@@ -698,6 +792,14 @@ async function createAppServer({
         if (body.id !== 'demo' && !view.motions.some(item => item.id === body.id)) return sendJson(res, 404, { error: 'Motion not found.' });
         const seq = ++sequence;
         broadcast({ type: 'play', id: body.id, seq });
+        const played = view.motions.find(item => item.id === body.id);
+        activity.record(access, 'motion.trigger', {
+          motionId: body.id,
+          motionName: played ? played.name : null,
+          characterId: view.character ? view.character.id : null,
+          characterName: view.character ? view.character.name : null,
+          photoId: view.photo ? view.photo.id : null,
+        });
         return sendJson(res, 200, { ok: true, seq });
       }
       if (req.method === 'POST' && pathname === '/api/idle') {
@@ -819,6 +921,7 @@ async function createAppServer({
   server.auth = auth;
   server.characters = characters;
   server.billing = billing;
+  server.activity = activity;
   return server;
 }
 
