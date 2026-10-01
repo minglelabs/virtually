@@ -88,41 +88,6 @@ The **+ 동작 추가하러 가기** button stays visible at the bottom of the l
 
 Motions are transparent WebM clips (keyed AI results, finished videos with a transparent or plain key-colour background, or uploads through the API) or MP4/WebM videos kept with their own background. The name decides the link: a motion named `wink` or `윙크` becomes the video of the **윙크** button, and any other name becomes a new button with that name.
 
-## Database (optional)
-
-By default every record (login secrets, the credit ledger, characters, the motion library, jobs) is a JSON
-file under `data/`. Set `DATABASE_URL` to keep them in Postgres instead, in the table `virtually.documents`
-(the `virtually` schema and the table are created on start; on Supabase use the pooler connection string):
-
-```bash
-DATABASE_URL=postgres://user:pass@host:5432/postgres node server.js
-```
-
-Existing records are copied over once with `node scripts/migrate-to-db.js [dataDir] [--dry-run]`.
-## Media in Cloudflare R2 (optional)
-
-Set all of `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` and `R2_BUCKET` and the media files
-(photos, cutouts, motions, job results, driving videos) are kept in that bucket. The data directory stays
-the working copy: on start every file the disk lacks is downloaded from the bucket, then new, changed and
-deleted files are synced every few seconds and once more on shutdown (SIGTERM). A replaced container or an
-empty disk therefore comes back complete. Object keys are the paths under `data/`.
-Not synced: `auth/` and `billing/` (secrets), the activity log, unfinished `*.tmp*` files.
-
-## Configuration without a disk (Railway and similar)
-
-`data/*/config.json` cannot survive a redeploy there, so the same settings come from environment variables
-while the file does not exist:
-
-| Setting | Variables |
-|---|---|
-| Google login | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `ALLOWED_EMAILS` (comma separated), `PUBLIC_URL` |
-| Credits and Polar | `VIRTUALLY_BILLING_CONFIG` (the JSON of billing/config.json) |
-| WaveSpeed | `WAVESPEED_API_KEY` (other providers: their own variables, see the animate settings) |
-| Database, media | `DATABASE_URL`, `R2_*` as above |
-
-Also set `HOST=0.0.0.0` so the platform's router can reach the server. `node server.js` reads these
-variables; `createAppServer()` itself does not, so tests never touch a real database or bucket.
-
 ## Google login (optional)
 
 Login is off by default. It turns on when `data/auth/config.json` exists; from then on the character list, the 방송 화면, the 동작 만들기 page and the API need a Google account (from your allowlist, or any account with `"*"`) (open `http://127.0.0.1:8787/login`, or any page, to log in). The server re-reads the file when it changes (at most once a second), so no restart is needed; delete the file to turn login off again. A file that is present but unusable (broken JSON, a missing field) keeps everything locked until it is fixed: every page leads to `/login`, which names the problem. The server's startup output also says whether login is on.
@@ -162,8 +127,6 @@ The server never writes this file.
 ### Accounts and their data
 
 With login on, every Google account has its own data, kept apart under `data/users/<Google id>/`: its characters and photos, motions and idles, the photo on air, the OBS source size, its driving videos and its 동작 만들기 jobs. One account cannot see or change another's, whatever ids it sends (an id of someone else's answers `404`), and the overlay of an account shows only that account's on-air photo. Shared by all accounts: the server's provider keys and model routes (see [API keys](#api-keys)), the credits ledger (one balance per account) and the activity log; admins (`adminEmails`) see every account's characters, driving videos and jobs on the 활동 · 자료 page.
-
-Each account may store 2 GB (`VIRTUALLY_ACCOUNT_QUOTA_MB`, `0` = no limit; login off has none). When it is full, uploads, new characters, driving videos and new jobs answer `413 quota_exceeded` until the account deletes something.
 
 With login off there is one set of data directly under `data/`, as before. Login on never reads that data: to move an existing install over, move `data/library.json`, `data/obs-source.json` and the folders `data/characters`, `data/media`, `data/animate/jobs` and `data/animate/drivings` into `data/users/<your Google id>/` (or run `node scripts/claim-legacy-data.js <your Google id>`; the id is the `sub` shown in `data/billing/ledger.json` for your address).
 
@@ -387,7 +350,6 @@ All errors are JSON `{ "error", "code"?, "detail"? }`. JSON bodies need `Content
 | Method and path | Purpose |
 |---|---|
 | `GET /api/animate/status` | ffmpeg availability, routes (each with `defaultMargin`, and `free`: `true` only for the local demo route, which needs no `confirmed` and is never charged; the page reads it for every price and confirmation), `margins` (`[{ value, label }]` for `none` / `normal` / `wide`), providers (`id`, `label`, `configured` — never a key), config |
-| `DELETE /api/animate/jobs/<id>` | Delete a finished job and its files (`409 job_active` while it runs: cancel first; `409 job_busy` while its refund is on its way). A motion already added from it stays |
 | `GET /api/animate/drivings` | Visible examples (manifest order), then uploads (newest first); `hiddenExamples` is the number of hidden examples |
 | `POST /api/animate/examples/fetch` | Download missing example videos, skipping hidden and bundled ones (`{}`) |
 | `POST /api/animate/examples/restore` | Un-hide all deleted examples (`{}`); returns `{ drivings, hidden: [] }`. Downloaded ones stay unavailable until fetched again; bundled ones are available at once |

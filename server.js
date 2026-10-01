@@ -7,8 +7,6 @@ const crypto = require('node:crypto');
 
 const { createAnimateShared } = require('./lib/animate/api');
 const { createAuth } = require('./lib/auth');
-const { openDocs, createFileDocs } = require('./lib/docs');
-const { createMirror, storeFromEnv } = require('./lib/blobs');
 const { createActivityLog, observe: observeActivity } = require('./lib/activity');
 const { WEBHOOK_PATH, createBilling } = require('./lib/billing');
 const { createSite } = require('./lib/site');
@@ -69,14 +67,6 @@ async function createAppServer({
   ffprobePath = process.env.FFPROBE_PATH || 'ffprobe',
   animateMock = process.env.VIRTUALLY_ANIMATE_MOCK === '1',
   animatePollIntervalMs = null,
-  // Where JSON records live (lib/docs.js): files under dataDir by default. Running
-  // `node server.js` passes Postgres when DATABASE_URL is set.
-  docs = createFileDocs(),
-  // Where media files are kept durably (lib/blobs.js): nowhere but the disk by default.
-  // Running `node server.js` passes R2 when R2_* is set; the disk is then a working copy
-  // that is restored on start. The environment is read there, not here, so a test run
-  // with these variables in the shell cannot touch the real database or bucket.
-  blobs: blobStore = null,
   examplesManifestPath = EXAMPLES_MANIFEST,
   bundledDrivingsDir = BUNDLED_DRIVINGS_DIR,
   // Test-only: lets example downloads use plain http fixture servers.
@@ -87,20 +77,15 @@ async function createAppServer({
   // Credit billing (off unless <dataDir>/billing/config.json exists). Tests inject
   // { apiBase, now: () => ms, configCheckIntervalMs, log }.
   billing: billingOptions = {},
-  // Bytes each login account may store (login off: no limit). Env VIRTUALLY_ACCOUNT_QUOTA_MB; 0 = no limit.
-  accountQuotaBytes = Number(process.env.VIRTUALLY_ACCOUNT_QUOTA_MB ?? 2048) * 1024 * 1024,
 } = {}) {
   await fsp.mkdir(dataDir, { recursive: true });
-  const mirror = blobStore ? createMirror({ root: dataDir, store: blobStore, log: message => console.warn(message) }) : null;
-  // Before anything reads the disk: a new container starts from the bucket's files.
-  if (mirror) await mirror.hydrate();
 
   // Before the workspaces, so a failing auth setup cannot leave their jobs running.
-  const auth = await createAuth({ ...authOptions, dataDir, docs, sendJson, readBody, isPublicStatic });
+  const auth = await createAuth({ ...authOptions, dataDir, sendJson, readBody, isPublicStatic });
   // Who did what (admin page): written to <dataDir>/activity/events.jsonl.
   const activity = await createActivityLog({ dataDir, log: message => console.warn(message) });
   // Before the animate API too: jobs are charged and refunded through it.
-  const billing = await createBilling({ ...billingOptions, dataDir, docs, auth, sendJson, readBody });
+  const billing = await createBilling({ ...billingOptions, dataDir, auth, sendJson, readBody });
   // The server's provider keys and model routes, one set for every account.
   const animateShared = await createAnimateShared({ dataDir, mock: animateMock });
 
@@ -117,9 +102,8 @@ async function createAppServer({
       const opening = (async () => {
         await fsp.mkdir(dir, { recursive: true });
         return createWorkspace({
-          dataDir: dir, docs, owner: id === '' ? null : await readOwner(dir), ffmpegPath, ffprobePath, animateMock, animatePollIntervalMs,
+          dataDir: dir, owner: id === '' ? null : await readOwner(dir), ffmpegPath, ffprobePath, animateMock, animatePollIntervalMs,
           animateShared, examplesManifestPath, allowHttpExamples, bundledDrivingsDir, billing, activity,
-          quotaBytes: id !== '' && accountQuotaBytes > 0 ? accountQuotaBytes : null,
         });
       })();
       workspaces.set(id, opening);
@@ -130,7 +114,7 @@ async function createAppServer({
 
   async function readOwner(dir) {
     try {
-      const stored = await docs.read(path.join(dir, 'owner.json'));
+      const stored = JSON.parse(await fsp.readFile(path.join(dir, 'owner.json'), 'utf8'));
       return stored && typeof stored.sub === 'string' ? stored : null;
     } catch {
       return null;
@@ -145,11 +129,15 @@ async function createAppServer({
     if (ownersWritten.get(id) === stamp) return;
     ownersWritten.set(id, stamp);
     workspace.setOwner(owner);
+    const temporary = path.join(workspace.dataDir, `owner.json.${crypto.randomUUID()}.tmp`);
     try {
-      await docs.write(path.join(workspace.dataDir, 'owner.json'), owner, { private: true });
+      await fsp.writeFile(temporary, JSON.stringify(owner) + '\n', { mode: 0o600 });
+      await fsp.rename(temporary, path.join(workspace.dataDir, 'owner.json'));
     } catch (error) {
       ownersWritten.delete(id);
       console.warn(`[workspace] could not write owner.json: ${error.message}`);
+    } finally {
+      await fsp.rm(temporary, { force: true }).catch(() => {});
     }
   }
 
@@ -167,8 +155,12 @@ async function createAppServer({
   }
 
   const defaultWorkspace = await openWorkspace('');
-  for (const name of await docs.children(usersDir)) {
-    if (!name.endsWith('.tmp') && /^[A-Za-z0-9_~-]+$/.test(name)) await openWorkspace(name);
+  try {
+    for (const entry of await fsp.readdir(usersDir, { withFileTypes: true })) {
+      if (entry.isDirectory() && !entry.name.endsWith('.tmp')) await openWorkspace(entry.name);
+    }
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
   }
   const openedAtStart = await Promise.all([...workspaces.values()]);
 
@@ -292,13 +284,8 @@ async function createAppServer({
     everyWorkspace()
       .then(all => Promise.all(all.map(workspace => workspace.close())))
       .catch(() => {})
-      .finally(() => billing.close().catch(() => {}))
-      .finally(() => (mirror ? mirror.close() : null))
-      .catch(error => console.warn(`[storage] final upload failed: ${error.message}`))
-      .finally(() => docs.close().catch(() => {}));
+      .finally(() => billing.close().catch(() => {}));
   });
-  if (mirror) mirror.start();
-  server.mirror = mirror;
   server.animate = defaultWorkspace.animate;
   server.auth = auth;
   server.characters = defaultWorkspace.characters;
@@ -357,27 +344,9 @@ async function listenWithPortRotation(server, { host = '127.0.0.1', startPort = 
 }
 
 if (require.main === module) {
-  (async () => {
-    const dataDir = path.join(__dirname, 'data');
-    return createAppServer({
-      dataDir,
-      docs: await openDocs({ root: dataDir, log: message => console.warn(message) }),
-      blobs: storeFromEnv(),
-    });
-  })().then(async server => {
+  createAppServer().then(async server => {
     const host = process.env.HOST || '127.0.0.1';
     const startPort = Number(process.env.PORT ?? 8787);
-    // A redeploy sends SIGTERM: upload what the last seconds produced before the disk goes.
-    for (const signal of ['SIGTERM', 'SIGINT']) {
-      process.once(signal, async () => {
-        try {
-          if (server.mirror) await server.mirror.flush({ force: true });
-        } catch (error) {
-          console.warn(`[storage] final upload failed: ${error.message}`);
-        }
-        process.exit(0);
-      });
-    }
     const port = await listenWithPortRotation(server, { host, startPort });
     const displayHost = host.includes(':') ? `[${host}]` : host;
     if (port !== startPort) console.log(`Port ${startPort} is in use; using ${port}.`);
