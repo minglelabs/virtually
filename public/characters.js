@@ -654,7 +654,7 @@ if (typeof document !== 'undefined') (() => {
     thumb.cap.textContent = H.motionCaption(photo);
   }
 
-  // The selected photo's own info: how many motions, their names, '기본으로', delete, '동작 추가하러 가기'.
+  // The selected photo's own info: how many motions, their names, '기본으로', delete, '동작 관리'.
   function renderDetail(row, character, photo, busy) {
     row.detail.hidden = !photo;
     if (!photo) return;
@@ -680,7 +680,7 @@ if (typeof document !== 'undefined') (() => {
         : [el('p', { className: 'empty', text: '아직 동작이 없습니다' })]));
     }
     row.addMotion.setAttribute('href', H.animateHref(photo.id));
-    row.addMotion.setAttribute('aria-label', `${label}에 동작 추가하러 가기`);
+    row.addMotion.setAttribute('aria-label', `${label}의 동작 관리`);
   }
 
   // Scroll a photo's strip (never the page) so the small photo is not past an edge.

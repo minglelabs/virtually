@@ -70,7 +70,7 @@ h3 { margin: 16px 0 6px; font-size: 13px; color: var(--text); }
 }
 .card p { margin: 0 0 12px; color: var(--muted); }
 
-/* ---- On-air character (app.js): thumbnail, name, 캐릭터 바꾸기 / 동작 추가하러 가기 ---- */
+/* ---- On-air character (app.js): thumbnail, name, 캐릭터 바꾸기 / 동작 관리 ---- */
 .on-air { display: flex; flex-shrink: 0; align-items: center; gap: 12px; padding: 12px; }
 .on-air.is-live { border-color: rgba(255, 138, 138, 0.45); }
 .on-air-thumb {

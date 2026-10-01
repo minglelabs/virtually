@@ -617,7 +617,7 @@ test('billing page: header links, its own CSS, auth.js then credits.js then bill
   const scripts = [...html.matchAll(/<script src="\.\/([^"]+)"><\/script>/g)].map(m => m[1]);
   assert.deepEqual(scripts, ['auth.js', 'credits.js', 'billing.js']);
   assert.match(html,
-    /<header class="page-header">\s*<a href="\/" class="brand-link brand-mark">Virtually<\/a>\s*<nav class="page-links" aria-label="[^"]+">\s*<a href="\/" class="back-link">컨트롤러<\/a>\s*<a href="\/animate" class="back-link">동작 만들기<\/a>\s*<\/nav>\s*<h1>크레딧<\/h1>\s*<div id="authSlot" class="auth-slot" hidden><\/div>\s*<\/header>/);
+    /<header class="page-header">\s*<a href="\/" class="brand-link brand-mark">Virtually<\/a>\s*<nav class="page-links" aria-label="[^"]+">\s*<a href="\/" class="back-link">컨트롤러<\/a>\s*<a href="\/animate" class="back-link">동작 관리<\/a>\s*<\/nav>\s*<h1>크레딧<\/h1>\s*<div id="authSlot" class="auth-slot" hidden><\/div>\s*<\/header>/);
   assert.equal((html.match(/id="authSlot"/g) || []).length, 1);
   for (const text of ['<h2 id="productsTitle">충전</h2>', '<h2 id="historyTitle">사용 내역</h2>', '>아직 내역이 없습니다.<',
     '>테스트 결제(샌드박스)<', '>테스트 카드 4242 4242 4242 4242로 결제할 수 있습니다.<', '>이 계정은 크레딧 없이 동작을 만들 수 있습니다.<',

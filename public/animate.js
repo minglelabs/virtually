@@ -1,8 +1,10 @@
 'use strict';
 
-// Animate page (동작 만들기): pick a character photo (GET /api/characters),
-// then either run an AI animate route with a driving video and add a result
-// as a motion of that photo, or upload a finished video as its motion.
+// Animate page (동작 관리): one character at a time, picked in the strip at
+// the top (GET /api/characters). Shows that character's photos, motions (which
+// one loops as the idle, delete) and results, and adds motions to the chosen
+// photo: run an AI animate route with a driving video and add a result, or
+// upload a finished video.
 // All names and labels are user or provider data: the DOM is built with
 // createElement/textContent only, never from HTML strings.
 
@@ -315,8 +317,9 @@ const AnimateHelpers = (() => {
     return groups;
   }
 
-  /** Default name for a result added as a motion: the preset label, else the driving label. */
+  /** Default name for a result added as a motion: 기본 대기 동작 for an idle loop, the preset label, else the driving label. */
   function defaultMotionName(job) {
+    if (job?.idle === true) return motions.IDLE_MOTION_NAME;
     return motions.presetLabel(job?.presetKey) || String(job?.drivingLabel ?? '');
   }
 
@@ -654,6 +657,70 @@ const AnimateHelpers = (() => {
     return ids;
   }
 
+  // ---- One character at a time (동작 관리) ----
+
+  const photosOf = character => (Array.isArray(character?.photos) ? character.photos : [])
+    .filter(photo => photo && typeof photo.id === 'string');
+
+  /** A character of the list by id, or null. */
+  function findCharacter(list, characterId) {
+    if (typeof characterId !== 'string' || !characterId) return null;
+    return (Array.isArray(list?.characters) ? list.characters : []).find(character => character && character.id === characterId) || null;
+  }
+
+  /** The photo a character opens with: the on-air one when it is this character's, else its base photo, else its first. */
+  function characterPhotoId(character, activePhotoId) {
+    const photos = photosOf(character);
+    if (photos.some(photo => photo.id === activePhotoId)) return activePhotoId;
+    if (photos.some(photo => photo.id === character.basePhotoId)) return character.basePhotoId;
+    return photos[0]?.id || null;
+  }
+
+  /** Every motion of a character, photos in list order: [{ motion, photo, index }]. */
+  function characterMotions(character) {
+    const out = [];
+    photosOf(character).forEach((photo, index) => {
+      for (const motion of Array.isArray(photo.motions) ? photo.motions : []) {
+        if (motion && typeof motion.id === 'string') out.push({ motion, photo, index });
+      }
+    });
+    return out;
+  }
+
+  /** A switcher chip's second line: '사진 2장 · 동작 3개'. */
+  function characterChipText(character) {
+    return `사진 ${photosOf(character).length}장 · 동작 ${characterMotions(character).length}개`;
+  }
+
+  /**
+   * The jobs made with one of a character's photos (older jobs name their photo
+   * in characterId). Without a character every job is listed.
+   */
+  function jobsOfCharacter(jobs, character) {
+    const all = Array.isArray(jobs) ? jobs : [];
+    if (!character) return all;
+    const ids = new Set(photosOf(character).map(photo => photo.id));
+    ids.add(character.id);
+    return all.filter(job => ids.has(job?.photoId) || ids.has(job?.characterId));
+  }
+
+  /**
+   * What a photo shows on air while no motion plays (photo.idle: 'motion' with
+   * idleMotionId / idleBy, 'upload', or 'photo'). `label` names the photo when its
+   * character has several.
+   */
+  function idleSummary(photo, label = '') {
+    if (!photo) return '';
+    const lead = label ? `${label}의 대기 화면` : '대기 화면';
+    if (photo.idle === 'motion') {
+      const motion = (Array.isArray(photo.motions) ? photo.motions : []).find(item => item && item.id === photo.idleMotionId);
+      const name = String(motion?.name ?? '').trim() || '동작';
+      return `${lead}: '${name}' 영상이 반복 재생됩니다${photo.idleBy === 'choice' ? ' (직접 고름)' : ''}. 다른 동작의 '대기 동작으로'를 누르면 바뀝니다.`;
+    }
+    if (photo.idle === 'upload') return `${lead}: 따로 올린 대기 영상. 동작의 '대기 동작으로'를 누르면 그 동작으로 바뀝니다.`;
+    return `${lead}: 사진. '기본 대기 동작' 영상을 만들면 사진 대신 그 영상이 반복 재생됩니다.`;
+  }
+
   /** `search` with ?photo= set to `photoId` (removed for none), other parameters kept: '' or '?...'. */
   function searchWithPhoto(search, photoId) {
     const params = new URLSearchParams(typeof search === 'string' ? search : '');
@@ -755,6 +822,12 @@ const AnimateHelpers = (() => {
     photoCaption,
     photoSummary,
     knownMotionIds,
+    findCharacter,
+    characterPhotoId,
+    characterMotions,
+    characterChipText,
+    jobsOfCharacter,
+    idleSummary,
     searchWithPhoto,
     MOTION_MAX_BYTES,
     MOTION_MAX_SECONDS,
@@ -834,6 +907,13 @@ if (typeof document !== 'undefined') (() => {
   const drivingInput = $('drivingInput');
   const drivingStatus = $('drivingStatus');
   const drivingPreview = $('drivingPreview');
+  const switchCard = $('switchCard');
+  const characterSwitch = $('characterSwitch');
+  const motionsCard = $('motionsCard');
+  const idleSummary = $('idleSummary');
+  const motionTiles = $('motionTiles');
+  const motionsEmpty = $('motionsEmpty');
+  const motionsStatus = $('motionsStatus');
   const characterCard = $('characterCard');
   const characterEmpty = $('characterEmpty');
   const characterRows = $('characterRows');
@@ -866,7 +946,7 @@ if (typeof document !== 'undefined') (() => {
   const confirmDialog = $('confirmDialog');
   const confirmCredits = $('confirmCredits');
 
-  // ?photo=<photoId> (the list page's 동작 추가하러 가기) picks the photo at first.
+  // ?photo=<photoId> (the list page's 동작 관리) picks the photo at first.
   const requestedPhotoId = new URLSearchParams(window.location.search).get('photo');
 
   const state = {
@@ -1287,8 +1367,12 @@ if (typeof document !== 'undefined') (() => {
     const characters = (Array.isArray(state.list?.characters) ? state.list.characters : [])
       .filter(character => character && typeof character.id === 'string');
     characterEmpty.hidden = state.list == null || characters.length > 0;
+    renderSwitch(characters);
+    renderMotions();
+    // The page is about one character: only the chosen photo's character has a row.
+    const chosenId = chosenPhoto()?.character.id;
     const seen = new Set();
-    characters.forEach((character, index) => {
+    characters.filter(character => character.id === chosenId).forEach((character, index) => {
       seen.add(character.id);
       let row = charRows.get(character.id);
       if (!row) {
@@ -1305,6 +1389,180 @@ if (typeof document !== 'undefined') (() => {
       charRows.delete(id);
     }
     characterMeta.textContent = state.list == null ? '캐릭터를 불러오는 중…' : H.photoSummary(chosenPhoto());
+  }
+
+  // ---- Character switcher (top) ----
+  // One chip per character (server order), keyed by id and patched in place.
+  const switchChips = new Map(); // character id -> { node, img, name, sub, live }
+  const switchStrip = setupStrip(characterSwitch);
+
+  function renderSwitch(characters) {
+    switchCard.hidden = characters.length === 0;
+    const chosenId = chosenPhoto()?.character.id;
+    const seen = new Set();
+    characters.forEach((character, index) => {
+      seen.add(character.id);
+      let chip = switchChips.get(character.id);
+      if (!chip) {
+        const img = el('img', { alt: '', loading: 'lazy', decoding: 'async', draggable: false });
+        const name = el('span', { className: 'char-chip-name' });
+        const sub = el('span', { className: 'char-chip-sub' });
+        const live = el('span', { className: 'badge badge-live', text: '방송 중' });
+        const node = el('button', { type: 'button', className: 'char-chip', dataset: { id: character.id }, onclick: () => selectCharacter(character.id) }, [
+          el('span', { className: 'char-chip-thumb checkerboard' }, [img]),
+          el('span', { className: 'char-chip-text' }, [name, sub]),
+          live,
+        ]);
+        chip = { node, img, name, sub, live };
+        switchChips.set(character.id, chip);
+      }
+      const selected = character.id === chosenId;
+      const base = (Array.isArray(character.photos) ? character.photos : []).find(photo => photo && photo.id === character.basePhotoId)
+        || (Array.isArray(character.photos) ? character.photos[0] : null);
+      const src = base ? base.displayUrl || base.url : '';
+      if (src && chip.img.getAttribute('src') !== src) chip.img.src = src;
+      chip.name.textContent = character.name;
+      chip.name.title = character.name;
+      chip.sub.textContent = H.characterChipText(character);
+      chip.live.hidden = !character.onAir;
+      chip.node.classList.toggle('is-selected', selected);
+      chip.node.setAttribute('aria-pressed', String(selected));
+      if (characterSwitch.children[index] !== chip.node) characterSwitch.insertBefore(chip.node, characterSwitch.children[index] || null);
+    });
+    for (const [id, chip] of switchChips) {
+      if (seen.has(id)) continue;
+      chip.node.remove();
+      switchChips.delete(id);
+    }
+    switchStrip.refresh();
+  }
+
+  // Show another character: its on-air photo, else its base photo, becomes the chosen one.
+  function selectCharacter(characterId) {
+    const character = H.findCharacter(state.list, characterId);
+    const photoId = character ? H.characterPhotoId(character, state.list.activePhotoId) : null;
+    if (!photoId || chosenPhoto()?.character.id === characterId) return;
+    setStatus(motionsStatus, '');
+    selectPhoto(photoId, { byUser: true });
+  }
+
+  // Scroll the switcher (never the page) so the chosen character's chip is in view.
+  function revealCharacter(characterId) {
+    const chip = switchChips.get(characterId);
+    if (!chip) return;
+    const box = characterSwitch.getBoundingClientRect();
+    const rect = chip.node.getBoundingClientRect();
+    if (rect.left < box.left + 8) characterSwitch.scrollLeft -= box.left + 8 - rect.left;
+    else if (rect.right > box.right - 8) characterSwitch.scrollLeft += rect.right - (box.right - 8);
+  }
+
+  // ---- The chosen character's motions ----
+  // Tiles are keyed by motion id and patched in place, so a refresh does not reload the clips.
+  const motionNodes = new Map(); // motion id -> { node, badge, name, sub, idleBtn }
+  let motionBusy = false;
+
+  function renderMotions() {
+    const entry = chosenPhoto();
+    motionsCard.hidden = !entry;
+    if (!entry) return;
+    const { character, photo, index } = entry;
+    const several = (Array.isArray(character.photos) ? character.photos.length : 0) > 1;
+    idleSummary.textContent = H.idleSummary(photo, several ? H.photoLabel(character, index) : '');
+    const items = H.characterMotions(character);
+    motionsEmpty.hidden = items.length > 0;
+    const seen = new Set();
+    items.forEach((item, at) => {
+      const { motion } = item;
+      seen.add(motion.id);
+      let tile = motionNodes.get(motion.id);
+      if (!tile) {
+        tile = createMotionTile(motion);
+        motionNodes.set(motion.id, tile);
+      }
+      updateMotionTile(tile, character, item, several);
+      if (motionTiles.children[at] !== tile.node) motionTiles.insertBefore(tile.node, motionTiles.children[at] || null);
+    });
+    for (const [id, tile] of motionNodes) {
+      if (seen.has(id)) continue;
+      tile.node.remove();
+      motionNodes.delete(id);
+    }
+  }
+
+  function createMotionTile(motion) {
+    const video = el('video', { src: `/api/media/${encodeURIComponent(motion.id)}`, muted: true, loop: true, playsInline: true, preload: 'metadata' });
+    const badge = el('span', { className: 'badge badge-ok', text: '대기 동작' });
+    const name = el('span', { className: 'motion-tile-name' });
+    const sub = el('span', { className: 'motion-tile-sub' });
+    const idleBtn = el('button', { type: 'button', className: 'btn btn-ghost btn-sm' });
+    const removeBtn = el('button', { type: 'button', className: 'btn btn-ghost btn-sm', text: '삭제' });
+    const node = el('div', { className: 'motion-tile', role: 'listitem', dataset: { id: motion.id } }, [
+      el('div', { className: 'motion-thumb checkerboard' }, [video, badge]),
+      name,
+      sub,
+      el('div', { className: 'motion-tile-actions' }, [idleBtn, removeBtn]),
+    ]);
+    // The clip plays while the pointer or the focus is on its tile.
+    const play = () => video.play().catch(() => { /* not playable here */ });
+    const pause = () => video.pause();
+    node.addEventListener('mouseenter', play);
+    node.addEventListener('mouseleave', pause);
+    node.addEventListener('focusin', play);
+    node.addEventListener('focusout', pause);
+    return { node, video, badge, name, sub, idleBtn, removeBtn };
+  }
+
+  function updateMotionTile(tile, character, { motion, photo, index }, several) {
+    const isIdle = motion.isIdle === true;
+    // Unsetting only makes sense for a choice: the default idle is not a setting.
+    const chosen = isIdle && photo.idleBy === 'choice';
+    tile.node.classList.toggle('is-idle', isIdle);
+    tile.badge.hidden = !isIdle;
+    tile.name.textContent = motion.name;
+    tile.name.title = motion.name;
+    tile.sub.textContent = several ? H.photoLabel(character, index) : '';
+    tile.idleBtn.hidden = isIdle && !chosen;
+    tile.idleBtn.textContent = chosen ? '대기 해제' : '대기 동작으로';
+    tile.idleBtn.title = chosen
+      ? '직접 고른 대기 동작을 해제합니다 (기본 대기 동작이 있으면 그 영상, 없으면 사진으로 돌아갑니다)'
+      : '방송 중 다른 동작이 재생되지 않을 때 이 영상을 반복 재생합니다';
+    tile.idleBtn.disabled = motionBusy;
+    tile.removeBtn.disabled = motionBusy;
+    tile.idleBtn.onclick = () => setIdleMotion(character, photo, chosen ? null : motion);
+    tile.removeBtn.onclick = () => deleteMotion(motion);
+  }
+
+  async function setIdleMotion(character, photo, motion) {
+    if (motionBusy) return;
+    motionBusy = true;
+    renderMotions();
+    setStatus(motionsStatus, '');
+    try {
+      const path = `/api/characters/${encodeURIComponent(character.id)}/photos/${encodeURIComponent(photo.id)}/idle`;
+      applyList(await api('PUT', path, { json: { motionId: motion ? motion.id : null }, errorText: H.serverErrorText }));
+      setStatus(motionsStatus, motion ? `'${motion.name}'을(를) 대기 동작으로 정했습니다` : '대기 동작 선택을 해제했습니다', 'success');
+    } catch (error) {
+      setStatus(motionsStatus, `대기 동작 바꾸기 실패: ${error.message}`, 'error');
+    } finally {
+      motionBusy = false;
+      renderMotions();
+    }
+  }
+
+  async function deleteMotion(motion) {
+    if (motionBusy || !window.confirm(`'${motion.name}' 동작을 지울까요?`)) return;
+    motionBusy = true;
+    renderMotions();
+    setStatus(motionsStatus, '');
+    try {
+      await api('DELETE', `/api/media/${encodeURIComponent(motion.id)}`);
+      await loadCharacters();
+    } catch (error) {
+      setStatus(motionsStatus, `삭제 실패: ${error.message}`, 'error');
+    } finally {
+      motionBusy = false;
+      renderMotions();
+    }
   }
 
   function createCharacterRow(characterId) {
@@ -1439,7 +1697,12 @@ if (typeof document !== 'undefined') (() => {
     renderCreate();
     renderUpload();
     renderJobs();
-    if (first && next) requestAnimationFrame(() => revealPhoto(next));
+    if (first && next) {
+      requestAnimationFrame(() => {
+        revealPhoto(next);
+        revealCharacter(chosenPhoto()?.character.id);
+      });
+    }
   }
 
   async function loadCharacters() {
@@ -1474,7 +1737,9 @@ if (typeof document !== 'undefined') (() => {
     renderCharacters();
     renderCreate();
     renderUpload();
+    renderJobs(); // the results listed are the chosen character's
     revealPhoto(photoId);
+    revealCharacter(chosenPhoto()?.character.id);
   }
 
   // Upload images one by one as photos of `characterId`; with `createName`
@@ -1611,7 +1876,7 @@ if (typeof document !== 'undefined') (() => {
   // One video at a time: pick or drop it, name it (default: the file name),
   // upload it with progress. The server keys or converts it before answering.
   const upload = { file: null, defaultName: '', busy: false };
-  presetNamesList.replaceChildren(...H.presetNames().map(label => el('option', { value: label })));
+  presetNamesList.replaceChildren(...[window.VirtuallyMotions.IDLE_MOTION_NAME, ...H.presetNames()].map(label => el('option', { value: label })));
 
   function renderUpload() {
     const chosen = chosenPhoto();
@@ -2011,9 +2276,13 @@ if (typeof document !== 'undefined') (() => {
   }
 
   function renderJobs() {
-    jobsEmpty.hidden = state.jobs.length > 0;
+    // Only the chosen character's results (every job while there is no character).
+    const character = chosenPhoto()?.character || null;
+    const jobs = H.jobsOfCharacter(state.jobs, character);
+    jobsEmpty.hidden = jobs.length > 0;
+    jobsEmpty.textContent = character && state.jobs.length > 0 ? '이 캐릭터로 만든 결과가 아직 없습니다' : '아직 없습니다';
     const seen = new Set();
-    state.jobs.forEach((job, index) => {
+    jobs.forEach((job, index) => {
       seen.add(job.id);
       let row = rows.get(job.id);
       if (!row) {

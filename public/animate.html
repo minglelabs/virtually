@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>동작 만들기 · Virtually</title>
+  <title>동작 관리 · Virtually</title>
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="./animate.css">
   <link rel="stylesheet" href="./auth.css">
@@ -16,13 +16,21 @@
         <a href="/" class="back-link">← 캐릭터 목록</a>
         <a href="/broadcast" class="back-link">방송 화면</a>
       </nav>
-      <h1>동작 만들기</h1>
+      <h1>동작 관리</h1>
       <div id="authSlot" class="auth-slot" hidden></div>
     </header>
 
     <p id="globalStatus" class="bar bar-warn" role="alert" hidden></p>
 
-    <!-- 1. Character photo: one row per character (animate.js), from GET /api/characters -->
+    <!-- Which character: the page shows one at a time (animate.js), from GET /api/characters -->
+    <section id="switchCard" class="card" aria-labelledby="switchTitle" hidden>
+      <h2 id="switchTitle">캐릭터</h2>
+      <div class="strip" data-strip>
+        <div id="characterSwitch" class="strip-scroller" role="group" aria-labelledby="switchTitle"></div>
+      </div>
+    </section>
+
+    <!-- 1. The chosen character's photos -->
     <section id="characterCard" class="card" aria-labelledby="characterTitle">
       <h2 id="characterTitle">1. 캐릭터 사진</h2>
       <div id="characterEmpty" class="bar char-empty" hidden>
@@ -37,6 +45,17 @@
       <input type="file" id="characterInput" accept="image/png,image/jpeg,image/webp" multiple hidden>
       <p id="characterStatus" class="status" aria-live="polite"></p>
     </section>
+
+    <!-- The chosen character's motions: which one is the idle, delete -->
+    <section id="motionsCard" class="card" aria-labelledby="motionsTitle" hidden>
+      <h2 id="motionsTitle">이 캐릭터의 동작</h2>
+      <p id="idleSummary" class="muted idle-summary"></p>
+      <div id="motionTiles" class="motion-grid" role="list"></div>
+      <p id="motionsEmpty" class="muted" hidden>아직 동작이 없습니다. 아래에서 만들거나 올려 주세요.</p>
+      <p id="motionsStatus" class="status" aria-live="polite"></p>
+    </section>
+
+    <h2 class="section-title">새 동작 추가</h2>
 
     <!-- How: AI generation (today's flow) or a finished video -->
     <div class="path-choice" role="tablist" aria-label="동작 만드는 방법">
@@ -130,6 +149,7 @@
             </div>
             <datalist id="presetNames"></datalist>
             <p class="muted upload-hint">원영턴, BAD 챌린지 춤처럼 기본 동작 이름을 쓰면 방송 화면의 그 버튼으로 이 영상이 재생됩니다.</p>
+            <p class="muted upload-hint">이름에 '대기'가 들어가면(예: 기본 대기 동작) 이 사진의 대기 동작이 되어 사진 대신 반복 재생됩니다.</p>
             <p class="muted upload-hint">투명 배경 영상은 그대로 쓰고, 초록·파랑·분홍 단색 배경은 자동으로 지웁니다.</p>
             <progress id="motionProgress" class="upload-progress" max="100" value="0" hidden></progress>
             <p id="motionUploadStatus" class="status" aria-live="polite"></p>

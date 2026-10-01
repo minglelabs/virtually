@@ -222,7 +222,7 @@ test('bundled examples: exactly one source, a bare file name, trim ignored', asy
     const { value: examples, warnings } = await captureWarnings(() => loadManifest(file));
     assert.deepEqual(examples.map(item => item.id), ['demo-idle', 'hi-wave']);
     assert.deepEqual(examples[0], {
-      id: 'demo-idle', label: '기본 캐릭터 대기 (idle)', presetKey: null, downloadUrl: null, file: 'demo-idle.mp4',
+      id: 'demo-idle', label: '기본 캐릭터 대기 (idle)', presetKey: null, idle: false, downloadUrl: null, file: 'demo-idle.mp4',
       credit: { author: 'Virtually', license: null, licenseUrl: null, sourcePage: null }, trim: null,
     });
     assert.equal(examples[1].file, null);
@@ -453,4 +453,36 @@ test('render-demo-idle takes the whole #demo-avatar element from overlay.html', 
   assert.ok(!/\breacting\b/.test(avatar), 'idle markup');
   assert.ok(renderPage('.a {}', avatar).includes(avatar));
   assert.equal(FRAMES, 114, '3.8 s at 30 fps');
+});
+
+test('shared examples: every account reads one directory; hiding is per account and keeps the files', { skip }, async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'virtually-shared-examples-'));
+  try {
+    const examplesDir = path.join(root, 'animate', 'drivings', 'examples');
+    await fs.mkdir(examplesDir, { recursive: true });
+    const manifestPath = path.join(root, 'driving.json');
+    await fs.writeFile(manifestPath, JSON.stringify({ version: 1, examples: [{ ...valid, idle: true }] }));
+    ffmpeg(['-f', 'lavfi', '-i', 'testsrc=size=160x240:rate=15', '-t', '4', '-pix_fmt', 'yuv420p', '-c:v', 'libx264', '-preset', 'ultrafast', path.join(examplesDir, 'hi-wave.mp4')]);
+    ffmpeg(['-ss', '0.5', '-i', path.join(examplesDir, 'hi-wave.mp4'), '-frames:v', '1', path.join(examplesDir, 'hi-wave.jpg')]);
+    const open = name => new DrivingStore({
+      dataDir: path.join(root, 'users', name), manifestPath, ffmpegPath: FFMPEG, ffprobePath: FFPROBE, examplesDir,
+    }).init();
+    const [alice, bob] = [await open('alice'), await open('bob')];
+    for (const store of [alice, bob]) {
+      const [view] = await store.list();
+      assert.deepEqual([view.id, view.available, view.idle, view.duration], ['hi-wave', true, true, 4]);
+    }
+    // Alice deletes it: hidden for her only, the files stay for Bob (and come back for her).
+    assert.equal(await alice.remove('hi-wave'), true);
+    assert.deepEqual(await alice.list(), []);
+    assert.equal((await bob.list())[0].available, true);
+    assert.ok(fsSync.existsSync(path.join(examplesDir, 'hi-wave.mp4')));
+    const reopened = await open('alice');
+    assert.deepEqual(await reopened.list(), [], 'the hidden list is the account\'s own record');
+    assert.ok(fsSync.existsSync(path.join(examplesDir, 'hi-wave.mp4')), 'opening a store with hidden examples removes nothing shared');
+    await reopened.restoreExamples();
+    assert.equal((await reopened.list())[0].available, true);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
 });

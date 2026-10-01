@@ -3,6 +3,7 @@
   "examples": [
     {
       "id": "human-idle-neutral",
+      "idle": true,
       "label": "사람 대기 (idle · 무표정)",
       "presetKey": null,
       "downloadUrl": "https://videos.pexels.com/video-files/6322765/6322765-hd_720_1366_30fps.mp4",
@@ -15,6 +16,7 @@
     },
     {
       "id": "human-idle-smile",
+      "idle": true,
       "label": "사람 대기 (idle · 옅은 미소)",
       "presetKey": null,
       "downloadUrl": "https://videos.pexels.com/video-files/6321879/6321879-hd_720_1366_30fps.mp4",
@@ -27,6 +29,7 @@
     },
     {
       "id": "demo-idle",
+      "idle": true,
       "label": "기본 캐릭터 대기 (idle)",
       "presetKey": null,
       "file": "demo-idle.mp4",

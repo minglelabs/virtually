@@ -43,7 +43,7 @@ test('broadcast page wiring: the on-air strip and its links', () => {
   assert.match(html, /<span id="onAirThumb" class="on-air-thumb checkerboard" hidden><\/span>/);
   assert.match(html, /<strong id="onAirName" class="on-air-name">방송할 캐릭터를 골라 주세요<\/strong>/);
   assert.match(html, /<a href="\/" id="onAirChange" class="btn btn-ghost btn-sm">캐릭터 고르기<\/a>/);
-  assert.match(html, /<a href="\/animate" id="onAirAnimate" class="btn btn-sm" hidden>동작 추가하러 가기<\/a>/);
+  assert.match(html, /<a href="\/animate" id="onAirAnimate" class="btn btn-sm" hidden>동작 관리<\/a>/);
 
   const app = readPublic('app.js');
   assert.match(app, /renderOnAir\(data\.library\);/);

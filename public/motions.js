@@ -18,6 +18,10 @@
     { key: 'bad-challenge', label: 'BAD 챌린지 춤' },
   ].map(preset => Object.freeze(preset)));
 
+  // The name of a photo's default idle motion (lib/idle.js on the server decides which
+  // motion loops as the idle; a result made from an idle loop gets this name).
+  const IDLE_MOTION_NAME = '기본 대기 동작';
+
   const SUB_VIDEO = '영상';
   const SUB_NO_VIDEO = '영상 없음 · 데모 재생';
   const SUB_DEMO = '기본 아바타';
@@ -105,6 +109,7 @@
 
   const api = Object.freeze({
     PRESET_MOTIONS,
+    IDLE_MOTION_NAME,
     normalizeName,
     presetLabel,
     onAirPhotoId,

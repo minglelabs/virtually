@@ -114,7 +114,7 @@ test('controller wiring: disabled buttons are not clickable, the hint follows th
   assert.match(app, /button\.disabled = item\.disabled === true;/);
   assert.match(app, /if \(!button \|\| button\.disabled\) return;/);
   assert.match(app, /if \(item && item\.disabled !== true && item\.triggerId\) trigger\(item\);/);
-  assert.match(app, /const HINT_ON_AIR = '영상이 없는 동작은 누를 수 없습니다\. 동작 추가하러 가기에서 영상을 넣어 주세요\.';/);
+  assert.match(app, /const HINT_ON_AIR = '영상이 없는 동작은 누를 수 없습니다\. 동작 관리에서 영상을 넣어 주세요\.';/);
   assert.match(app, /motionHint\.textContent = onAirPhotoId\(data\.library\) \? HINT_ON_AIR : HINT_DEMO;/);
   const css = readPublic('app.css');
   assert.match(css, /\.motion-btn:disabled \{[^}]*color: var\(--muted\);[^}]*cursor: default;/);

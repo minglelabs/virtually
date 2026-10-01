@@ -1,0 +1,9 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "deploy": {
+    "healthcheckPath": "/healthz",
+    "healthcheckTimeout": 300,
+    "drainingSeconds": 30,
+    "restartPolicyType": "ON_FAILURE"
+  }
+}

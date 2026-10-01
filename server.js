@@ -119,6 +119,9 @@ async function createAppServer({
   billing: billingOptions = {},
   // Bytes each login account may store (login off: no limit). Env VIRTUALLY_ACCOUNT_QUOTA_MB; 0 = no limit.
   accountQuotaBytes = Number(process.env.VIRTUALLY_ACCOUNT_QUOTA_MB ?? 2048) * 1024 * 1024,
+  // Download the example driving videos that are missing once the server listens
+  // (`node server.js` does; tests fetch them through the API).
+  fetchExamplesAtStart = false,
 } = {}) {
   await fsp.mkdir(dataDir, { recursive: true });
   const mirror = blobStore ? createMirror({ root: dataDir, store: blobStore, log: message => console.warn(message) }) : null;
@@ -139,6 +142,9 @@ async function createAppServer({
   // Opened lazily on an account's first request, and at startup for every account
   // that has one (their running jobs must go on and be refunded).
   const usersDir = path.join(dataDir, 'users');
+  // The example driving videos are downloaded once, here, for every account (and kept
+  // in the bucket with the rest of the media).
+  const sharedExamplesDir = path.join(dataDir, 'animate', 'drivings', 'examples');
   const workspaces = new Map(); // id ('' = the login-off workspace) -> Promise<workspace>
 
   function openWorkspace(id) {
@@ -149,6 +155,7 @@ async function createAppServer({
         return createWorkspace({
           dataDir: dir, docs, owner: id === '' ? null : await readOwner(dir), ffmpegPath, ffprobePath, animateMock, animatePollIntervalMs,
           animateShared, examplesManifestPath, allowHttpExamples, bundledDrivingsDir, billing, activity,
+          sharedExamplesDir: id === '' ? null : sharedExamplesDir,
           quotaBytes: id !== '' && accountQuotaBytes > 0 ? accountQuotaBytes : null,
         });
       })();
@@ -253,6 +260,12 @@ async function createAppServer({
     (async () => {
       const url = new URL(req.url, 'http://localhost');
       const pathname = url.pathname;
+      // Railway's health check (railway.json): the server only listens once the media is back
+      // from the bucket, so a new deploy takes over only when it can serve. No session, no Host check.
+      if (pathname === '/healthz' && (req.method === 'GET' || req.method === 'HEAD')) {
+        res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Content-Length': 2, 'Cache-Control': 'no-store' });
+        return res.end(req.method === 'HEAD' ? undefined : 'ok');
+      }
       // Picks up config.json edits (checked at most once per configCheckIntervalMs).
       await auth.refresh();
       await billing.refresh();
@@ -315,6 +328,13 @@ async function createAppServer({
   const started = new Promise(resolve => server.once('listening', () => resolve(openedAtStart.map(workspace => workspace.backfill()))));
   server.fitBackfill = started.then(runs => Promise.all(runs.map(run => run.fits))).then(() => {});
   server.cutoutBackfill = started.then(runs => Promise.all(runs.map(run => run.cutouts))).then(() => {});
+
+  if (fetchExamplesAtStart) {
+    started.then(() => defaultWorkspace.animate.drivings.fetchExamples()).then(results => {
+      const failed = results.filter(result => !result.ok);
+      if (results.length) console.log(`[examples] ${results.length - failed.length} example video(s) downloaded${failed.length ? `, ${failed.length} failed (${failed.map(result => `${result.id}: ${result.error}`).join('; ')})` : ''}`);
+    }).catch(error => console.warn(`[examples] download failed: ${error.message}`));
+  }
 
   // Stop running jobs and downloads with the server (tests must not leak), then
   // let the ledger finish its pending writes and refuse new ones.
@@ -395,7 +415,7 @@ if (require.main === module) {
     const docs = await openDocs({ root: dataDir, log: message => console.warn(message) });
     const blobs = storeFromEnv();
     for (const line of storageSummary({ docs, blobs })) console.log(line);
-    return createAppServer({ dataDir, docs, blobs });
+    return createAppServer({ dataDir, docs, blobs, fetchExamplesAtStart: true });
   })().then(async server => {
     const host = process.env.HOST || '127.0.0.1';
     const startPort = Number(process.env.PORT ?? 8787);
