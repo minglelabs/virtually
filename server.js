@@ -77,6 +77,8 @@ async function createAppServer({
   // Credit billing (off unless <dataDir>/billing/config.json exists). Tests inject
   // { apiBase, now: () => ms, configCheckIntervalMs, log }.
   billing: billingOptions = {},
+  // Bytes each login account may store (login off: no limit). Env VIRTUALLY_ACCOUNT_QUOTA_MB; 0 = no limit.
+  accountQuotaBytes = Number(process.env.VIRTUALLY_ACCOUNT_QUOTA_MB ?? 2048) * 1024 * 1024,
 } = {}) {
   await fsp.mkdir(dataDir, { recursive: true });
 
@@ -104,6 +106,7 @@ async function createAppServer({
         return createWorkspace({
           dataDir: dir, owner: id === '' ? null : await readOwner(dir), ffmpegPath, ffprobePath, animateMock, animatePollIntervalMs,
           animateShared, examplesManifestPath, allowHttpExamples, bundledDrivingsDir, billing, activity,
+          quotaBytes: id !== '' && accountQuotaBytes > 0 ? accountQuotaBytes : null,
         });
       })();
       workspaces.set(id, opening);
