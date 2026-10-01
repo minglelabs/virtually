@@ -88,6 +88,55 @@ The **+ 동작 추가하러 가기** button stays visible at the bottom of the l
 
 Motions are transparent WebM clips (keyed AI results, finished videos with a transparent or plain key-colour background, or uploads through the API) or MP4/WebM videos kept with their own background. The name decides the link: a motion named `wink` or `윙크` becomes the video of the **윙크** button, and any other name becomes a new button with that name.
 
+## Database (optional)
+
+By default every record (login secrets, the credit ledger, the activity log, characters, the motion library,
+jobs) is a file under `data/`. Set `DATABASE_URL` to keep them in Postgres instead (on Supabase use the
+pooler connection string). Everything is in the `virtually` schema, created on start:
+
+- `documents(key, value jsonb)`: login secrets, characters, library, jobs, owners ... one row per record,
+  the key being its path under `data/`.
+- `ledger_users`, `ledger_entries`, `ledger_orders`, `ledger_webhooks`: the credit ledger, one row per
+  user, entry, order and webhook. A change writes only the rows it touched, in one transaction.
+- `activity_events`: the admin activity log, one row per event.
+
+```bash
+DATABASE_URL="<the pooler connection string from the Supabase dashboard>" node server.js
+```
+
+A site that already ran on files (e.g. a Railway volume) needs no manual step: whatever the database lacks
+is imported from the files the first time it is read, once. `node scripts/migrate-to-db.js [dataDir]
+[--dry-run] [--overwrite]` does the same up front (use `--overwrite` only when the server already started
+on an empty database and made fresh records; for the ledger, stop the server first). With the `.env` file:
+`node --env-file=.env scripts/migrate-to-db.js --dry-run`. Node does not read `.env` by itself.
+
+Tests: `TEST_DATABASE_URL=postgres://postgres@localhost:5432/vtest node --test --test-concurrency=1` also
+runs the database tests (they empty the `virtually` tables of that database: never point it at a real one).
+
+## Media in Cloudflare R2 (optional)
+
+Set all of `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` and `R2_BUCKET` and the media files
+(photos, cutouts, motions, job results, driving videos) are kept in that bucket. The data directory stays
+the working copy: on start every file the disk lacks is downloaded from the bucket, then new, changed and
+deleted files are synced every few seconds and once more on shutdown (SIGTERM). A replaced container or an
+empty disk therefore comes back complete. Object keys are the paths under `data/`.
+Not synced: `auth/` and `billing/` (secrets), the activity log, unfinished `*.tmp*` files.
+
+## Configuration without a disk (Railway and similar)
+
+`data/*/config.json` cannot survive a redeploy there, so the same settings come from environment variables
+while the file does not exist:
+
+| Setting | Variables |
+|---|---|
+| Google login | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `ALLOWED_EMAILS` (comma separated), `PUBLIC_URL` |
+| Credits and Polar | `VIRTUALLY_BILLING_CONFIG` (the JSON of billing/config.json) |
+| WaveSpeed | `WAVESPEED_API_KEY` (other providers: their own variables, see the animate settings) |
+| Database, media | `DATABASE_URL`, `R2_*` as above |
+
+Also set `HOST=0.0.0.0` so the platform's router can reach the server. `node server.js` reads these
+variables; `createAppServer()` itself does not, so tests never touch a real database or bucket.
+
 ## Google login (optional)
 
 Login is off by default. It turns on when `data/auth/config.json` exists; from then on the character list, the 방송 화면, the 동작 만들기 page and the API need a Google account (from your allowlist, or any account with `"*"`) (open `http://127.0.0.1:8787/login`, or any page, to log in). The server re-reads the file when it changes (at most once a second), so no restart is needed; delete the file to turn login off again. A file that is present but unusable (broken JSON, a missing field) keeps everything locked until it is fixed: every page leads to `/login`, which names the problem. The server's startup output also says whether login is on.

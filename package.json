@@ -7,9 +7,14 @@
   "scripts": {
     "start": "node server.js",
     "test": "node --test",
-    "fetch-examples": "node scripts/fetch-examples.js"
+    "fetch-examples": "node scripts/fetch-examples.js",
+    "migrate": "node --env-file=.env scripts/migrate-to-db.js"
   },
   "engines": {
     "node": ">=20"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1144.0",
+    "pg": "^8.23.1"
   }
 }

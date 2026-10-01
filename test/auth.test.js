@@ -845,3 +845,13 @@ test('JWKS: cached by max-age, an unknown kid refetches at most once per 60 s', 
   await signIn(ctx);
   assert.equal(ctx.google.requests.jwks, 3, 'refetched after max-age');
 });
+
+test('Google login settings can come from environment variables when config.json is absent', async () => {
+  const { authConfigFromEnv } = require('../lib/auth/config');
+  assert.equal(authConfigFromEnv({}), null);
+  const ok = authConfigFromEnv({ GOOGLE_CLIENT_ID: 'id', GOOGLE_CLIENT_SECRET: 'secret', ALLOWED_EMAILS: 'A@x.com, @corp.io', PUBLIC_URL: 'https://app.example.com' });
+  assert.equal(ok.mode, 'enabled');
+  assert.deepEqual(ok.config, { clientId: 'id', clientSecret: 'secret', allowedEmails: ['a@x.com', '@corp.io'] });
+  assert.equal(ok.publicUrl.origin, 'https://app.example.com');
+  assert.equal(authConfigFromEnv({ GOOGLE_CLIENT_ID: 'id', GOOGLE_CLIENT_SECRET: 'secret' }).problem, 'no_allowed_emails');
+});
