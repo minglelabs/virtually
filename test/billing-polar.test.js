@@ -1398,11 +1398,7 @@ test('orders: a full refund of spent credits leaves a negative balance, which bl
 }, async t => {
   const ctx = await setup(t, {
     billing: billingConfig({ creditsPerUsd: 100 }),
-    seed: async dataDir => {
-      await fs.mkdir(path.join(dataDir, 'animate'), { recursive: true });
-      await fs.writeFile(path.join(dataDir, 'animate', 'custom-routes.json'), JSON.stringify([PRICED_ROUTE], null, 2));
-    },
-    appOptions: { animateMock: true, animatePollIntervalMs: 40 },
+    appOptions: { animateMock: true, animatePollIntervalMs: 40, animate: { customRoutes: [PRICED_ROUTE] } },
   });
   const pack = creditPack(ctx, 150);
   const alice = await customer(ctx, ALICE);

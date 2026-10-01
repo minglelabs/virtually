@@ -135,11 +135,9 @@ test('route view: free only for the local demo route; mock-provider custom route
   assert.deepEqual(routes.filter(route => route.free !== false).map(route => route.id), ['mock/local-demo'], 'every other route says free: false');
 
   // Without the mock provider, a custom route that takes the demo's id is an ordinary paid route.
-  await H.stopApp(ctx);
   const impostor = { ...H.PRICED_ROUTE, id: 'mock/local-demo', provider: 'wavespeed', label: '데모 이름을 쓴 경로' };
-  await fs.writeFile(path.join(ctx.dataDir, 'animate', 'custom-routes.json'), JSON.stringify([impostor], null, 2));
   ctx.mock = false;
-  await H.restartApp(ctx);
+  await H.restartApp(ctx, { animate: { customRoutes: [impostor] } });
   routes = await routesOf();
   const taken = routes.find(route => route.id === 'mock/local-demo');
   assert.equal(taken.label, impostor.label);

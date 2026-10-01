@@ -107,8 +107,8 @@ DATABASE_URL="<the pooler connection string from the Supabase dashboard>" node s
 A site that already ran on files (e.g. a Railway volume) needs no manual step: whatever the database lacks
 is imported from the files the first time it is read, once. `node scripts/migrate-to-db.js [dataDir]
 [--dry-run] [--overwrite]` does the same up front (use `--overwrite` only when the server already started
-on an empty database and made fresh records; for the ledger, stop the server first). With the `.env` file:
-`node --env-file=.env scripts/migrate-to-db.js --dry-run`. Node does not read `.env` by itself.
+on an empty database and made fresh records; for the ledger, stop the server first). The script reads
+`.env` too (see [Local `.env`](#local-env)), so `node scripts/migrate-to-db.js --dry-run` is enough.
 
 Tests: `TEST_DATABASE_URL=postgres://postgres@localhost:5432/vtest node --test --test-concurrency=1` also
 runs the database tests (they empty the `virtually` tables of that database: never point it at a real one).
@@ -120,22 +120,73 @@ Set all of `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` and `R2_B
 the working copy: on start every file the disk lacks is downloaded from the bucket, then new, changed and
 deleted files are synced every few seconds and once more on shutdown (SIGTERM). A replaced container or an
 empty disk therefore comes back complete. Object keys are the paths under `data/`.
-Not synced: `auth/` and `billing/` (secrets), the activity log, unfinished `*.tmp*` files.
+Not synced: `auth/` and `billing/` (secrets), the activity log, unfinished `*.tmp*` files, and `archive/`.
+
+### The archive shelf
+
+`archive/` in the bucket is a long-term shelf for what is hard to make again (reference videos, finished
+Wan results). The mirror never downloads it at start and never removes anything from it, so it does not
+grow what a new container restores. `scripts/archive-to-r2.js` puts files there (and reads them back):
+
+```bash
+# what would be stored (nothing is written); then store it, every object verified by size and MD5
+node scripts/archive-to-r2.js --prefix wonyoung-bad data/animate/drivings/uploads/up-<id> data/animate/jobs/<job id>
+node scripts/archive-to-r2.js --prefix wonyoung-bad --apply data/animate/drivings/uploads/up-<id> data/animate/jobs/<job id>
+node scripts/archive-to-r2.js --list                      # what is on the shelf
+node scripts/archive-to-r2.js --restore ./restored --prefix wonyoung-bad
+```
+
+Keys are `archive/<prefix>/<path relative to --root>` (`--root` defaults to `data/`). An object that already
+has the same content is left alone; one whose content differs is reported and kept unless `--overwrite`.
+It never deletes. The R2 token needs Object Read & Write on the bucket.
+
+### Moving a local workspace into an account
+
+A local run (login off) keeps everything in `data/`, which no signed-in account on the deployed site can see.
+`scripts/import-to-account.js` moves it into the workspace of the account that signed in with a given address, so
+the characters, motions, driving videos and animate jobs made locally show up in that account on the web:
+
+```bash
+node scripts/import-to-account.js --email you@example.com            # dry run: what would be added
+node scripts/import-to-account.js --email you@example.com --apply    # media to R2, records to the database
+```
+
+It takes characters, `library.json`, `media/`, `animate/drivings/uploads/` and `animate/jobs/` (or only the paths
+you name after the options). Files go to R2 under `users/<id>/<same path>` and are read back before they count;
+the records (`characters/index.json`, `library.json`, each `job.json` and driving `meta.json`) go to the database
+only when every file arrived. A record the account already has is kept (a new account's empty character list is
+not "having" one); `--overwrite` replaces it. Never imported: `obs-source.json` (the account's OBS URL key),
+`owner.json`, `auth/`, `billing/`, `activity/`, `animate/config.json`. Nothing is deleted. Restart the service
+afterwards: it keeps an account's records in memory once it has opened it.
 
 ## Configuration without a disk (Railway and similar)
 
 `data/*/config.json` cannot survive a redeploy there, so the same settings come from environment variables
-while the file does not exist:
+while the file does not exist (`data/animate/config.json` and `custom-routes.json` are not read at all any
+more: their settings are only environment variables):
 
 | Setting | Variables |
 |---|---|
 | Google login | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `ALLOWED_EMAILS` (comma separated), `PUBLIC_URL` |
 | Credits and Polar | `VIRTUALLY_BILLING_CONFIG` (the JSON of billing/config.json) |
-| WaveSpeed | `WAVESPEED_API_KEY` (other providers: their own variables, see the animate settings) |
+| WaveSpeed | `WAVESPEED_API_KEY` (other providers: their own variables, see [API keys](#api-keys)) |
+| Video generation | `ANIMATE_DEFAULT_ROUTE`, `ANIMATE_MEDIA_RELAY`, `ANIMATE_CONCURRENCY`, `ANIMATE_PROMPT_SUFFIX`, `ANIMATE_CUSTOM_ROUTES` (all optional, see [API keys](#api-keys)) |
 | Database, media | `DATABASE_URL`, `R2_*` as above |
 
-Also set `HOST=0.0.0.0` so the platform's router can reach the server. `node server.js` reads these
-variables; `createAppServer()` itself does not, so tests never touch a real database or bucket.
+Also set `HOST=0.0.0.0` so the platform's router can reach the server. `node server.js` reads `DATABASE_URL`
+and `R2_*`; `createAppServer()` itself does not, so tests never touch a real database or bucket. With
+`NODE_ENV=production` the server refuses to start without `DATABASE_URL`, instead of coming up on empty
+local files. The first lines of the startup output say where records and media go (`[db] Postgres at <host>`,
+`[storage] media mirrored to R2 bucket <name>`); if the bucket cannot be read there is a
+`[storage] CANNOT READ THE BUCKET` line, and nothing is saved to R2 until it is fixed.
+
+### Local `.env`
+
+`node server.js` and the scripts read `.env` in the repo folder when there is one. A variable that is already
+set in the shell (or by Railway) wins over the file. `.env` is Git-ignored; copy `.env.example`, fill in
+**development** values (a separate Supabase project or database, and a separate bucket), and keep the
+production values only in Railway: a `.env` that holds production values makes your local run write to
+production. Nothing else reads `.env`: the tests never do.
 
 ## Google login (optional)
 
@@ -380,7 +431,7 @@ The demo avatar is not human-shaped, so pose-based models may not track it; for 
 
 ### API keys
 
-There is no bring-your-own-key: the generation always runs with the **server's** keys, and a user's credits pay for it. The page has no key panel, no API call sets or reads a key (not even masked), and the status only says whether a provider is usable. The owner of the server sets the keys in `data/animate/config.json` (`{ "providers": { "wavespeed": { "apiKey": "..." } } }`, file mode 0600, Git-ignored; read at startup) or with environment variables, which are used when the file has no key:
+There is no bring-your-own-key: the generation always runs with the **server's** keys, and a user's credits pay for it. The page has no key panel, no API call sets or reads a key (not even masked), and the status only says whether a provider is usable. The owner of the server sets the keys with environment variables (there is no config file; a leftover `data/animate/config.json` is not read, and the startup output names the variables that replace what it held, never a key):
 
 | Provider | Environment variables |
 |---|---|
@@ -389,6 +440,16 @@ There is no bring-your-own-key: the generation always runs with the **server's**
 | Replicate | `REPLICATE_API_TOKEN` |
 | Higgsfield | `HIGGSFIELD_API_KEY_ID` + `HIGGSFIELD_API_KEY_SECRET` |
 | Kling AI (direct) | `KLING_ACCESS_KEY` + `KLING_SECRET_KEY`, or `KLING_API_KEY` |
+
+The other settings are environment variables too, all optional:
+
+| Variable | Meaning |
+|---|---|
+| `ANIMATE_DEFAULT_ROUTE` | the route offered first while it is available, e.g. `wavespeed/wan-2.2-animate-2` |
+| `ANIMATE_MEDIA_RELAY` | `auto` (default) or the provider that relays reference videos to a public URL |
+| `ANIMATE_CONCURRENCY` | jobs running at once, 1 to 4 (default 2) |
+| `ANIMATE_PROMPT_SUFFIX` | text appended to every prompt (default: keep the background plain, static camera) |
+| `ANIMATE_CUSTOM_ROUTES` | a JSON array of extra routes, each validated like a built-in one; invalid ones are skipped |
 
 Kling direct has no video upload API, so it also needs a WaveSpeed, fal.ai or Higgsfield key to relay the driving video. Generation is billed by the provider.
 
@@ -479,7 +540,7 @@ The pages use these routes; with login on they need a login, like every page. JS
 
 ## Data layout
 
-Everything lives in `data/` (Git-ignored). With login on, the per-account items below live in `data/users/<Google id>/` instead (plus `owner.json`, the account's address and name) — see [Accounts and their data](#accounts-and-their-data); `data/auth/`, `data/billing/`, `data/activity/` and `data/animate/config.json` / `custom-routes.json` stay shared.
+Everything lives in `data/` (Git-ignored). With login on, the per-account items below live in `data/users/<Google id>/` instead (plus `owner.json`, the account's address and name) — see [Accounts and their data](#accounts-and-their-data); `data/auth/`, `data/billing/` and `data/activity/` stay shared.
 
 - `data/characters/index.json` — `{ "v": 1, "activePhotoId", "characters" }`, written atomically (temporary file + rename). A character is `{ id: "c-<uuid>", name, createdAt, basePhotoId, photos }`; a photo is `{ id: "ph-<uuid>" (a migrated one keeps its "ch-<uuid>"), filename, mime, width, height, hasAlpha, createdAt, fit, cutout }`, where `cutout` is `{ "cut": true, "color", "fit" }` or `{ "cut": false, "reason": "has_alpha" | "not_uniform" | "no_subject" }` (absent: not decided yet, retried at startup).
 - `data/characters/photos/` — `<photoId>.png` / `.jpg` / `.webp`, and `<photoId>.cutout.png` for a photo whose plain background was cut out.

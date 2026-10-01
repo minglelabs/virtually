@@ -3,7 +3,7 @@
 
 // Copies the JSON records under a data directory into Postgres (virtually.documents).
 //
-//   DATABASE_URL=postgres://... node scripts/migrate-to-db.js [dataDir] [--dry-run] [--overwrite]
+//   node scripts/migrate-to-db.js [dataDir] [--dry-run] [--overwrite]   (DATABASE_URL from the environment or .env)
 //
 // Copied: auth/state.json, billing/ledger.json (into the ledger_* tables), activity/events.jsonl
 // (into activity_events), obs-source.json, library.json,
@@ -22,6 +22,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
+const { loadDotEnv } = require('../lib/env');
 const { openDocs } = require('../lib/docs');
 const { createPostgresLedgerStore } = require('../lib/billing/ledger-store');
 const { normalizeLedger } = require('../lib/billing/ledger');
@@ -96,6 +97,7 @@ async function copyActivity(docs, root, { dryRun }) {
 }
 
 async function main() {
+  loadDotEnv();
   const args = process.argv.slice(2);
   const dryRun = args.includes('--dry-run');
   const overwrite = args.includes('--overwrite');
