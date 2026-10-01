@@ -1,7 +1,87 @@
+# App data (characters, photos, media, logins, billing ledger, API keys)
 data/
+users/
+
+# Dependencies and build output
 node_modules/
+dist/
+build/
+coverage/
+
+# OS and editor files
 .DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Logs and temp files
 *.log
+*.tmp
+tmp/
+.cache/
+
+# Secrets: env files (the template .env.example is allowed)
 .env
 .env.*
 !.env.example
+*.env
+.envrc
+
+# Secrets: keys, certificates, tokens, cloud credentials
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.crt
+*.cer
+id_rsa*
+id_ed25519*
+*.ppk
+.npmrc
+.netrc
+.pypirc
+.htpasswd
+.pgpass
+.aws/
+.ssh/
+.gcloud/
+.azure/
+credentials
+credentials.*
+secrets/
+secret/
+secrets.*
+*secret*.json
+*credential*.json
+service-account*.json
+client_secret*.json
+google-services.json
+GoogleService-Info.plist
+token.json
+tokens.json
+*.token
+*.tfstate
+*.tfstate.*
+*.tfvars
+
+# Local tool state that may hold tokens or private notes
+.railway/
+.vercel/
+.netlify/
+.wrangler/
+.dev.vars
+.claude/settings.local.json
+.claude/*.local.*
+.kiro/
+
+# Database dumps and local databases
+*.sql
+*.dump
+*.sqlite
+*.sqlite3
+*.db
+*.bak
+*.backup
