@@ -387,7 +387,6 @@ All errors are JSON `{ "error", "code"?, "detail"? }`. JSON bodies need `Content
 | Method and path | Purpose |
 |---|---|
 | `GET /api/animate/status` | ffmpeg availability, routes (each with `defaultMargin`, and `free`: `true` only for the local demo route, which needs no `confirmed` and is never charged; the page reads it for every price and confirmation), `margins` (`[{ value, label }]` for `none` / `normal` / `wide`), providers (`id`, `label`, `configured` — never a key), config |
-| `DELETE /api/animate/jobs/<id>` | Delete a finished job and its files (`409 job_active` while it runs: cancel first; `409 job_busy` while its refund is on its way). A motion already added from it stays |
 | `GET /api/animate/drivings` | Visible examples (manifest order), then uploads (newest first); `hiddenExamples` is the number of hidden examples |
 | `POST /api/animate/examples/fetch` | Download missing example videos, skipping hidden and bundled ones (`{}`) |
 | `POST /api/animate/examples/restore` | Un-hide all deleted examples (`{}`); returns `{ drivings, hidden: [] }`. Downloaded ones stay unavailable until fetched again; bundled ones are available at once |

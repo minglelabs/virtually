@@ -263,29 +263,3 @@ test('an account whose storage is full cannot add files, and others are not affe
   const room = await H.request(ctx, '/api/characters?name=x&filename=a.png', { method: 'POST', cookie: bob, body: PNG });
   assert.equal(room.status, 201, 'Bob has his own space');
 });
-
-test('a finished job can be deleted, with its files; a running one cannot, nor can another account', { skip }, async t => {
-  const ctx = await H.startApp(t, { animate: { concurrency: 1 } });
-  const admin = await H.signIn(ctx, H.ADMIN);
-  const alice = await H.signIn(ctx, H.ALICE);
-  const bob = await H.signIn(ctx, H.BOB);
-  const driving = await H.prepareInputs(ctx, alice);
-  await H.billingOf(ctx, alice);
-  assert.equal((await H.adjust(ctx, admin, H.ALICE.email, H.JOB_CREDITS)).status, 200);
-  const jobId = (await H.createJob(ctx, alice, driving.id, { options: H.LONG })).json.job.id;
-  const del = (cookie) => H.request(ctx, `/api/animate/jobs/${jobId}`, { method: 'DELETE', cookie });
-
-  assert.equal((await del(bob)).status, 404);
-  const running = await del(alice);
-  assert.equal(running.status, 409);
-  assert.equal(running.json.code, 'job_active');
-  await H.post(ctx, `/api/animate/jobs/${jobId}/cancel`, {}, alice);
-  await H.waitFor(async () => (await H.get(ctx, `/api/animate/jobs/${jobId}`, alice)).json.billing.refunded === true, { message: 'the refund' });
-  const dir = path.join(ctx.dataDir, 'users', H.ALICE.sub, 'animate', 'jobs', jobId);
-  assert.ok(await fs.stat(dir));
-  assert.equal((await del(alice)).status, 200);
-  assert.equal((await H.get(ctx, `/api/animate/jobs/${jobId}`, alice)).status, 404);
-  assert.deepEqual((await H.get(ctx, '/api/animate/jobs', alice)).json.jobs, []);
-  await assert.rejects(fs.stat(dir));
-  assert.equal((await del(alice)).status, 404);
-});
