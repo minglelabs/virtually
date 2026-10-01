@@ -255,6 +255,8 @@ async function prepareInputs(ctx, cookie) {
   let response = await request(ctx, '/api/characters?name=c&filename=c.png', { method: 'POST', cookie, body: fsSync.readFileSync(character) });
   assert.equal(response.status, 201, response.text);
   ctx.photoId = response.json.character.basePhotoId;
+  // Characters and driving videos belong to one account: createJob sends the photo of the account asking.
+  (ctx.photoIds || (ctx.photoIds = new Map())).set(cookie, ctx.photoId);
   response = await request(ctx, '/api/animate/drivings?name=clip.mp4', { method: 'POST', cookie, body: fsSync.readFileSync(clip) });
   assert.equal(response.status, 201, response.text);
   return response.json;
@@ -262,7 +264,7 @@ async function prepareInputs(ctx, cookie) {
 
 // POST /api/animate/jobs (confirmed) on the priced route unless routeId is given.
 function createJob(ctx, cookie, drivingId, { routeId = PRICED_ROUTE.id, options = {} } = {}) {
-  return post(ctx, '/api/animate/jobs', { drivingId, photoId: ctx.photoId, routeId, options, confirmed: true }, cookie);
+  return post(ctx, '/api/animate/jobs', { drivingId, photoId: (ctx.photoIds && ctx.photoIds.get(cookie)) || ctx.photoId, routeId, options, confirmed: true }, cookie);
 }
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));

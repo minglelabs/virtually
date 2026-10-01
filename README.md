@@ -90,7 +90,7 @@ Motions are transparent WebM clips (keyed AI results, finished videos with a tra
 
 ## Google login (optional)
 
-Login is off by default. It turns on when `data/auth/config.json` exists; from then on the character list, the 방송 화면, the 동작 만들기 page and the API need a Google account from your allowlist (open `http://127.0.0.1:8787/login`, or any page, to log in). The server re-reads the file when it changes (at most once a second), so no restart is needed; delete the file to turn login off again. A file that is present but unusable (broken JSON, a missing field) keeps everything locked until it is fixed: every page leads to `/login`, which names the problem. The server's startup output also says whether login is on.
+Login is off by default. It turns on when `data/auth/config.json` exists; from then on the character list, the 방송 화면, the 동작 만들기 page and the API need a Google account (from your allowlist, or any account with `"*"`) (open `http://127.0.0.1:8787/login`, or any page, to log in). The server re-reads the file when it changes (at most once a second), so no restart is needed; delete the file to turn login off again. A file that is present but unusable (broken JSON, a missing field) keeps everything locked until it is fixed: every page leads to `/login`, which names the problem. The server's startup output also says whether login is on.
 
 ### Create the Google OAuth client
 
@@ -119,10 +119,16 @@ Virtually asks only for `openid email profile`, so no extra scopes are needed.
 ```
 
 - `google.clientId`, `google.clientSecret` (required): from the client above.
-- `allowedEmails` (required, at least one entry): the accounts that may log in, compared case-insensitively. An entry that starts with `@`, such as `@example.com`, allows every address at that domain. Google must report the address as verified. The list is checked on every request, so removing an address logs that account out at once.
+- `allowedEmails` (required, at least one entry): the accounts that may log in, compared case-insensitively. An entry that starts with `@`, such as `@example.com`, allows every address at that domain, and `"*"` allows every Google account (open sign-up; each account gets its own data and its own credits, see [Accounts and their data](#accounts-and-their-data)). Google must report the address as verified. The list is checked on every request, so removing an address logs that account out at once.
 - `publicUrl` (optional): the origin the server is reached at from other machines, such as `https://virtually.example.com` — no path, query or hash (a trailing `/` is fine). Leave it out for local use.
 
-The server never writes this file. Every allowed account shares one set of characters, one library and one 동작 만들기 setup: anyone on the list can put a photo on air, trigger and delete motions and start paid generations with the saved API keys. There are no per-user libraries or roles.
+The server never writes this file.
+
+### Accounts and their data
+
+With login on, every Google account has its own data, kept apart under `data/users/<Google id>/`: its characters and photos, motions and idles, the photo on air, the OBS source size, its driving videos and its 동작 만들기 jobs. One account cannot see or change another's, whatever ids it sends (an id of someone else's answers `404`), and the overlay of an account shows only that account's on-air photo. Shared by all accounts: the server's provider keys and model routes (see [API keys](#api-keys)), the credits ledger (one balance per account) and the activity log; admins (`adminEmails`) see every account's characters, driving videos and jobs on the 활동 · 자료 page.
+
+With login off there is one set of data directly under `data/`, as before. Login on never reads that data: to move an existing install over, move `data/library.json`, `data/obs-source.json` and the folders `data/characters`, `data/media`, `data/animate/jobs` and `data/animate/drivings` into `data/users/<your Google id>/` (or run `node scripts/claim-legacy-data.js <your Google id>`; the id is the `sub` shown in `data/billing/ledger.json` for your address).
 
 ### What login protects
 
@@ -134,9 +140,9 @@ A login lasts 30 days and is extended while you use it. **로그아웃**, next t
 
 ### OBS with login on
 
-OBS cannot log in to Google, so the overlay URL carries a secret key instead. With login on, the **OBS에 연동하기!** section of the 방송 화면 (`/broadcast`) shows the overlay URL with its key (`http://127.0.0.1:8787/overlay?key=...`); copy that URL into the OBS Browser Source (without the key, OBS shows only a one-line notice). Anyone with the URL can watch the overlay — not trigger motions or open the controller — so keep it off stream and do not share it.
+OBS cannot log in to Google, so the overlay URL carries a secret key instead. With login on, the **OBS에 연동하기!** section of the 방송 화면 (`/broadcast`) shows the overlay URL with its key (`http://127.0.0.1:8787/overlay?key=...`); copy that URL into the OBS Browser Source (without the key, OBS shows only a one-line notice). Anyone with the URL can watch that account's overlay — not trigger motions or open the controller — so keep it off stream and do not share it. Every account has its own key, which also tells the overlay whose characters to show.
 
-**주소 새로 만들기** replaces the key after a confirmation. The old URL stops working at once (a running OBS source stops following the controller), so paste the new URL into the OBS source. The key is kept in `data/auth/state.json` and survives restarts. The controller's own preview needs no key; it uses your login.
+**주소 새로 만들기** replaces the account's key after a confirmation. The old URL stops working at once (a running OBS source stops following the controller), so paste the new URL into the OBS source; other accounts' keys are not affected. The keys are kept in `data/auth/state.json` and survive restarts. The controller's own preview needs no key; it uses your login.
 
 ### Remote use
 
@@ -144,7 +150,7 @@ Google accepts plain `http` redirect URIs only for `localhost` and loopback addr
 
 ### Secrets
 
-`data/auth/` holds secrets: the client secret in `config.json`, and the keys that sign logins and the overlay key in `state.json` (created by the server with file mode 0600). `data/` is ignored by Git — never commit it or copy it into the repository, which is public. Deleting `state.json` and restarting the server logs everyone out and replaces the overlay URL.
+`data/auth/` holds secrets: the client secret in `config.json`, and the keys that sign logins and every account's overlay key in `state.json` (created by the server with file mode 0600). `data/` is ignored by Git — never commit it or copy it into the repository, which is public. Deleting `state.json` and restarting the server logs everyone out and replaces every overlay URL.
 
 ## Credits
 
@@ -158,7 +164,7 @@ Credits turn on when `data/billing/config.json` exists **and** [Google login](#g
 
 ### Top up by bank transfer
 
-1. The customer signs in once with Google — their address must be in `allowedEmails` of `data/auth/config.json`, or they cannot sign in — opens **크레딧**, and transfers money to the account shown under **충전 안내**.
+1. The customer signs in once with Google — their address must be allowed by `allowedEmails` of `data/auth/config.json`, or they cannot sign in — opens **크레딧**, and transfers money to the account shown under **충전 안내**.
 2. An admin opens **크레딧 관리** (`/admin`), enters the customer's login email, the amount received in won as credits (`입금액(원) = 크레딧`: 50,000원 → `50000`) and a memo such as `9/30 계좌이체 50,000원, 입금자 홍길동`, and presses **충전** (**차감** takes credits off, never more than the balance). The memo is also shown in the customer's 사용 내역.
 3. The balance changes at once. Credits for an email that has not signed in yet wait for its first login (`로그인 전`); an email that is not on the login allowlist cannot sign in until it is added (`로그인 불가`). The page warns about both after each top-up.
 
@@ -323,7 +329,7 @@ The demo avatar is not human-shaped, so pose-based models may not track it; for 
 
 ### API keys
 
-Enter keys in the page's **API 키 설정** panel. They are saved in `data/animate/config.json` (file mode 0600, Git-ignored) and only a masked form is ever sent back. Environment variables work too and are used when no key is saved:
+There is no bring-your-own-key: the generation always runs with the **server's** keys, and a user's credits pay for it. The page has no key panel, no API call sets or reads a key (not even masked), and the status only says whether a provider is usable. The owner of the server sets the keys in `data/animate/config.json` (`{ "providers": { "wavespeed": { "apiKey": "..." } } }`, file mode 0600, Git-ignored; read at startup) or with environment variables, which are used when the file has no key:
 
 | Provider | Environment variables |
 |---|---|
@@ -343,9 +349,7 @@ All errors are JSON `{ "error", "code"?, "detail"? }`. JSON bodies need `Content
 
 | Method and path | Purpose |
 |---|---|
-| `GET /api/animate/status` | ffmpeg availability, routes (each with `defaultMargin`, and `free`: `true` only for the local demo route, which needs no `confirmed` and is never charged; the page reads it for every price and confirmation), `margins` (`[{ value, label }]` for `none` / `normal` / `wide`), providers (masked keys), config |
-| `PUT /api/animate/config` | Save provider keys/settings (`{ "providers": { "wavespeed": { "apiKey": "..." } } }`); `""` removes a key. Returns `{ providers, config, routes, margins }` |
-| `POST /api/animate/providers/<id>/test` | Check a provider key (where the provider has a test call) |
+| `GET /api/animate/status` | ffmpeg availability, routes (each with `defaultMargin`, and `free`: `true` only for the local demo route, which needs no `confirmed` and is never charged; the page reads it for every price and confirmation), `margins` (`[{ value, label }]` for `none` / `normal` / `wide`), providers (`id`, `label`, `configured` — never a key), config |
 | `GET /api/animate/drivings` | Visible examples (manifest order), then uploads (newest first); `hiddenExamples` is the number of hidden examples |
 | `POST /api/animate/examples/fetch` | Download missing example videos, skipping hidden and bundled ones (`{}`) |
 | `POST /api/animate/examples/restore` | Un-hide all deleted examples (`{}`); returns `{ drivings, hidden: [] }`. Downloaded ones stay unavailable until fetched again; bundled ones are available at once |
@@ -423,7 +427,7 @@ The pages use these routes; with login on they need a login, like every page. JS
 
 ## Data layout
 
-Everything lives in `data/` (Git-ignored):
+Everything lives in `data/` (Git-ignored). With login on, the per-account items below live in `data/users/<Google id>/` instead (plus `owner.json`, the account's address and name) — see [Accounts and their data](#accounts-and-their-data); `data/auth/`, `data/billing/`, `data/activity/` and `data/animate/config.json` / `custom-routes.json` stay shared.
 
 - `data/characters/index.json` — `{ "v": 1, "activePhotoId", "characters" }`, written atomically (temporary file + rename). A character is `{ id: "c-<uuid>", name, createdAt, basePhotoId, photos }`; a photo is `{ id: "ph-<uuid>" (a migrated one keeps its "ch-<uuid>"), filename, mime, width, height, hasAlpha, createdAt, fit, cutout }`, where `cutout` is `{ "cut": true, "color", "fit" }` or `{ "cut": false, "reason": "has_alpha" | "not_uniform" | "no_subject" }` (absent: not decided yet, retried at startup).
 - `data/characters/photos/` — `<photoId>.png` / `.jpg` / `.webp`, and `<photoId>.cutout.png` for a photo whose plain background was cut out.
@@ -479,6 +483,6 @@ The second command should show `TAG:alpha_mode=1`. We verified this encoding pat
 
 ## Scope and limitations
 
-The PoC uses a local HTTP server and server-sent events to synchronize the controller, preview, and OBS Browser Source. It keeps one shared set of characters and motions; the optional Google login only admits allowlisted accounts, which all share them (no per-user libraries or roles). Only the optional [credits](#credits) are per account. It does not include remote viewer triggers, live AI generation, background removal, or a broadcasting platform. Browser playback and the transparent page background were tested locally; OBS scene rendering and long-running performance with many clips still need live validation.
+The PoC uses a local HTTP server and server-sent events to synchronize the controller, preview, and OBS Browser Source. With login off it keeps one set of characters and motions; with login on every account has its own (see [Accounts and their data](#accounts-and-their-data)), as well as its own [credits](#credits). There are no roles beyond the admins of the credits config. Data lives in JSON files and media files on the server's disk (no database), so run **one** server instance and back up `data/`. It does not include remote viewer triggers, live AI generation, background removal, or a broadcasting platform. Browser playback and the transparent page background were tested locally; OBS scene rendering and long-running performance with many clips still need live validation.
 
 Run `pnpm test` for API, login, media-range, persistence, port rotation, and event-stream checks. The animate tests use the mock route, local fixture servers and ffmpeg-generated clips; they never call a provider. The login tests use a local fake Google; they never call Google. The billing tests use a local fake Polar; they never call Polar.

@@ -130,6 +130,15 @@ async function readState(dataDir) {
   return JSON.parse(await fs.readFile(path.join(dataDir, 'auth', 'state.json'), 'utf8'));
 }
 
+// The account's own OBS overlay key (made on first ask).
+async function overlayKeyOf(ctx, cookie) {
+  const me = await request(ctx.port, '/api/auth/me', { cookie });
+  assert.equal(me.status, 200);
+  return me.json.overlayKey;
+}
+
+const DEFAULT_SUB = '109876543210987654321';
+
 // Walks the whole login: app -> fake Google authorize -> app callback.
 async function login(ctx, { next = '/', host, mutateCallback } = {}) {
   const headers = host ? { Host: host } : {};
@@ -249,7 +258,7 @@ test('disabled mode: no login, auth endpoints answer, existing routes stay open'
   // The secrets file exists from startup, even while login is off.
   const state = await readState(ctx.dataDir);
   assert.match(state.sessionSecret, /^[A-Za-z0-9_-]{43}$/);
-  assert.match(state.overlayKey, /^[A-Za-z0-9_-]{32}$/);
+  assert.deepEqual(state.overlayKeys, {}, 'OBS keys are made per account, on first ask');
 });
 
 test('enabled, signed out: pages redirect to /login with next, APIs answer 401, assets stay public', async t => {
@@ -308,15 +317,20 @@ test('overlay key: /overlay?key sets the overlay cookie, which opens the overlay
   const bytes = Buffer.from('0000ftypisom-fake-mp4-body');
   const ctx = await setup(t, {
     seed: async dataDir => {
-      await fs.mkdir(path.join(dataDir, 'media'), { recursive: true });
-      await fs.writeFile(path.join(dataDir, 'media', `${id}.mp4`), bytes);
-      await fs.writeFile(path.join(dataDir, 'library.json'), JSON.stringify({
+      // The signed-in account's own workspace.
+      const home = path.join(dataDir, 'users', DEFAULT_SUB);
+      await fs.mkdir(path.join(home, 'media'), { recursive: true });
+      await fs.writeFile(path.join(home, 'media', `${id}.mp4`), bytes);
+      await fs.writeFile(path.join(home, 'library.json'), JSON.stringify({
         idle: null,
         motions: [{ id, name: 'wave', kind: 'motion', mime: 'video/mp4', url: `/api/media/${id}`, createdAt: new Date(START).toISOString(), fit: null }],
       }));
     },
   });
-  const { overlayKey } = await readState(ctx.dataDir);
+  const session = await signIn(ctx);
+  const overlayKey = await overlayKeyOf(ctx, session);
+  assert.match(overlayKey, /^[A-Za-z0-9_-]{32}$/);
+  assert.deepEqual((await readState(ctx.dataDir)).overlayKeys, { [DEFAULT_SUB]: overlayKey });
 
   assert.equal((await request(ctx.port, '/overlay?key=wrong-key')).status, 401);
   assert.equal((await request(ctx.port, '/overlay', { cookie: 'virtually_overlay=wrong-key' })).status, 401);
@@ -365,7 +379,7 @@ test('overlay key: /overlay?key sets the overlay cookie, which opens the overlay
     assert.equal((await request(ctx.port, pathname, { cookie })).status, 302, pathname);
   }
   // The file is still there: the refused DELETE did nothing.
-  await fs.stat(path.join(ctx.dataDir, 'media', `${id}.mp4`));
+  await fs.stat(path.join(ctx.dataDir, 'users', DEFAULT_SUB, 'media', `${id}.mp4`));
 });
 
 test('full login flow: authorize request, cookies, callback, /api/auth/me, logout', async t => {
@@ -405,14 +419,15 @@ test('full login flow: authorize request, cookies, callback, /api/auth/me, logou
   });
 
   const cookie = flow.cookie;
-  const { overlayKey } = await readState(ctx.dataDir);
   const me = await request(ctx.port, '/api/auth/me', { cookie });
   assert.equal(me.status, 200);
+  const { overlayKey } = me.json;
   assert.deepEqual(me.json, {
     enabled: true,
     user: { email: 'streamer@example.com', name: 'Test Streamer', picture: 'https://lh3.googleusercontent.com/a/test-picture' },
     overlayKey,
   });
+  assert.deepEqual((await readState(ctx.dataDir)).overlayKeys, { [DEFAULT_SUB]: overlayKey });
   assert.equal((await request(ctx.port, '/api/auth/status', { cookie })).json.loggedIn, true);
   for (const pathname of ['/', '/broadcast', '/animate', '/overlay', '/api/library', '/api/animate/status', '/api/characters']) {
     assert.equal((await request(ctx.port, pathname, { cookie })).status, 200, pathname);
@@ -438,7 +453,7 @@ test('full login flow: authorize request, cookies, callback, /api/auth/me, logou
   assert.ok(ctx.logs.includes('[auth] login ok streamer@example.com'), ctx.logs.join('\n'));
   const logText = ctx.logs.join('\n');
   const state = await readState(ctx.dataDir);
-  for (const secret of [CLIENT_SECRET, state.sessionSecret, state.overlayKey, attempt.state, attempt.nonce, attempt.verifier, flow.back.searchParams.get('code'), flow.session.value]) {
+  for (const secret of [CLIENT_SECRET, state.sessionSecret, ...Object.values(state.overlayKeys), attempt.state, attempt.nonce, attempt.verifier, flow.back.searchParams.get('code'), flow.session.value]) {
     assert.ok(!logText.includes(secret), 'a secret reached the log');
   }
 });
@@ -536,7 +551,8 @@ test('sessions: tampered and expired cookies are refused, renewal slides after 2
   const value = cookie.slice('virtually_session='.length);
   const [body, mac] = value.split('.');
   const payload = decodeSigned(value);
-  const { sessionSecret, overlayKey } = await readState(ctx.dataDir);
+  const { sessionSecret } = await readState(ctx.dataDir);
+  const overlayKey = await overlayKeyOf(ctx, cookie);
   const forgedBody = Buffer.from(JSON.stringify({ ...payload, exp: payload.exp + 10 * 365 * 86400 })).toString('base64url');
   for (const [label, bad] of [
     ['payload changed', `${forgedBody}.${mac}`],
@@ -617,7 +633,7 @@ test('overlay key rotation: the old key stops at once, its streams close, sessio
   const newKey = rotated.json.overlayKey;
   assert.match(newKey, /^[A-Za-z0-9_-]{32}$/);
   assert.notEqual(newKey, oldKey);
-  assert.equal((await readState(ctx.dataDir)).overlayKey, newKey);
+  assert.deepEqual((await readState(ctx.dataDir)).overlayKeys, { [DEFAULT_SUB]: newKey });
   assert.equal((await request(ctx.port, '/api/auth/me', { cookie })).json.overlayKey, newKey);
 
   await within(overlayStream.ended, 5000, 'the stream admitted by the old key was not closed');
@@ -661,7 +677,7 @@ test('invalid config fails closed, reports each problem, and recovers when fixed
 
   const ctx = await setup(t);
   const cookie = await signIn(ctx);
-  const { overlayKey } = await readState(ctx.dataDir);
+  const overlayKey = await overlayKeyOf(ctx, cookie);
   for (const [value, problem] of problems) {
     await writeConfig(ctx.dataDir, value);
     const status = await request(ctx.port, '/api/auth/status', { cookie });
@@ -751,7 +767,7 @@ test('publicUrl: its Host and Origin are accepted, https redirect URI, Secure co
   assert.equal(local.session.attrs.secure, undefined);
   assert.equal(local.oauth.attrs.secure, undefined);
 
-  const { overlayKey } = await readState(ctx.dataDir);
+  const overlayKey = await overlayKeyOf(ctx, cookie);
   assert.equal(cookieFrom(await request(ctx.port, `/overlay?key=${overlayKey}`, { headers: onPublic }), 'virtually_overlay').attrs.secure, true);
 
   const publicOrigin = { Host: PUBLIC_HOST, Origin: `https://${PUBLIC_HOST}`, 'Sec-Fetch-Site': 'same-origin' };
@@ -783,10 +799,11 @@ test('state.json: 0600 in a 0700 dir, and the overlay key and sessions survive a
   const statePath = path.join(dataDir, 'auth', 'state.json');
   assert.equal((await fs.stat(path.join(dataDir, 'auth'))).mode & 0o777, 0o700);
   assert.equal((await fs.stat(statePath)).mode & 0o777, 0o600);
-  const before = await fs.readFile(statePath, 'utf8');
 
   const cookie = await signIn(ctx);
   const { overlayKey } = (await request(ctx.port, '/api/auth/me', { cookie })).json;
+  const before = await fs.readFile(statePath, 'utf8');
+  assert.deepEqual(JSON.parse(before).overlayKeys, { [DEFAULT_SUB]: overlayKey });
   await stopApp(ctx);
   await fs.chmod(statePath, 0o644);
 
@@ -803,7 +820,8 @@ test('state.json: 0600 in a 0700 dir, and the overlay key and sessions survive a
   await fs.writeFile(statePath, '{"sessionSecret": 1');
   await startApp(ctx);
   const replaced = JSON.parse(await fs.readFile(statePath, 'utf8'));
-  assert.notEqual(replaced.overlayKey, overlayKey);
+  assert.deepEqual(replaced.overlayKeys, {}, 'the OBS keys are made again');
+  assert.notEqual(await overlayKeyOf(ctx, await signIn(ctx)), overlayKey);
   assert.equal((await fs.stat(statePath)).mode & 0o777, 0o600);
   assert.equal((await request(ctx.port, '/api/auth/me', { cookie })).status, 401);
   assert.deepEqual((await fs.readdir(path.join(dataDir, 'auth'))).filter(name => name.endsWith('.tmp')), []);
