@@ -1,0 +1,208 @@
+:root {
+  --bg: #fbfaf8;
+  --surface: #ffffff;
+  --text: #1c1b22;
+  --muted: #5f5d6b;
+  --line: #e7e4ec;
+  --accent: #6d4aff;
+  --accent-ink: #ffffff;
+  --accent-soft: #efeaff;
+  --radius: 14px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #131217;
+    --surface: #1c1b22;
+    --text: #f1f0f5;
+    --muted: #a4a2b2;
+    --line: #2d2b36;
+    --accent: #9a82ff;
+    --accent-ink: #14121c;
+    --accent-soft: #272238;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", "Noto Sans KR", Roboto, sans-serif;
+}
+
+a { color: var(--accent); text-underline-offset: 3px; }
+a:hover { text-decoration-thickness: 2px; }
+
+.wrap {
+  width: 100%;
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+header.site {
+  border-bottom: 1px solid var(--line);
+}
+
+header.site .wrap {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 64px;
+}
+
+.brand {
+  font-weight: 750;
+  font-size: 1.15rem;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  text-decoration: none;
+}
+
+nav.site a {
+  margin-left: 18px;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 0.95rem;
+}
+nav.site a:hover { color: var(--text); }
+
+.hero { padding: 72px 0 40px; }
+
+.eyebrow {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+h1 {
+  margin: 18px 0 14px;
+  font-size: clamp(2rem, 5.6vw, 3.1rem);
+  line-height: 1.12;
+  letter-spacing: -0.025em;
+}
+
+.lead {
+  max-width: 640px;
+  margin: 0 0 26px;
+  font-size: 1.15rem;
+  color: var(--muted);
+}
+
+.cta { display: flex; flex-wrap: wrap; gap: 12px; }
+
+.btn {
+  display: inline-block;
+  padding: 11px 20px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 600;
+  text-decoration: none;
+}
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+
+section { padding: 36px 0; }
+section + section { border-top: 1px solid var(--line); }
+
+h2 {
+  margin: 0 0 18px;
+  font-size: 1.55rem;
+  letter-spacing: -0.015em;
+}
+h3 { margin: 0 0 6px; font-size: 1.05rem; }
+
+.grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+}
+
+.card {
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.card p { margin: 0; color: var(--muted); font-size: 0.97rem; }
+
+.step-no {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-bottom: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+ul.plain { margin: 0; padding-left: 20px; }
+ul.plain li { margin: 6px 0; }
+
+.callout {
+  padding: 18px 20px;
+  border-left: 4px solid var(--accent);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  background: var(--accent-soft);
+}
+.callout p { margin: 0; }
+.callout p + p { margin-top: 8px; }
+
+.price {
+  font-size: 2.2rem;
+  font-weight: 750;
+  letter-spacing: -0.02em;
+}
+.price small { font-size: 1rem; font-weight: 500; color: var(--muted); }
+
+figure { margin: 0; }
+figure img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+figcaption { margin-top: 8px; font-size: 0.88rem; color: var(--muted); }
+
+footer.site {
+  margin-top: 24px;
+  padding: 28px 0 44px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+footer.site .wrap { display: flex; flex-wrap: wrap; gap: 8px 22px; justify-content: space-between; }
+footer.site a { color: var(--muted); }
+
+/* Legal pages */
+.doc { padding: 48px 0 24px; }
+.doc h1 { font-size: clamp(1.8rem, 4.6vw, 2.4rem); margin-top: 0; }
+.doc h2 { margin-top: 34px; font-size: 1.25rem; }
+.doc p, .doc li { color: var(--text); }
+.doc .updated { color: var(--muted); font-size: 0.92rem; }
+.doc table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 0.95rem; }
+.doc th, .doc td { padding: 9px 10px; border: 1px solid var(--line); text-align: left; vertical-align: top; }
+.doc th { background: var(--accent-soft); }
+
+@media (max-width: 560px) {
+  .hero { padding-top: 44px; }
+  nav.site a { margin-left: 12px; }
+}
