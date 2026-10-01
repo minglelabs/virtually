@@ -31,8 +31,8 @@ const AnimateHelpers = (() => {
   const ERROR_TEXT = Object.freeze({
     unknown_route: '알 수 없는 모델입니다',
     route_unavailable: '지금 쓸 수 없는 모델입니다',
-    no_credentials: 'API 키가 필요합니다',
-    no_media_relay: '업로드용 키(WaveSpeed·fal·Higgsfield)가 필요합니다',
+    no_credentials: '서버에 이 모델의 설정이 없습니다. 운영자에게 알려 주세요',
+    no_media_relay: '서버에 영상 업로드 설정이 없습니다. 운영자에게 알려 주세요',
     character_missing: '캐릭터 이미지가 없습니다',
     driving_missing: '동작 영상이 없습니다',
     driving_unavailable: '예시 영상을 먼저 받아 주세요',
@@ -282,9 +282,8 @@ const AnimateHelpers = (() => {
   }
 
   /**
-   * How a route row behaves: `selectable` (radio enabled), `needsKey` (show the
-   * "키 필요" link to the key panel), `tooLong` / `tooShort` (driving is outside
-   * the route's length limits, with the server's tolerance).
+   * How a route row behaves: `selectable` (radio enabled), `tooLong` / `tooShort`
+   * (driving is outside the route's length limits, with the server's tolerance).
    */
   function routeState(route, drivingSeconds) {
     const max = routeMaxSeconds(route);
@@ -294,7 +293,6 @@ const AnimateHelpers = (() => {
     const tooShort = min != null && known && drivingSeconds < min - LENGTH_TOLERANCE_SEC;
     return {
       selectable: Boolean(route?.available),
-      needsKey: !route?.available && route?.unavailableCode === 'no_credentials',
       tooLong,
       tooShort,
     };
@@ -861,8 +859,6 @@ if (typeof document !== 'undefined') (() => {
   const routeOptions = $('routeOptions');
   const marginBox = $('marginBox');
   const marginSelect = $('marginSelect');
-  const keyPanel = $('keyPanel');
-  const keyList = $('keyList');
   const createBtn = $('createBtn');
   const createStatus = $('createStatus');
   const jobsEmpty = $('jobsEmpty');
@@ -876,7 +872,6 @@ if (typeof document !== 'undefined') (() => {
   const state = {
     ffmpeg: null,
     routes: [],
-    providers: [],
     list: null, // GET /api/characters: { characters, activePhotoId, activeCharacterId }; null until loaded
     photoId: null, // the chosen photo (every job and upload goes to it)
     viewMotions: [], // the live library view's motions (SSE), for motions without a photo
@@ -1810,10 +1805,10 @@ if (typeof document !== 'undefined') (() => {
     if (!route.verified) badges.push(el('span', { className: 'badge', text: '검증 전' }));
     if (rs.tooLong) badges.push(el('span', { className: 'badge badge-warn', text: `최대 ${Math.floor(H.routeMaxSeconds(route))}초` }));
     badges.push(minLengthBadge(route, rs));
-    if (!route.available && !rs.needsKey) {
+    if (!route.available) {
       badges.push(el('span', {
         className: 'badge badge-muted',
-        text: route.unavailableCode === 'no_media_relay' ? '업로드 키 필요' : '사용 불가',
+        text: '사용 불가',
         title: H.errorText({ code: route.unavailableCode }),
       }));
     }
@@ -1840,14 +1835,6 @@ if (typeof document !== 'undefined') (() => {
     const row = el('div', {
       className: 'route-row' + (rs.selectable ? '' : ' is-disabled') + (route.id === state.routeId ? ' is-selected' : ''),
     }, [label]);
-    if (rs.needsKey) {
-      row.append(el('button', {
-        type: 'button',
-        className: 'badge badge-key',
-        text: '키 필요',
-        onclick: () => openKeyPanel(route.provider),
-      }));
-    }
     return row;
   }
 
@@ -1874,123 +1861,12 @@ if (typeof document !== 'undefined') (() => {
     routeOptions.hidden = options.length === 0;
   }
 
-  // ---- API keys ----
-  function openKeyPanel(providerId) {
-    keyPanel.open = true;
-    const box = keyList.querySelector(`[data-provider="${CSS.escape(String(providerId))}"]`);
-    if (!box) return;
-    box.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-    box.querySelector('input, select')?.focus({ preventScroll: true });
-  }
-
-  function renderKeys() {
-    const providers = state.providers.filter(p => (p.credentials || []).length || (p.settings || []).length);
-    if (providers.length === 0) {
-      keyList.replaceChildren(el('p', { className: 'muted', text: '설정할 키가 없습니다' }));
-      return;
-    }
-    keyList.replaceChildren(...providers.map(providerBox));
-  }
-
-  function providerBox(provider) {
-    const status = el('span', { className: 'status', 'aria-live': 'polite' });
-    const inputs = [];
-    const rows = [];
-    for (const cred of provider.credentials || []) {
-      const id = `key-${provider.id}-${cred.key}`;
-      const placeholder = cred.source === 'env' ? '환경변수 사용 중' : (cred.masked || '');
-      const input = el('input', {
-        id,
-        type: 'password',
-        autocomplete: 'off',
-        spellcheck: 'false',
-        placeholder,
-        dataset: { key: cred.key },
-      });
-      inputs.push(input);
-      const clear = cred.source === 'config'
-        ? el('button', {
-          type: 'button',
-          className: 'btn btn-ghost btn-sm',
-          text: '지우기',
-          onclick: () => saveProvider(provider, { [cred.key]: '' }, status),
-        })
-        : null;
-      rows.push(el('div', { className: 'key-row' }, [
-        el('label', { for: id, text: cred.label + (cred.optional ? ' (선택)' : '') }),
-        el('div', { className: 'row' }, [input, clear]),
-      ]));
-    }
-    for (const setting of provider.settings || []) {
-      if (!Array.isArray(setting.values) || setting.values.length === 0) continue;
-      const id = `set-${provider.id}-${setting.key}`;
-      const select = el('select', { id, className: 'select-sm', dataset: { key: setting.key, setting: '1' } },
-        setting.values.map(value => el('option', { value: String(value), text: String(value) })));
-      select.value = String(setting.value ?? setting.values[0]);
-      select.dataset.initial = select.value;
-      inputs.push(select);
-      rows.push(el('div', { className: 'key-row' }, [el('label', { for: id, text: setting.label }), select]));
-    }
-    const docs = safeHttpUrl(provider.docs);
-    const save = el('button', {
-      type: 'submit',
-      className: 'btn btn-sm',
-      text: '저장',
-    });
-    const form = el('form', {
-      className: 'key-provider',
-      dataset: { provider: provider.id },
-      onsubmit: (event) => {
-        event.preventDefault();
-        const fields = {};
-        for (const input of inputs) {
-          if (input.dataset.setting) {
-            if (input.value !== input.dataset.initial) fields[input.dataset.key] = input.value;
-          } else if (input.value.trim()) {
-            fields[input.dataset.key] = input.value.trim();
-          }
-        }
-        if (Object.keys(fields).length === 0) {
-          setStatus(status, '바뀐 값이 없습니다');
-          return;
-        }
-        saveProvider(provider, fields, status);
-      },
-    }, [
-      el('div', { className: 'key-title' }, [
-        el('strong', { text: provider.label }),
-        el('span', { className: provider.configured ? 'badge badge-ok' : 'badge badge-muted', text: provider.configured ? '설정됨' : '미설정' }),
-        docs ? el('a', { className: 'link', href: docs, target: '_blank', rel: 'noopener noreferrer', text: '문서' }) : null,
-      ]),
-      ...rows,
-      el('div', { className: 'row' }, [save, status]),
-    ]);
-    return form;
-  }
-
-  async function saveProvider(provider, fields, status) {
-    setStatus(status, '저장 중…');
-    try {
-      const data = await api('PUT', '/api/animate/config', { json: { providers: { [provider.id]: fields } } });
-      applyStatus(data);
-      // The panel re-renders; show the result in the new box.
-      const box = keyList.querySelector(`[data-provider="${CSS.escape(provider.id)}"] .status`);
-      if (box) setStatus(box, '저장했습니다', 'success');
-    } catch (error) {
-      setStatus(status, error.message, 'error');
-    }
-  }
-
   function applyStatus(data) {
     if (!data || typeof data !== 'object') return;
     if (Array.isArray(data.routes)) {
       state.routes = data.routes;
       state.margins = H.marginOptions(data);
       renderJobs(); // job cards show margin labels from the payload
-    }
-    if (Array.isArray(data.providers)) {
-      state.providers = data.providers;
-      renderKeys();
     }
     if ('ffmpeg' in data) {
       state.ffmpeg = data.ffmpeg;

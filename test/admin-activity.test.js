@@ -40,7 +40,8 @@ test('who uploaded what: owners, and the history of a user\'s changes, broadcast
   const alice = await H.signIn(ctx, H.ALICE);
   const bob = await H.signIn(ctx, H.BOB);
 
-  // Alice makes a character (with its base photo) and adds a photo; Bob renames it and puts a photo on air.
+  // Alice makes a character (with its base photo), adds a photo, renames it and puts the
+  // photo on air; Bob makes his own. Bob cannot touch Alice's.
   let response = await uploadPhoto(ctx, alice, '/api/characters?name=%EB%AF%BC%ED%8A%B8&filename=a.png');
   assert.equal(response.status, 201, response.text);
   const character = response.json.character;
@@ -48,34 +49,45 @@ test('who uploaded what: owners, and the history of a user\'s changes, broadcast
   response = await uploadPhoto(ctx, alice, `/api/characters/${character.id}/photos?filename=b.png`);
   assert.equal(response.status, 201, response.text);
   const secondPhotoId = response.json.photo.id;
-  response = await H.request(ctx, `/api/characters/${character.id}`, { method: 'PATCH', cookie: bob, body: { name: '레몬' } });
-  assert.equal(response.status, 200, response.text);
+  response = await H.request(ctx, `/api/characters/${character.id}`, { method: 'PATCH', cookie: bob, body: { name: '남의 것' } });
+  assert.equal(response.status, 404, 'Bob cannot rename it');
   response = await H.request(ctx, '/api/active-photo', { method: 'PUT', cookie: bob, body: { photoId: secondPhotoId } });
+  assert.equal(response.status, 404, 'nor put its photo on air');
+  response = await H.request(ctx, `/api/characters/${character.id}`, { method: 'PATCH', cookie: alice, body: { name: '레몬' } });
+  assert.equal(response.status, 200, response.text);
+  response = await H.request(ctx, '/api/active-photo', { method: 'PUT', cookie: alice, body: { photoId: secondPhotoId } });
   assert.equal(response.status, 200, response.text);
   // A failed change leaves no event.
-  response = await H.request(ctx, '/api/active-photo', { method: 'PUT', cookie: bob, body: { photoId: 5 } });
+  response = await H.request(ctx, '/api/active-photo', { method: 'PUT', cookie: alice, body: { photoId: 5 } });
   assert.ok(response.status >= 400);
+  response = await uploadPhoto(ctx, bob, '/api/characters?name=%EB%B0%94%EB%82%98%EB%82%98&filename=c.png');
+  assert.equal(response.status, 201, response.text);
 
   const library = (await H.get(ctx, '/api/admin/library', admin)).json;
+  assert.equal(library.characters.length, 2, 'the admin sees every account\'s characters');
   const row = library.characters.find(item => item.id === character.id);
   assert.equal(row.owner, H.ALICE.email);
   assert.equal(row.name, '레몬');
   assert.equal(row.photos.find(photo => photo.id === basePhotoId).owner, H.ALICE.email);
   assert.equal(row.photos.find(photo => photo.id === secondPhotoId).owner, H.ALICE.email);
   assert.equal(row.photos.find(photo => photo.id === secondPhotoId).onAir, true);
+  assert.equal(library.characters.find(item => item.id !== character.id).owner, H.BOB.email);
+  // Everyone else sees only their own.
+  assert.deepEqual((await H.get(ctx, '/api/characters', bob)).json.characters.map(item => item.name), ['바나나']);
+  assert.deepEqual((await H.get(ctx, '/api/characters', alice)).json.characters.map(item => item.name), ['레몬']);
 
   const events = (await H.get(ctx, '/api/admin/activity', admin)).json.events;
-  assert.deepEqual(events.map(event => event.type), ['onair.set', 'character.rename', 'photo.add', 'character.create']);
-  assert.deepEqual(events.map(event => event.actor.email), [H.BOB.email, H.BOB.email, H.ALICE.email, H.ALICE.email]);
-  assert.equal(events[1].from, '민트');
-  assert.equal(events[0].characterName, '레몬');
-  assert.equal(events[0].photoId, secondPhotoId);
+  assert.deepEqual(events.map(event => event.type), ['character.create', 'onair.set', 'character.rename', 'photo.add', 'character.create']);
+  assert.deepEqual(events.map(event => event.actor.email), [H.BOB.email, H.ALICE.email, H.ALICE.email, H.ALICE.email, H.ALICE.email]);
+  assert.equal(events[2].from, '민트');
+  assert.equal(events[1].characterName, '레몬');
+  assert.equal(events[1].photoId, secondPhotoId);
 
   // Filters: by account, by group, paging by time.
   const bobOnly = (await H.get(ctx, `/api/admin/activity?email=${encodeURIComponent(H.BOB.email.toUpperCase())}`, admin)).json.events;
-  assert.deepEqual(bobOnly.map(event => event.type), ['onair.set', 'character.rename']);
+  assert.deepEqual(bobOnly.map(event => event.type), ['character.create']);
   const uploads = (await H.get(ctx, '/api/admin/activity?type=upload', admin)).json.events;
-  assert.deepEqual(uploads.map(event => event.type), ['photo.add', 'character.create']);
+  assert.deepEqual(uploads.map(event => event.type), ['character.create', 'photo.add', 'character.create']);
   const older = (await H.get(ctx, `/api/admin/activity?limit=1&before=${encodeURIComponent(events[1].ts)}`, admin)).json.events;
   assert.ok(older.length <= 1 && older.every(event => event.ts < events[1].ts));
 
@@ -84,7 +96,8 @@ test('who uploaded what: owners, and the history of a user\'s changes, broadcast
   const aliceRow = users.find(user => user.email === H.ALICE.email);
   assert.equal(aliceRow.counts.upload, 2);
   assert.equal(aliceRow.name, H.ALICE.name);
-  assert.equal(users.find(user => user.email === H.BOB.email).counts.onair, 1);
+  assert.equal(aliceRow.counts.onair, 1);
+  assert.equal(users.find(user => user.email === H.BOB.email).counts.upload, 1);
 
   // Deleting is recorded with the name the character had.
   response = await H.request(ctx, `/api/characters/${character.id}`, { method: 'DELETE', cookie: alice });

@@ -685,17 +685,22 @@ test('login on: the on-air photo reaches OBS with the overlay key alone; the cha
   const photoId = `ph-${uuid()}`;
   const characterId = `c-${uuid()}`;
   const createdAt = '2026-09-01T00:00:00.000Z';
+  // The account's own workspace and OBS key (login on keeps every account's data apart).
+  const sub = '109876543210987654321';
+  const overlayKey = 'k'.repeat(32);
+  const home = dataDir => path.join(dataDir, 'users', sub);
   const app = await setup(t, {
     seed: async dataDir => {
       // An opaque photo whose background was cut out: OBS shows the cutout.
       const cutout = { cut: true, color: '#FFFFFF', fit: null };
-      await seedIndex(dataDir, {
+      await seedIndex(home(dataDir), {
         v: 1, activePhotoId: photoId,
         characters: [{ id: characterId, name: '방송 캐릭터', createdAt, basePhotoId: photoId, photos: [photoRecord(photoId, createdAt, { hasAlpha: false, cutout })] }],
       });
-      await fs.copyFile(fx.whitePng, path.join(dataDir, 'characters', 'photos', `${photoId}.png`));
-      await fs.copyFile(fx.png, path.join(dataDir, 'characters', 'photos', `${photoId}.cutout.png`));
+      await fs.copyFile(fx.whitePng, path.join(home(dataDir), 'characters', 'photos', `${photoId}.png`));
+      await fs.copyFile(fx.png, path.join(home(dataDir), 'characters', 'photos', `${photoId}.cutout.png`));
       await fs.mkdir(path.join(dataDir, 'auth'), { recursive: true });
+      await fs.writeFile(path.join(dataDir, 'auth', 'state.json'), JSON.stringify({ sessionSecret: 's'.repeat(43), overlayKeys: { [sub]: overlayKey } }));
       await fs.writeFile(path.join(dataDir, 'auth', 'config.json'), JSON.stringify({
         google: { clientId: 'test-client.apps.googleusercontent.com', clientSecret: 'GOCSPX-test-client-secret' },
         allowedEmails: ['streamer@example.com'],
@@ -704,7 +709,6 @@ test('login on: the on-air photo reaches OBS with the overlay key alone; the cha
     // Nothing may reach Google: every endpoint is a closed local port.
     extra: { auth: { endpoints: { authorize: 'http://127.0.0.1:9/a', token: 'http://127.0.0.1:9/t', jwks: 'http://127.0.0.1:9/j' }, log: () => {} } },
   });
-  const { overlayKey } = JSON.parse(await fs.readFile(path.join(app.dataDir, 'auth', 'state.json'), 'utf8'));
   const cookie = `virtually_overlay=${overlayKey}`;
   const cutUrl = `/api/media/${photoId}?variant=cutout`;
 
@@ -748,8 +752,8 @@ test('login on: the on-air photo reaches OBS with the overlay key alone; the cha
     assert.equal((await rawRequest(app.port, pathname)).status, 200, `${pathname} is a public asset`);
   }
   // The refused DELETEs changed nothing.
-  assert.ok(fsSync.existsSync(path.join(app.dataDir, 'characters', 'photos', `${photoId}.png`)));
-  assert.equal(JSON.parse(await fs.readFile(path.join(app.dataDir, 'characters', 'index.json'), 'utf8')).activePhotoId, photoId);
+  assert.ok(fsSync.existsSync(path.join(home(app.dataDir), 'characters', 'photos', `${photoId}.png`)));
+  assert.equal(JSON.parse(await fs.readFile(path.join(home(app.dataDir), 'characters', 'index.json'), 'utf8')).activePhotoId, photoId);
 });
 
 // name -> base64 bytes of every file in `dir`.

@@ -488,19 +488,24 @@ test('job validation, uploads, config, cancel, and no idle-image fallback', { sk
     assert.equal(tooLong.code, 'driving_too_long');
     assert.equal(tooLong.detail.maxSec, 30);
 
-    // Config: keys are stored 0600 and shown masked; baseUrl cannot be set.
-    response = await json(app.base, 'PUT', '/api/animate/config', { providers: { wavespeed: { baseUrl: 'http://127.0.0.1:1' } } });
-    assert.equal(response.status, 400);
-    response = await json(app.base, 'PUT', '/api/animate/config', { providers: { wavespeed: { apiKey: 'test-key-not-real-1234' } } });
-    assert.equal(response.status, 200);
-    const configured = await response.json();
-    assert.deepEqual(Object.keys(configured).sort(), ['config', 'margins', 'providers', 'routes']);
-    const wavespeed = configured.providers.find(provider => provider.id === 'wavespeed');
+    // No bring-your-own-key: the server's keys cannot be set through the API, and the
+    // status never carries a key (not even masked).
+    for (const body of [{ providers: { wavespeed: { apiKey: 'test-key-not-real-1234' } } }, { concurrency: 1 }]) {
+      response = await json(app.base, 'PUT', '/api/animate/config', body);
+      assert.equal(response.status, 404);
+    }
+    response = await fetch(`${app.base}/api/animate/providers/wavespeed/test`, { method: 'POST' });
+    assert.equal(response.status, 404);
+    // The server's owner puts the key in data/animate/config.json (here: into the loaded store).
+    const { configStore, registry } = app.server.animate;
+    configStore.config.providers.wavespeed = { apiKey: 'test-key-not-real-1234' };
+    await registry.load();
+    const statusAfter = await (await fetch(`${app.base}/api/animate/status`)).json();
+    const wavespeed = statusAfter.providers.find(provider => provider.id === 'wavespeed');
+    assert.deepEqual(Object.keys(wavespeed).sort(), ['configured', 'id', 'label', 'needsPublicVideoUrl', 'publicUploads']);
     assert.equal(wavespeed.configured, true);
-    assert.equal(wavespeed.credentials[0].masked, '••••1234');
-    assert.ok(!JSON.stringify(configured).includes('test-key-not-real'));
-    const configPath = path.join(dataDir, 'animate', 'config.json');
-    assert.equal((await fs.stat(configPath)).mode & 0o777, 0o600);
+    assert.equal(JSON.stringify(statusAfter).includes('test-key-not-real'), false);
+    const configured = statusAfter;
     const paidRoute = configured.routes.find(route => route.id === 'wavespeed/wan-2.2-animate-2');
     assert.equal(paidRoute.available, true);
     // A paid route needs explicit confirmation; nothing is sent without it.
@@ -517,8 +522,7 @@ test('job validation, uploads, config, cancel, and no idle-image fallback', { sk
     const klingShort = await response.json();
     assert.equal(klingShort.code, 'driving_too_short');
     assert.equal(klingShort.detail.minSec, 3);
-    response = await json(app.base, 'PUT', '/api/animate/config', { providers: { wavespeed: { apiKey: '' } } });
-    assert.equal(response.status, 200);
+    delete configStore.config.providers.wavespeed;
     assert.equal((await (await fetch(`${app.base}/api/animate/jobs`)).json()).jobs.length, 0, 'no job was created for a paid route');
 
     // Cancel a slow mock job; it cannot be added as a motion.
@@ -856,8 +860,8 @@ test('state left by the removed Wan v1 / DashScope routes still loads', async ()
     const orphan = await waitForJob(app.base, pollingId, ['failed']);
     assert.equal(orphan.error.code, 'submit_failed');
 
-    // Saving config still works with the stale DashScope entry in the file.
-    const response = await json(app.base, 'PUT', '/api/animate/config', { concurrency: 1 });
+    // The status still loads with the stale DashScope entry in the file.
+    const response = await fetch(`${app.base}/api/animate/status`);
     assert.equal(response.status, 200);
   } finally {
     await stop(app.server);

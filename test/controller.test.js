@@ -151,12 +151,12 @@ test('effectiveOptions keeps valid choices and falls back to defaults; free-form
 });
 
 test('routeState and groupRoutes', () => {
-  assert.deepEqual(H.routeState(route(), 5), { selectable: true, needsKey: false, tooLong: false, tooShort: false });
-  assert.deepEqual(H.routeState(route(), 200), { selectable: true, needsKey: false, tooLong: true, tooShort: false });
+  assert.deepEqual(H.routeState(route(), 5), { selectable: true, tooLong: false, tooShort: false });
+  assert.deepEqual(H.routeState(route(), 200), { selectable: true, tooLong: true, tooShort: false });
   assert.deepEqual(H.routeState(route({ available: false, unavailableCode: 'no_credentials' }), 5),
-    { selectable: false, needsKey: true, tooLong: false, tooShort: false });
+    { selectable: false, tooLong: false, tooShort: false });
   assert.deepEqual(H.routeState(route({ available: false, unavailableCode: 'no_media_relay' }), 5),
-    { selectable: false, needsKey: false, tooLong: false, tooShort: false });
+    { selectable: false, tooLong: false, tooShort: false });
   const groups = H.groupRoutes([
     route({ id: 'a', familyLabel: 'Wan' }),
     route({ id: 'b', familyLabel: 'Kling' }),
@@ -195,7 +195,7 @@ test('routeMinSeconds and the length limits mirror the server tolerance', () => 
 
 test('errorText prefers known Korean codes, then the server message', () => {
   assert.equal(H.errorText({ error: 'x', code: 'character_missing' }), '캐릭터 이미지가 없습니다');
-  assert.equal(H.errorText({ error: 'x', code: 'route_unavailable', detail: { unavailableCode: 'no_credentials' } }), 'API 키가 필요합니다');
+  assert.equal(H.errorText({ error: 'x', code: 'route_unavailable', detail: { unavailableCode: 'no_credentials' } }), '서버에 이 모델의 설정이 없습니다. 운영자에게 알려 주세요');
   assert.equal(H.errorText({ error: 'Something broke', code: 'weird' }), 'Something broke');
   assert.equal(H.errorText({ code: 'weird', message: 'Provider said no' }), 'Provider said no');
   assert.equal(H.errorText(null), '알 수 없는 오류');

@@ -139,7 +139,7 @@ test('uploadResultText: keyed colour, own alpha, or kept background with the rea
 test('character API errors show the server Korean text; job errors keep the code mapping', () => {
   assert.equal(H.serverErrorText({ error: '캐릭터를 찾을 수 없습니다.', code: 'character_missing' }), '캐릭터를 찾을 수 없습니다.');
   assert.equal(H.serverErrorText({ error: '영상은 60초까지 올릴 수 있습니다.', code: 'too_long' }), '영상은 60초까지 올릴 수 있습니다.');
-  assert.equal(H.serverErrorText({ error: '  ', code: 'no_credentials' }), 'API 키가 필요합니다');
+  assert.equal(H.serverErrorText({ error: '  ', code: 'no_credentials' }), '서버에 이 모델의 설정이 없습니다. 운영자에게 알려 주세요');
   assert.equal(H.serverErrorText(null), '알 수 없는 오류');
   // A job's error ({ code, message } in English) still reads through the Korean code table.
   assert.equal(H.errorText({ code: 'character_missing', message: 'No character image.' }), '캐릭터 이미지가 없습니다');
