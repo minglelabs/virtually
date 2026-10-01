@@ -128,6 +128,8 @@ The server never writes this file.
 
 With login on, every Google account has its own data, kept apart under `data/users/<Google id>/`: its characters and photos, motions and idles, the photo on air, the OBS source size, its driving videos and its 동작 만들기 jobs. One account cannot see or change another's, whatever ids it sends (an id of someone else's answers `404`), and the overlay of an account shows only that account's on-air photo. Shared by all accounts: the server's provider keys and model routes (see [API keys](#api-keys)), the credits ledger (one balance per account) and the activity log; admins (`adminEmails`) see every account's characters, driving videos and jobs on the 활동 · 자료 page.
 
+Each account may store 2 GB (`VIRTUALLY_ACCOUNT_QUOTA_MB`, `0` = no limit; login off has none). When it is full, uploads, new characters, driving videos and new jobs answer `413 quota_exceeded` until the account deletes something.
+
 With login off there is one set of data directly under `data/`, as before. Login on never reads that data: to move an existing install over, move `data/library.json`, `data/obs-source.json` and the folders `data/characters`, `data/media`, `data/animate/jobs` and `data/animate/drivings` into `data/users/<your Google id>/` (or run `node scripts/claim-legacy-data.js <your Google id>`; the id is the `sub` shown in `data/billing/ledger.json` for your address).
 
 ### What login protects
@@ -350,6 +352,7 @@ All errors are JSON `{ "error", "code"?, "detail"? }`. JSON bodies need `Content
 | Method and path | Purpose |
 |---|---|
 | `GET /api/animate/status` | ffmpeg availability, routes (each with `defaultMargin`, and `free`: `true` only for the local demo route, which needs no `confirmed` and is never charged; the page reads it for every price and confirmation), `margins` (`[{ value, label }]` for `none` / `normal` / `wide`), providers (`id`, `label`, `configured` — never a key), config |
+| `DELETE /api/animate/jobs/<id>` | Delete a finished job and its files (`409 job_active` while it runs: cancel first; `409 job_busy` while its refund is on its way). A motion already added from it stays |
 | `GET /api/animate/drivings` | Visible examples (manifest order), then uploads (newest first); `hiddenExamples` is the number of hidden examples |
 | `POST /api/animate/examples/fetch` | Download missing example videos, skipping hidden and bundled ones (`{}`) |
 | `POST /api/animate/examples/restore` | Un-hide all deleted examples (`{}`); returns `{ drivings, hidden: [] }`. Downloaded ones stay unavailable until fetched again; bundled ones are available at once |

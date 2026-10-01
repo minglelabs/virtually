@@ -1995,6 +1995,21 @@ if (typeof document !== 'undefined') (() => {
     renderJobs();
   }
 
+  function removeJob(id) {
+    state.jobs = state.jobs.filter(job => job.id !== id);
+    renderJobs();
+  }
+
+  async function deleteJob(job) {
+    if (!window.confirm('이 작업과 결과 영상을 지울까요? 이미 동작으로 추가한 영상은 그대로 남습니다.')) return;
+    try {
+      await api('DELETE', `/api/animate/jobs/${encodeURIComponent(job.id)}`);
+      removeJob(job.id);
+    } catch (error) {
+      setStatus(createStatus, `삭제 실패: ${error.message}`, 'error');
+    }
+  }
+
   function renderJobs() {
     jobsEmpty.hidden = state.jobs.length > 0;
     const seen = new Set();
@@ -2104,7 +2119,11 @@ if (typeof document !== 'undefined') (() => {
       job.canRefetch === true, refetchBusy.has(job.id), refetchErrors.get(job.id) || null]);
     if (actionsKey !== row.actionsKey) {
       row.actionsKey = actionsKey;
-      row.actions.replaceChildren(...jobActions(job, added).filter(node => node != null));
+      const actions = jobActions(job, added).filter(node => node != null);
+      if (!H.ACTIVE_STATES.has(job.state)) {
+        actions.push(el('button', { type: 'button', className: 'btn btn-ghost btn-sm', text: '삭제', onclick: () => deleteJob(job) }));
+      }
+      row.actions.replaceChildren(...actions);
     }
   }
 
@@ -2294,6 +2313,10 @@ if (typeof document !== 'undefined') (() => {
   events.addEventListener('message', (event) => {
     let data;
     try { data = JSON.parse(event.data); } catch { return; }
+    if (data?.type === 'animate-job-removed' && typeof data.id === 'string') {
+      removeJob(data.id);
+      return;
+    }
     if (data?.type === 'animate-job' && data.job) {
       const previous = state.jobs.find(job => job.id === data.job.id);
       upsertJob(data.job);
