@@ -131,9 +131,10 @@ test('storeFromEnv: nothing set is off, a partial set is an error', () => {
   assert.equal(storeFromEnv({ R2_ACCOUNT_ID: 'a', R2_ACCESS_KEY_ID: 'k', R2_SECRET_ACCESS_KEY: 's', R2_BUCKET: 'b' }).kind, 's3');
 });
 
-test('the S3 store talks to an S3-style endpoint: list, upload, download, remove', async () => {
+test('the S3 store talks to an S3-style endpoint: list, upload, head, download, remove', async () => {
   const http = require('node:http');
   const objects = new Map();
+  const types = new Map();
   const seen = [];
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://x');
@@ -149,7 +150,14 @@ test('the S3 store talks to an S3-style endpoint: list, upload, download, remove
       for await (const chunk of req) chunks.push(chunk);
       // aws-chunked framing is not used: the store sends the body as is with a content-length.
       objects.set(key, Buffer.concat(chunks));
+      types.set(key, req.headers['content-type']);
       res.writeHead(200, { etag: '"x"' });
+      return res.end();
+    }
+    if (req.method === 'HEAD') {
+      if (!objects.has(key)) { res.writeHead(404); return res.end(); }
+      const etag = `"${require('node:crypto').createHash('md5').update(objects.get(key)).digest('hex')}"`;
+      res.writeHead(200, { 'content-length': objects.get(key).length, etag });
       return res.end();
     }
     if (req.method === 'GET') {
@@ -169,8 +177,15 @@ test('the S3 store talks to an S3-style endpoint: list, upload, download, remove
     });
     const root = await tempDir();
     await put(root, 'media/a.mp4', 'hello bucket');
-    await store.upload('media/a.mp4', path.join(root, 'media', 'a.mp4'), 12);
+    await store.upload('media/a.mp4', path.join(root, 'media', 'a.mp4'), 12, 'video/mp4');
     assert.equal(objects.get('media/a.mp4').toString(), 'hello bucket');
+    assert.equal(types.get('media/a.mp4'), 'video/mp4');
+    assert.deepEqual(await store.head('media/a.mp4'), { size: 12, etag: require('node:crypto').createHash('md5').update('hello bucket').digest('hex') });
+    assert.equal(await store.head('media/missing.mp4'), null);
+    // A file that vanished before it could be read fails the upload; it is not an uncaught stream error.
+    await assert.rejects(store.upload('media/gone.mp4', path.join(root, 'media', 'gone.mp4'), 5), /ENOENT/);
+    assert.equal(objects.has('media/gone.mp4'), false);
+    await new Promise(resolve => setTimeout(resolve, 50));
     assert.deepEqual(await store.list(), [{ key: 'media/a.mp4', size: 12 }]);
     await store.download('media/a.mp4', path.join(root, 'copy'));
     assert.equal(await get(root, 'copy'), 'hello bucket');

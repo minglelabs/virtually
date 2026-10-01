@@ -8,6 +8,7 @@ const crypto = require('node:crypto');
 const { createAnimateShared } = require('./lib/animate/api');
 const { createAuth } = require('./lib/auth');
 const { openDocs, createFileDocs } = require('./lib/docs');
+const { loadDotEnv } = require('./lib/env');
 const { createMirror, storeFromEnv } = require('./lib/blobs');
 const { createActivityLog, observe: observeActivity } = require('./lib/activity');
 const { WEBHOOK_PATH, createBilling } = require('./lib/billing');
@@ -63,12 +64,41 @@ function workspaceDirName(sub) {
   return `x~${crypto.createHash('sha256').update(String(sub)).digest('hex').slice(0, 32)}`;
 }
 
+// A production deploy that lost DATABASE_URL must not come up on empty local files and look healthy.
+function requireDatabaseInProduction(env = process.env) {
+  if (env.NODE_ENV === 'production' && !env.DATABASE_URL) {
+    throw new Error('NODE_ENV=production needs DATABASE_URL (the records live in Postgres); refusing to start on local files.');
+  }
+}
+
+// Where records and media go, one line each, so a log shows at once whether the database
+// and the bucket are in use. Host and bucket names only, never a credential.
+function storageSummary({ docs, blobs, env = process.env }) {
+  let database = '[db] JSON files under data/ (DATABASE_URL is not set)';
+  if (docs.kind === 'postgres') {
+    let host = 'unknown host';
+    try {
+      host = new URL(env.DATABASE_URL).hostname;
+    } catch {
+      // keep the placeholder
+    }
+    database = `[db] Postgres at ${host}, schema virtually`;
+  }
+  const media = blobs && blobs.kind === 's3'
+    ? `[storage] media mirrored to R2 bucket ${env.R2_BUCKET}`
+    : '[storage] media on the local disk only (R2_* is not set)';
+  return [database, media];
+}
+
 async function createAppServer({
   dataDir = path.join(__dirname, 'data'),
   ffmpegPath = process.env.FFMPEG_PATH || 'ffmpeg',
   ffprobePath = process.env.FFPROBE_PATH || 'ffprobe',
   animateMock = process.env.VIRTUALLY_ANIMATE_MOCK === '1',
   animatePollIntervalMs = null,
+  // Test-only: { config, customRoutes, env } replacing the ANIMATE_* / provider-key
+  // environment variables (lib/animate/config.js).
+  animate: animateOptions = {},
   // Where JSON records live (lib/docs.js): files under dataDir by default. Running
   // `node server.js` passes Postgres when DATABASE_URL is set.
   docs = createFileDocs(),
@@ -102,7 +132,7 @@ async function createAppServer({
   // Before the animate API too: jobs are charged and refunded through it.
   const billing = await createBilling({ ...billingOptions, dataDir, docs, auth, sendJson, readBody });
   // The server's provider keys and model routes, one set for every account.
-  const animateShared = await createAnimateShared({ dataDir, mock: animateMock });
+  const animateShared = await createAnimateShared({ dataDir, mock: animateMock, ...animateOptions });
 
   // --- workspaces: one per Google account, <dataDir>/users/<id>/ -------------------
   // With login off there is one workspace, <dataDir>/ itself (the single-user layout).
@@ -358,12 +388,14 @@ async function listenWithPortRotation(server, { host = '127.0.0.1', startPort = 
 
 if (require.main === module) {
   (async () => {
+    // Before anything reads process.env (createAppServer's defaults included).
+    if (loadDotEnv()) console.log('Loaded variables from .env (variables already set in the environment win).');
+    requireDatabaseInProduction();
     const dataDir = path.join(__dirname, 'data');
-    return createAppServer({
-      dataDir,
-      docs: await openDocs({ root: dataDir, log: message => console.warn(message) }),
-      blobs: storeFromEnv(),
-    });
+    const docs = await openDocs({ root: dataDir, log: message => console.warn(message) });
+    const blobs = storeFromEnv();
+    for (const line of storageSummary({ docs, blobs })) console.log(line);
+    return createAppServer({ dataDir, docs, blobs });
   })().then(async server => {
     const host = process.env.HOST || '127.0.0.1';
     const startPort = Number(process.env.PORT ?? 8787);
@@ -410,4 +442,4 @@ if (require.main === module) {
   }).catch(error => { console.error(error); process.exitCode = 1; });
 }
 
-module.exports = { createAppServer, listenWithPortRotation, extForMime };
+module.exports = { createAppServer, listenWithPortRotation, extForMime, requireDatabaseInProduction, storageSummary };

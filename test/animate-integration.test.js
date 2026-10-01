@@ -496,7 +496,7 @@ test('job validation, uploads, config, cancel, and no idle-image fallback', { sk
     }
     response = await fetch(`${app.base}/api/animate/providers/wavespeed/test`, { method: 'POST' });
     assert.equal(response.status, 404);
-    // The server's owner puts the key in data/animate/config.json (here: into the loaded store).
+    // The server's owner sets the key as an environment variable (here: into the loaded store).
     const { configStore, registry } = app.server.animate;
     configStore.config.providers.wavespeed = { apiKey: 'test-key-not-real-1234' };
     await registry.load();
@@ -812,13 +812,6 @@ test('state left by the removed Wan v1 / DashScope routes still loads', async ()
   const manifestPath = path.join(dataDir, 'none.json');
   const animateDir = path.join(dataDir, 'animate');
   await fs.mkdir(animateDir, { recursive: true });
-  // A config saved before the removal: default route is v1 and a DashScope key is stored.
-  await fs.writeFile(path.join(animateDir, 'config.json'), JSON.stringify({
-    version: 1,
-    providers: { dashscope: { apiKey: 'old-dashscope-key-5678', region: 'intl' }, wavespeed: { apiKey: 'test-key-not-real-1234' } },
-    defaults: { routeId: 'dashscope/wan2.2-animate-move', options: {} },
-    mediaRelay: 'auto', concurrency: 2,
-  }));
   // A finished v1 job with a result on disk, and a v1 job that was still polling.
   const doneId = 'aaaaaaaa-1111-4111-8111-111111111111';
   const pollingId = 'bbbbbbbb-2222-4222-8222-222222222222';
@@ -839,7 +832,16 @@ test('state left by the removed Wan v1 / DashScope routes still loads', async ()
     task: { id: 'ds-1' },
   }));
 
-  const app = await start(dataDir, manifestPath);
+  // Settings saved before the removal: default route is v1 and a DashScope key is stored.
+  const app = await start(dataDir, manifestPath, {
+    animate: {
+      config: {
+        providers: { dashscope: { apiKey: 'old-dashscope-key-5678', region: 'intl' }, wavespeed: { apiKey: 'test-key-not-real-1234' } },
+        defaults: { routeId: 'dashscope/wan2.2-animate-move', options: {} },
+        mediaRelay: 'auto', concurrency: 2,
+      },
+    },
+  });
   try {
     const status = await (await fetch(`${app.base}/api/animate/status`)).json();
     assert.equal(status.providers.some(provider => provider.id === 'dashscope'), false);
@@ -860,7 +862,7 @@ test('state left by the removed Wan v1 / DashScope routes still loads', async ()
     const orphan = await waitForJob(app.base, pollingId, ['failed']);
     assert.equal(orphan.error.code, 'submit_failed');
 
-    // The status still loads with the stale DashScope entry in the file.
+    // The status still loads with the stale DashScope entry in the settings.
     const response = await fetch(`${app.base}/api/animate/status`);
     assert.equal(response.status, 200);
   } finally {

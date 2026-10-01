@@ -77,6 +77,7 @@ async function readLedger(ctx) {
 
 async function launch(ctx) {
   ctx.server = await createAppServer({
+    animate: ctx.animate ? { customRoutes: [PRICED_ROUTE, UNPRICED_ROUTE], config: { concurrency: ctx.animate.concurrency ?? 1 } } : undefined,
     ...ctx.serverOptions,
     dataDir: ctx.dataDir,
     examplesManifestPath: ctx.manifestPath,
@@ -110,7 +111,7 @@ async function restartApp(ctx, serverOptions) {
 }
 
 // A running app + fake Google on a fresh data dir. auth / billing: the config
-// files to write (null = none). animate: { concurrency } seeds the priced mock
+// files to write (null = none). animate: { concurrency } adds the priced mock
 // routes and turns the mock provider on. billingOptions: extra createBilling options.
 async function startApp(t, { auth = authConfig(), billing = billingConfig(), animate = null, billingOptions = {} } = {}) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'virtually-billing-'));
@@ -118,7 +119,7 @@ async function startApp(t, { auth = authConfig(), billing = billingConfig(), ani
   await fs.mkdir(dataDir, { recursive: true });
   const manifestPath = path.join(root, 'no-examples.json');
   await fs.writeFile(manifestPath, JSON.stringify({ version: 1, examples: [] }));
-  const ctx = { root, dataDir, manifestPath, clock: makeClock(), logs: [], mock: !!animate, billingOptions, server: null };
+  const ctx = { root, dataDir, manifestPath, clock: makeClock(), logs: [], mock: !!animate, animate, billingOptions, server: null };
   ctx.google = await startFakeGoogle({ clientId: CLIENT_ID, clientSecret: CLIENT_SECRET, now: ctx.clock.now });
   t.after(async () => {
     await stopApp(ctx);
@@ -127,7 +128,6 @@ async function startApp(t, { auth = authConfig(), billing = billingConfig(), ani
   });
   if (auth !== null) await writeFresh(authConfigPath(dataDir), auth);
   if (billing !== null) await writeFresh(billingConfigPath(dataDir), noWelcome(billing));
-  if (animate) await seedAnimate(dataDir, animate);
   return launch(ctx);
 }
 
@@ -231,13 +231,6 @@ const PRICED_ROUTE = Object.freeze({
 const UNPRICED_ROUTE = Object.freeze({ ...PRICED_ROUTE, id: 'mock/unpriced', label: '가격 없는 테스트 경로', pricing: null });
 const JOB_CREDITS = 600;
 const LONG = { delayMs: 60000 };
-
-async function seedAnimate(dataDir, { concurrency = 1 } = {}) {
-  const animateDir = path.join(dataDir, 'animate');
-  await fs.mkdir(animateDir, { recursive: true });
-  await fs.writeFile(path.join(animateDir, 'custom-routes.json'), JSON.stringify([PRICED_ROUTE, UNPRICED_ROUTE], null, 2));
-  await fs.writeFile(path.join(animateDir, 'config.json'), JSON.stringify({ version: 1, concurrency }, null, 2));
-}
 
 function ffmpeg(args) {
   execFileSync(FFMPEG, ['-hide_banner', '-loglevel', 'error', '-nostdin', '-y', ...args], { stdio: 'ignore' });

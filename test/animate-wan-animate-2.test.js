@@ -130,27 +130,19 @@ test('the page estimate mirrors the Animate 2 round-up', () => {
   assert.equal(page.estimateUsd({ pricing: { usdPerSecond: 0.08, minSeconds: 3 } }, 3.4), 0.272);
 });
 
-test('a config saved before the v1 removal loads and falls back to the first available route', async () => {
-  const os = require('node:os');
-  const path = require('node:path');
-  const fs = require('node:fs/promises');
+test('settings saved before the v1 removal load and fall back to the first available route', async () => {
   const { ConfigStore } = require('../lib/animate/config');
   const providers = require('../lib/animate/providers');
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'virtually-config-'));
-  const file = path.join(dir, 'config.json');
-  try {
-    await fs.writeFile(file, JSON.stringify({
-      version: 1,
+  const store = new ConfigStore(providers, {
+    env: {},
+    config: {
       providers: { dashscope: { apiKey: 'old-dashscope-key-5678' }, wavespeed: { apiKey: 'ws-key-not-real-1234' } },
       defaults: { routeId: 'wavespeed/wan-2.2-animate', options: {} },
-    }));
-    const store = await new ConfigStore(file, providers).load();
-    assert.equal(store.isConfigured('dashscope'), false);
-    assert.equal(store.providerViews().some(v => v.id === 'dashscope'), false);
-    const registry = await new Registry(store).load();
-    assert.equal(registry.get('wavespeed/wan-2.2-animate'), null);
-    assert.equal(registry.defaultRouteId(), A2_ID);
-  } finally {
-    await fs.rm(dir, { recursive: true, force: true });
-  }
+    },
+  });
+  assert.equal(store.isConfigured('dashscope'), false);
+  assert.equal(store.providerViews().some(v => v.id === 'dashscope'), false);
+  const registry = await new Registry(store).load();
+  assert.equal(registry.get('wavespeed/wan-2.2-animate'), null);
+  assert.equal(registry.defaultRouteId(), A2_ID);
 });

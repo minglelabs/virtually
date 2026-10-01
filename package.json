@@ -8,10 +8,11 @@
     "start": "node server.js",
     "test": "node --test",
     "fetch-examples": "node scripts/fetch-examples.js",
-    "migrate": "node --env-file=.env scripts/migrate-to-db.js"
+    "migrate": "node scripts/migrate-to-db.js",
+    "archive": "node scripts/archive-to-r2.js"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=20.12"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1144.0",

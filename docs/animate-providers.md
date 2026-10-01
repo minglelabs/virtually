@@ -37,9 +37,8 @@ other route leaves them unset and its request body is unchanged):
 prepared character bobbing over the job's key-colour canvas with ffmpeg for the driving video's length
 (max 6 s).
 
-Keys are stored in `data/animate/config.json` (mode 0600) or read from the environment variables
-listed in the README. A test-only `baseUrl` can be written into that file by hand but never over
-the API.
+Keys are read from the environment variables listed in the README (there is no config file). A
+test-only `baseUrl` can only be given to the config store in code, never over the API.
 
 ---
 
