@@ -137,7 +137,8 @@ test('estimateUsd mirrors the server: option rate, min seconds, null without pri
   assert.equal(H.estimateUsd(r, 5, H.effectiveOptions(r)), 0.4); // default 720p
   assert.equal(H.estimateUsd(route({ pricing: null }), 5), null);
   assert.equal(H.estimateUsd(r, null), null);
-  assert.equal(H.formatUsd(0.4), '약 $0.40');
+  // Prices are shown in credits; the dollar text is only the admins' 원가 note.
+  assert.equal(H.formatUsd(0.4), '$0.40');
   assert.equal(H.formatUsd(null), '');
 });
 
@@ -165,7 +166,12 @@ test('routeState and groupRoutes', () => {
     route({ id: 'c', familyLabel: 'Wan' }),
   ]);
   assert.deepEqual(groups.map(g => [g.familyLabel, g.routes.map(r => r.id)]), [['Wan', ['a', 'c']], ['Kling', ['b']]]);
-  assert.equal(H.isMockRoute({ provider: 'mock' }), true);
+  // Free only by the server's verdict (route view `free`), never by the provider.
+  assert.equal(H.isFreeRoute({ id: 'mock/local-demo', provider: 'mock', free: true }), true);
+  assert.equal(H.isFreeRoute({ id: 'mock/priced', provider: 'mock', free: false }), false);
+  assert.equal(H.isFreeRoute({ provider: 'mock' }), false, 'a route without the flag is paid');
+  assert.equal(H.isFreeRoute(null), false);
+  assert.equal(H.isMockRoute, undefined);
 });
 
 test('routeMinSeconds and the length limits mirror the server tolerance', () => {

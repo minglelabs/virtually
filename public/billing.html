@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>크레딧 · Virtually</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="./billing.css">
+  <link rel="stylesheet" href="./auth.css">
+</head>
+<body>
+  <main class="page">
+    <header class="page-header">
+      <nav class="page-links" aria-label="다른 화면">
+        <a href="/" class="back-link">컨트롤러</a>
+        <a href="/animate" class="back-link">동작 만들기</a>
+      </nav>
+      <h1>크레딧</h1>
+      <div id="authSlot" class="auth-slot" hidden></div>
+    </header>
+
+    <!-- billing.js: disabled / invalid / offline, and the return from Polar. -->
+    <div id="billingMessage" class="messages" role="alert"></div>
+    <div id="checkoutMessage" class="messages" role="status" aria-live="polite"></div>
+
+    <!-- Balance -->
+    <section id="summaryCard" class="card" aria-labelledby="balanceText" hidden>
+      <div class="summary-head">
+        <h2 id="balanceText" class="balance"></h2>
+        <span id="sandboxBadge" class="badge badge-warn" hidden>테스트 결제(샌드박스)</span>
+      </div>
+      <p id="rateText" class="muted"></p>
+      <p id="sandboxNote" class="muted" hidden>테스트 카드 4242 4242 4242 4242로 결제할 수 있습니다.</p>
+      <p id="freeNote" class="note-free" hidden>이 계정은 크레딧 없이 동작을 만들 수 있습니다.</p>
+      <div id="summaryActions" class="row summary-actions">
+        <a id="adminLink" href="/admin" class="btn btn-ghost btn-sm" hidden>크레딧 관리</a>
+        <button type="button" id="portalBtn" class="btn btn-ghost btn-sm" hidden>결제 관리</button>
+        <button type="button" id="syncBtn" class="btn btn-ghost btn-sm">결제 내역 다시 확인</button>
+      </div>
+      <p id="summaryStatus" class="status" aria-live="polite"></p>
+    </section>
+
+    <!-- How to top up: bank transfer to the admin (config transferNote) -->
+    <section id="transferCard" class="card" aria-labelledby="transferTitle" hidden>
+      <h2 id="transferTitle">충전 안내</h2>
+      <p id="transferNote" class="transfer-note"></p>
+    </section>
+
+    <!-- Credit products on Polar (only when Polar is configured) -->
+    <section id="productsCard" class="card" aria-labelledby="productsTitle" hidden>
+      <h2 id="productsTitle">충전</h2>
+      <p id="productsNote" class="note" hidden></p>
+      <ul id="productList" class="product-list" hidden></ul>
+      <p id="productsStatus" class="status" aria-live="polite"></p>
+    </section>
+
+    <!-- This account's ledger entries, newest first -->
+    <section id="historyCard" class="card" aria-labelledby="historyTitle" hidden>
+      <h2 id="historyTitle">사용 내역</h2>
+      <p id="historyEmpty" class="muted" hidden>아직 내역이 없습니다.</p>
+      <ol id="historyList" class="history-list" hidden></ol>
+    </section>
+  </main>
+  <script src="./auth.js"></script>
+  <script src="./credits.js"></script>
+  <script src="./billing.js"></script>
+</body>
+</html>

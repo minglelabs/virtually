@@ -51,17 +51,18 @@ test('fitNote: edge touches first, then a cut bottom, else nothing', () => {
 
 test('jobPayload sends the photo, and margin only when the server offers it', () => {
   const route = { id: 'wavespeed/wan-2.2-animate-2' };
+  const demo = { id: 'mock/local-demo', provider: 'mock', free: true };
   assert.deepEqual(
-    H.jobPayload({ drivingId: 'd1', photoId: 'ph-1', route, options: { resolution: '480p' }, margin: 'wide', margins: MARGINS, mock: false }),
+    H.jobPayload({ drivingId: 'd1', photoId: 'ph-1', route, options: { resolution: '480p' }, margin: 'wide', margins: MARGINS }),
     { drivingId: 'd1', photoId: 'ph-1', routeId: route.id, options: { resolution: '480p' }, margin: 'wide', confirmed: true },
   );
   assert.deepEqual(
-    H.jobPayload({ drivingId: 'd1', photoId: 'ph-1', route: { id: 'mock' }, options: {}, margin: 'none', margins: MARGINS, mock: true }),
-    { drivingId: 'd1', photoId: 'ph-1', routeId: 'mock', options: {}, margin: 'none' },
+    H.jobPayload({ drivingId: 'd1', photoId: 'ph-1', route: demo, options: {}, margin: 'none', margins: MARGINS }),
+    { drivingId: 'd1', photoId: 'ph-1', routeId: demo.id, options: {}, margin: 'none' },
   );
   assert.deepEqual(
-    H.jobPayload({ drivingId: 'd1', photoId: 'ch-2', route: { id: 'mock' }, options: {}, margin: null, margins: [], mock: true }),
-    { drivingId: 'd1', photoId: 'ch-2', routeId: 'mock', options: {} },
+    H.jobPayload({ drivingId: 'd1', photoId: 'ch-2', route: demo, options: {}, margin: null, margins: [] }),
+    { drivingId: 'd1', photoId: 'ch-2', routeId: demo.id, options: {} },
   );
 });
 

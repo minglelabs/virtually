@@ -548,6 +548,12 @@ select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .confirm-list div { display: flex; justify-content: space-between; gap: 16px; padding: 4px 0; border-bottom: 1px solid var(--border); }
 .confirm-list dt { color: var(--muted); }
 .confirm-list dd { margin: 0; text-align: right; }
+/* Billing on: "40 크레딧이 차감됩니다 (보유 1,234)." */
+.confirm-credits { margin: -6px 0 16px; font-size: 13px; color: var(--muted); word-break: keep-all; }
+
+/* Billing on: the credits a job cost, or gave back. */
+.job-credits { font-variant-numeric: tabular-nums; }
+.job-credits.is-refunded { color: var(--ok); border-color: rgba(127, 216, 154, 0.4); }
 
 .visually-hidden {
   position: absolute;

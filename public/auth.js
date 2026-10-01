@@ -1,21 +1,30 @@
 'use strict';
 
-// Login support for the controller and the animate page, loaded before the page
-// script. It wraps window.fetch once, so any request the server refuses for a
-// missing login (401 + X-Virtually-Auth: required) sends the browser to /login and
-// back here afterwards; it fills the signed-in chip (#authSlot) and exposes
+// Login support for the controller, the animate page and the billing page, loaded
+// before the page script. It wraps window.fetch once, so any request the server
+// refuses for a missing login (401 + X-Virtually-Auth: required) sends the browser
+// to /login and back here afterwards; it fills the signed-in chip (#authSlot) and exposes
 // window.VirtuallyAuth = { ready, logout, rotateOverlayKey, loginUrlFor, overlayUrlFor }.
-// Names and emails are user data: the chip is built with createElement/textContent only.
-// With login off (or an older server) nothing is shown and fetch behaves as before.
+// It also puts the credits chip (GET /api/billing; admins also get a 관리 link to /admin)
+// in the same slot and exposes window.VirtuallyBilling = { ready, refresh }, so a page
+// reuses that payload instead of asking again. Names and emails are user data: the
+// chips are built with createElement/textContent only. With login and billing off (or an
+// older server) nothing is shown and fetch behaves as before.
 (function (root) {
   const AUTH_HEADER = 'X-Virtually-Auth';
   const LOGGED_OUT_URL = '/login?logged_out=1';
+  const BILLING_PATH = '/billing';
+  const ADMIN_PATH = '/admin';
 
   const TEXT = Object.freeze({
     logout: '로그아웃',
     offline: '서버에 연결하지 못했습니다.',
     noKey: '새 주소를 받지 못했습니다.',
     logoutFailed: '로그아웃하지 못했습니다.',
+    credits: '크레딧',
+    creditsFree: '크레딧 무료',
+    creditsCheck: '크레딧 설정 확인',
+    admin: '관리',
   });
 
   /** The login page that returns to `pathname + search` afterwards. */
@@ -69,6 +78,26 @@
     return { label: name || email, email, picture };
   }
 
+  /** A credit count as shown on every page: '1,234', '-50'; '' when it is not a number. */
+  function formatCredits(value) {
+    return typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString('ko-KR') : '';
+  }
+
+  /**
+   * What the credits chip shows for a GET /api/billing payload: { text, href, adminHref },
+   * or null for no chip (billing off, request failed, unknown shape). The chip links to
+   * the billing page; adminHref ('/admin', else null) adds the admins' 관리 link.
+   */
+  function creditChip(billing) {
+    if (!billing || typeof billing !== 'object' || billing.enabled !== true) return null;
+    if (billing.mode === 'invalid') return { text: TEXT.creditsCheck, href: BILLING_PATH, adminHref: null };
+    if (billing.mode !== 'enabled') return null;
+    const adminHref = billing.isAdmin === true ? ADMIN_PATH : null;
+    if (billing.free === true) return { text: TEXT.creditsFree, href: BILLING_PATH, adminHref };
+    const balance = formatCredits(billing.balance);
+    return balance ? { text: `${TEXT.credits} ${balance}`, href: BILLING_PATH, adminHref } : null;
+  }
+
   /** The server's JSON `error` text, else `HTTP <status>`. */
   async function errorText(response) {
     try {
@@ -81,12 +110,16 @@
   const helpers = Object.freeze({
     AUTH_HEADER,
     LOGGED_OUT_URL,
+    BILLING_PATH,
+    ADMIN_PATH,
     TEXT,
     loginUrlFor,
     overlayUrlFor,
     isAuthRequired,
     guardFetch,
     chipUser,
+    formatCredits,
+    creditChip,
   });
 
   if (typeof module !== 'undefined' && module.exports) module.exports = helpers;
@@ -195,5 +228,82 @@
 
   ready.then(me => whenDomReady(() => renderChip(me))).catch(() => {});
 
+  // ---- Credits chip (GET /api/billing) ----
+  // renderChip replaces the slot's children, so the credits chip joins the slot only
+  // after it: this reaction on `ready` is registered after renderChip's, so it runs
+  // after it, and when both wait for DOMContentLoaded its listener comes second too.
+  const slotSettled = ready.then(() => new Promise(resolve => whenDomReady(resolve)), () => {});
+  let creditsNode = null;
+  let billingSeq = 0;
+
+  // The GET /api/billing payload, or null (request failed, not JSON, or sent to /login).
+  async function fetchBilling() {
+    try {
+      const response = await root.fetch('/api/billing', {
+        cache: 'no-store',
+        credentials: 'same-origin',
+        headers: { Accept: 'application/json' },
+      });
+      if (!response.ok) return null;
+      const body = await response.json();
+      return body && typeof body === 'object' ? body : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function chipLink(className, href, text) {
+    const link = document.createElement('a');
+    link.className = className;
+    link.setAttribute('href', href);
+    if (root.location.pathname === href) link.setAttribute('aria-current', 'page');
+    link.textContent = text;
+    return link;
+  }
+
+  // One group, replaced as a unit: the credits link, and the admins' 관리 link.
+  function creditsChipNode(chip) {
+    const group = document.createElement('span');
+    group.className = 'auth-billing';
+    group.append(chipLink('auth-credits', chip.href, chip.text));
+    if (chip.adminHref) group.append(chipLink('auth-admin', chip.adminHref, TEXT.admin));
+    return group;
+  }
+
+  // Puts the chip first in #authSlot, replaces it, or removes it (no chip for this payload).
+  function renderCredits(billing) {
+    const slot = document.getElementById('authSlot');
+    if (!slot) return;
+    const chip = creditChip(billing);
+    const node = chip ? creditsChipNode(chip) : null;
+    if (node) {
+      if (creditsNode && creditsNode.parentNode === slot) creditsNode.replaceWith(node);
+      else slot.prepend(node);
+      slot.hidden = false;
+    } else if (creditsNode) {
+      creditsNode.remove();
+      if (slot.children.length === 0) slot.hidden = true;
+    }
+    creditsNode = node;
+  }
+
+  /** Re-reads GET /api/billing and redraws the chip; resolves the payload (null on failure). */
+  function refreshBilling() {
+    billingSeq += 1;
+    const seq = billingSeq;
+    return Promise.all([fetchBilling(), slotSettled]).then(([billing]) => {
+      // Only the newest answer draws, so an older, slower one cannot undo it.
+      if (seq === billingSeq) {
+        try {
+          renderCredits(billing);
+        } catch { /* the chip must never break the page */ }
+      }
+      return billing;
+    });
+  }
+
+  const billingReady = refreshBilling();
+
   root.VirtuallyAuth = Object.freeze({ ready, logout, rotateOverlayKey, loginUrlFor, overlayUrlFor });
+  root.VirtuallyBilling = Object.freeze({ ready: billingReady, refresh: refreshBilling });
 })(typeof window !== 'undefined' ? window : null);
