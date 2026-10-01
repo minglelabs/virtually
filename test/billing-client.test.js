@@ -408,46 +408,36 @@ const route = (over = {}) => ({
   ...over,
 });
 
-test('billingActive and showsModelCost: who pays, and who also sees the dollar model cost', () => {
+test('billingActive: who pays', () => {
   assert.equal(H.billingActive(enabledPayload()), true);
   assert.equal(H.billingActive(enabledPayload({ balance: -3 })), true);
   assert.equal(H.billingActive(enabledPayload({ isAdmin: true })), true);
   for (const inactive of [enabledPayload({ free: true }), invalidPayload('bad_server'), disabledPayload(), { enabled: false }, null, undefined, {}]) {
     assert.equal(H.billingActive(inactive), false, JSON.stringify(inactive));
   }
-  for (const shown of [enabledPayload({ isAdmin: true }), enabledPayload({ isAdmin: true, free: true }), disabledPayload(), { enabled: false }]) {
-    assert.equal(H.showsModelCost(shown), true, JSON.stringify(shown));
-  }
-  for (const hidden of [enabledPayload(), enabledPayload({ free: true }), enabledPayload({ isAdmin: 'true' }),
-    { ...invalidPayload('bad_server'), isAdmin: true }, null, undefined, {}]) {
-    assert.equal(H.showsModelCost(hidden), false, JSON.stringify(hidden));
-  }
 });
 
-test('priceText: "약 N 크레딧" in every mode, "(원가 $x)" for admins and while billing is off', () => {
+test('priceText: "약 N 크레딧" in every mode, never the dollar model cost', () => {
   const customer = enabledPayload();
   const admin = enabledPayload({ isAdmin: true });
   // The spec's example: $0.30 of model cost is 600 credits at the default 2000 per dollar.
   assert.equal(H.priceText(0.3, customer), '약 600 크레딧');
-  assert.equal(H.priceText(0.3, admin), '약 600 크레딧 (원가 $0.30)');
-  assert.equal(H.priceText(0.3, disabledPayload()), '약 600 크레딧 (원가 $0.30)');
+  assert.equal(H.priceText(0.3, admin), '약 600 크레딧');
+  assert.equal(H.priceText(0.3, disabledPayload()), '약 600 크레딧');
   assert.equal(H.priceText(0.3, enabledPayload({ free: true })), '약 600 크레딧');
   assert.equal(H.priceText(0.3, invalidPayload('login_required')), '약 600 크레딧');
   // Before (or without) GET /api/billing: credits.js's default rate, no model cost.
   assert.equal(H.priceText(0.3, null), '약 600 크레딧');
   // creditsPerUsd comes from the payload in every mode.
   assert.equal(H.priceText(0.3, enabledPayload({ creditsPerUsd: 1500 })), '약 450 크레딧');
-  assert.equal(H.priceText(0.3, disabledPayload({ creditsPerUsd: 1000 })), '약 300 크레딧 (원가 $0.30)');
+  assert.equal(H.priceText(0.3, disabledPayload({ creditsPerUsd: 1000 })), '약 300 크레딧');
   assert.equal(H.priceText(0.3, { ...invalidPayload('bad_free_emails'), creditsPerUsd: 3000 }), '약 900 크레딧');
   assert.equal(H.priceText(12.34, customer), '약 24,680 크레딧');
   assert.equal(H.priceText(0.0001, customer), '약 1 크레딧');
-  assert.equal(H.priceText(12.34, admin), '약 24,680 크레딧 (원가 $12.34)');
+  assert.equal(H.priceText(12.34, admin), '약 24,680 크레딧');
   for (const payload of [customer, admin, disabledPayload(), null]) {
     assert.equal(H.priceText(null, payload), '가격 정보 없음', JSON.stringify(payload));
   }
-  assert.equal(H.formatUsd(0.3), '$0.30');
-  assert.equal(H.formatUsd(0.272), '$0.27');
-  assert.equal(H.formatUsd(null), '');
 });
 
 test('routeCostText: the route estimate in credits; 무료 for the free route; nothing until the length is known', () => {
@@ -456,8 +446,8 @@ test('routeCostText: the route estimate in credits; 무료 for the free route; n
   assert.equal(H.routeCostText(r, 5, { resolution: '720p' }, customer), '약 800 크레딧');
   assert.equal(H.routeCostText(r, 5, { resolution: '480p' }, customer), '약 400 크레딧');
   assert.equal(H.routeCostText(r, 1, { resolution: '720p' }, customer), '약 480 크레딧'); // min 3 s billed
-  assert.equal(H.routeCostText(r, 5, { resolution: '720p' }, enabledPayload({ isAdmin: true })), '약 800 크레딧 (원가 $0.40)');
-  assert.equal(H.routeCostText(r, 5, { resolution: '720p' }, disabledPayload()), '약 800 크레딧 (원가 $0.40)');
+  assert.equal(H.routeCostText(r, 5, { resolution: '720p' }, enabledPayload({ isAdmin: true })), '약 800 크레딧');
+  assert.equal(H.routeCostText(r, 5, { resolution: '720p' }, disabledPayload()), '약 800 크레딧');
   assert.equal(H.routeCostText(r, 5, { resolution: '720p' }, null), '약 800 크레딧');
   assert.equal(H.routeCostText(route({ pricing: { usdPerSecond: 0.06 } }), 5, {}, customer), '약 600 크레딧');
   assert.equal(H.routeCostText(route({ pricing: null }), 5, {}, customer), '가격 정보 없음');
@@ -467,11 +457,10 @@ test('routeCostText: the route estimate in credits; 무료 for the free route; n
   for (const payload of [customer, enabledPayload({ isAdmin: true }), disabledPayload(), null]) {
     assert.equal(H.routeCostText({ id: 'mock/local-demo', provider: 'mock', free: true }, 5, {}, payload), '무료');
   }
-  // No USD wording on the page besides the 원가 note.
+  // No USD wording on the page.
   const js = readPublic('animate.js');
-  assert.doesNotMatch(js, /약 \$(?!\{)|예상 모델 비용/);
-  assert.equal((js.match(/`\$\$\{/g) || []).length, 1, 'formatUsd is the only dollar text');
-  assert.match(js, /`\$\{text\} \(원가 \$\{formatUsd\(usd\)\}\)`/);
+  assert.doesNotMatch(js, /약 \$(?!\{)|예상 모델 비용|원가/);
+  assert.equal((js.match(/`\$\$\{/g) || []).length, 0, 'no dollar text');
 });
 
 test('jobCredits is the shared creditsFor on the page estimate (the price the server charges)', () => {
@@ -506,7 +495,7 @@ test('free route: only the server\'s verdict (route view free) is free; a priced
 
   // A 2 s driving on $0.10/s with a 3 s floor: $0.30 = 600 credits, the price the server charges.
   assert.equal(H.routeCostText(priced, 2, {}, customer), '약 600 크레딧');
-  assert.equal(H.routeCostText(priced, 2, {}, enabledPayload({ isAdmin: true })), '약 600 크레딧 (원가 $0.30)');
+  assert.equal(H.routeCostText(priced, 2, {}, enabledPayload({ isAdmin: true })), '약 600 크레딧');
   assert.equal(H.jobCredits(priced, 2, {}, customer), 600);
   // Its paid confirmation takes the credits, and the request says it was confirmed.
   assert.equal(H.confirmCreditsText(H.jobCredits(priced, 2, {}, customer), customer.balance), '600 크레딧이 차감됩니다 (보유 1,234).');
