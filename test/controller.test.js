@@ -333,7 +333,7 @@ test('controller previews a true-scale canvas at the reported OBS source size', 
   const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
   // Both pane titles are h2 with one shared class, and each section is labelled by its h2.
   // The brand row also holds the signed-in chip slot (auth.js fills it when login is on).
-  assert.match(html, /<section class="pane pane-control" aria-labelledby="controlTitle">\s*<div class="brand-row">\s*<h1 class="brand">Virtually<\/h1>\s*<div id="authSlot" class="auth-slot" hidden><\/div>\s*<\/div>\s*<h2 id="controlTitle" class="pane-title">컨트롤러<\/h2>/);
+  assert.match(html, /<section class="pane pane-control" aria-labelledby="controlTitle">\s*<div class="brand-row">\s*<h1 class="brand"><a href="\/" class="brand-link">Virtually<\/a><\/h1>\s*<div id="authSlot" class="auth-slot" hidden><\/div>\s*<\/div>\s*<h2 id="controlTitle" class="pane-title">컨트롤러<\/h2>/);
   assert.match(html, /<section class="pane pane-preview" aria-labelledby="previewTitle">/);
   assert.match(html, /<div class="pane-title-row">\s*<h2 id="previewTitle" class="pane-title">캔버스<\/h2>\s*<button type="button" id="refreshOverlayBtn"/);
   assert.equal((html.match(/<h2 [^>]*class="pane-title"/g) || []).length, 2);

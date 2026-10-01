@@ -237,7 +237,7 @@ test('admin page: header like /billing, billing.css + admin.css, auth.js then bi
   assert.deepEqual(scripts, ['auth.js', 'billing.js', 'admin.js']);
   assert.doesNotMatch(html, /<script>|animate\.js|app\.js|credits\.js/);
   assert.match(html,
-    /<header class="page-header">\s*<nav class="page-links" aria-label="[^"]+">\s*<a href="\/" class="back-link">컨트롤러<\/a>\s*<a href="\/animate" class="back-link">동작 만들기<\/a>\s*<a href="\/billing" class="back-link">크레딧<\/a>\s*<a href="\/admin\/activity" class="back-link">활동 · 자료<\/a>\s*<\/nav>\s*<h1>크레딧 관리<\/h1>\s*<div id="authSlot" class="auth-slot" hidden><\/div>\s*<\/header>/);
+    /<header class="page-header">\s*<a href="\/" class="brand-link brand-mark">Virtually<\/a>\s*<nav class="page-links" aria-label="[^"]+">\s*<a href="\/" class="back-link">컨트롤러<\/a>\s*<a href="\/animate" class="back-link">동작 만들기<\/a>\s*<a href="\/billing" class="back-link">크레딧<\/a>\s*<a href="\/admin\/activity" class="back-link">활동 · 자료<\/a>\s*<\/nav>\s*<h1>크레딧 관리<\/h1>\s*<div id="authSlot" class="auth-slot" hidden><\/div>\s*<\/header>/);
   // The form: labels, hints and the placeholder from the spec.
   assert.match(html, /<label for="emailInput">이메일<\/label>/);
   assert.match(html, /<label for="creditsInput">크레딧<\/label>/);
