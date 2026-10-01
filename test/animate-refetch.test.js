@@ -50,10 +50,12 @@ async function stopApp(app) {
   await new Promise(resolve => app.server.close(resolve));
 }
 
-// Upload the character and the driving clip; resolves the driving id.
+// Create a character from the test image and upload the driving clip; resolves the driving id.
+// The character's base photo id is kept on `app` for createJob.
 async function addInputs(app, env) {
-  let response = await fetch(`${app.base}/api/animate/characters?name=c.png`, { method: 'POST', body: fsSync.readFileSync(env.character) });
+  let response = await fetch(`${app.base}/api/characters?name=${encodeURIComponent('캐릭터')}&filename=c.png`, { method: 'POST', body: fsSync.readFileSync(env.character) });
   assert.equal(response.status, 201);
+  app.photoId = (await response.json()).character.basePhotoId;
   response = await fetch(`${app.base}/api/animate/drivings?name=clip.mp4`, { method: 'POST', body: fsSync.readFileSync(env.clip) });
   assert.equal(response.status, 201);
   return (await response.json()).id;
@@ -67,7 +69,7 @@ const getJob = async (app, id) => (await fetch(`${app.base}/api/animate/jobs/${i
 const storedJob = async (env, id) => JSON.parse(await fs.readFile(path.join(env.dataDir, 'animate', 'jobs', id, 'job.json'), 'utf8'));
 
 async function createJob(app, drivingId, options = {}) {
-  const response = await post(app, '/api/animate/jobs', { drivingId, routeId: MOCK_ROUTE, options });
+  const response = await post(app, '/api/animate/jobs', { drivingId, routeId: MOCK_ROUTE, photoId: app.photoId, options });
   assert.equal(response.status, 202);
   return (await response.json()).job;
 }

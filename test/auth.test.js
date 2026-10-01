@@ -233,10 +233,11 @@ test('disabled mode: no login, auth endpoints answer, existing routes stay open'
   assert.equal(cookieFrom(start, 'virtually_oauth'), null);
   assertLoginFailed(await request(ctx.port, '/auth/google/callback?code=x&state=y'), 'not_configured');
 
-  for (const pathname of ['/', '/animate', '/overlay', '/login', '/app.js', '/login.js', '/auth.js']) {
+  for (const pathname of ['/', '/broadcast', '/animate', '/overlay', '/login', '/app.js', '/login.js', '/auth.js', '/characters.js', '/characters.css']) {
     assert.equal((await request(ctx.port, pathname)).status, 200, pathname);
   }
   assert.equal((await request(ctx.port, '/api/library')).status, 200);
+  assert.equal((await request(ctx.port, '/api/characters')).status, 200);
   assert.equal((await request(ctx.port, '/api/trigger', { method: 'POST', ...json({ id: 'demo' }) })).status, 200);
   const events = await openStream(ctx.port, '/api/events');
   assert.equal(events.status, 200);
@@ -253,7 +254,7 @@ test('disabled mode: no login, auth endpoints answer, existing routes stay open'
 
 test('enabled, signed out: pages redirect to /login with next, APIs answer 401, assets stay public', async t => {
   const ctx = await setup(t);
-  for (const [pathname, next] of [['/', '/'], ['/animate?tab=jobs', '/animate?tab=jobs'], ['/nope', '/nope']]) {
+  for (const [pathname, next] of [['/', '/'], ['/broadcast', '/broadcast'], ['/animate?tab=jobs', '/animate?tab=jobs'], ['/nope', '/nope']]) {
     const response = await request(ctx.port, pathname);
     assert.equal(response.status, 302, pathname);
     assert.equal(response.headers.location, `/login?next=${encodeURIComponent(next)}`, pathname);
@@ -264,6 +265,9 @@ test('enabled, signed out: pages redirect to /login with next, APIs answer 401, 
     ['GET', '/api/library'], ['GET', '/api/events'], ['POST', '/api/trigger'], ['POST', '/api/idle'],
     ['GET', '/api/auth/me'], ['POST', '/api/auth/overlay-key'], ['GET', '/api/animate/status'],
     ['DELETE', '/api/media/0f0e0d0c-0b0a-4900-8800-706050403020'], ['POST', '/api/obs-source'], ['POST', '/nope'],
+    ['GET', '/api/characters'], ['POST', '/api/characters?name=x'], ['PUT', '/api/active-photo'],
+    ['DELETE', '/api/characters/c-0f0e0d0c-0b0a-4900-8800-706050403020'],
+    ['POST', '/api/characters/c-0f0e0d0c-0b0a-4900-8800-706050403020/photos/ph-0f0e0d0c-0b0a-4900-8800-706050403020/motions'],
   ];
   for (const [method, pathname] of denied) {
     const response = await request(ctx.port, pathname, { method, ...(method === 'GET' || method === 'DELETE' ? {} : json({ id: 'demo' })) });
@@ -272,7 +276,7 @@ test('enabled, signed out: pages redirect to /login with next, APIs answer 401, 
     assert.equal(response.headers['x-virtually-auth'], 'required', `${method} ${pathname}`);
   }
 
-  for (const pathname of ['/app.js', '/app.css', '/motions.js', '/animate.js', '/animate.css', '/overlay.js', '/overlay.css', '/login.css', '/login.js', '/auth.css', '/auth.js']) {
+  for (const pathname of ['/app.js', '/app.css', '/motions.js', '/animate.js', '/animate.css', '/overlay.js', '/overlay.css', '/login.css', '/login.js', '/auth.css', '/auth.js', '/characters.js', '/characters.css']) {
     const response = await request(ctx.port, pathname);
     assert.equal(response.status, 200, pathname);
     assert.doesNotMatch(response.headers['content-type'], /html/, pathname);
@@ -351,12 +355,13 @@ test('overlay key: /overlay?key sets the overlay cookie, which opens the overlay
   for (const [method, pathname] of [
     ['POST', '/api/trigger'], ['POST', '/api/idle'], ['POST', '/api/upload?kind=motion&name=x&filename=x.webm'],
     ['GET', '/api/animate/status'], ['GET', '/api/auth/me'], ['POST', '/api/auth/overlay-key'], ['DELETE', `/api/media/${id}`],
+    ['GET', '/api/characters'], ['POST', '/api/characters?name=x'], ['PUT', '/api/active-photo'],
   ]) {
-    const response = await request(ctx.port, pathname, { method, cookie, ...(method === 'POST' ? json({ id: 'demo' }) : {}) });
+    const response = await request(ctx.port, pathname, { method, cookie, ...(method === 'POST' || method === 'PUT' ? json({ id: 'demo' }) : {}) });
     assert.equal(response.status, 401, `${method} ${pathname}`);
     assert.equal(response.headers['x-virtually-auth'], 'required', `${method} ${pathname}`);
   }
-  for (const pathname of ['/', '/animate']) {
+  for (const pathname of ['/', '/broadcast', '/animate']) {
     assert.equal((await request(ctx.port, pathname, { cookie })).status, 302, pathname);
   }
   // The file is still there: the refused DELETE did nothing.
@@ -409,7 +414,7 @@ test('full login flow: authorize request, cookies, callback, /api/auth/me, logou
     overlayKey,
   });
   assert.equal((await request(ctx.port, '/api/auth/status', { cookie })).json.loggedIn, true);
-  for (const pathname of ['/', '/animate', '/overlay', '/api/library', '/api/animate/status']) {
+  for (const pathname of ['/', '/broadcast', '/animate', '/overlay', '/api/library', '/api/animate/status', '/api/characters']) {
     assert.equal((await request(ctx.port, pathname, { cookie })).status, 200, pathname);
   }
   assert.equal((await request(ctx.port, '/api/trigger', { method: 'POST', cookie, ...json({ id: 'demo' }) })).status, 200);

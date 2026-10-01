@@ -239,8 +239,9 @@ function ffmpeg(args) {
   execFileSync(FFMPEG, ['-hide_banner', '-loglevel', 'error', '-nostdin', '-y', ...args], { stdio: 'ignore' });
 }
 
-// Uploads a character (red body on a transparent canvas) and a 2 s driving
-// clip. -> the driving record.
+// Creates a character (red body on a transparent canvas; its base photo is
+// ctx.photoId, which createJob sends) and uploads a 2 s driving clip.
+// -> the driving record.
 async function prepareInputs(ctx, cookie) {
   const character = path.join(ctx.root, 'character.png');
   const clip = path.join(ctx.root, 'clip.mp4');
@@ -249,8 +250,9 @@ async function prepareInputs(ctx, cookie) {
       '-frames:v', '1', character]);
     ffmpeg(['-f', 'lavfi', '-i', 'testsrc=size=160x120:rate=15', '-t', '2', '-pix_fmt', 'yuv420p', '-c:v', 'libx264', '-preset', 'ultrafast', clip]);
   }
-  let response = await request(ctx, '/api/animate/characters?name=c.png', { method: 'POST', cookie, body: fsSync.readFileSync(character) });
+  let response = await request(ctx, '/api/characters?name=c&filename=c.png', { method: 'POST', cookie, body: fsSync.readFileSync(character) });
   assert.equal(response.status, 201, response.text);
+  ctx.photoId = response.json.character.basePhotoId;
   response = await request(ctx, '/api/animate/drivings?name=clip.mp4', { method: 'POST', cookie, body: fsSync.readFileSync(clip) });
   assert.equal(response.status, 201, response.text);
   return response.json;
@@ -258,7 +260,7 @@ async function prepareInputs(ctx, cookie) {
 
 // POST /api/animate/jobs (confirmed) on the priced route unless routeId is given.
 function createJob(ctx, cookie, drivingId, { routeId = PRICED_ROUTE.id, options = {} } = {}) {
-  return post(ctx, '/api/animate/jobs', { drivingId, routeId, options, confirmed: true }, cookie);
+  return post(ctx, '/api/animate/jobs', { drivingId, photoId: ctx.photoId, routeId, options, confirmed: true }, cookie);
 }
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));

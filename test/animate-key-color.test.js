@@ -281,10 +281,10 @@ test('E2E: a green-shirted character is keyed on blue; a green-free one stays gr
   try {
     const driving = await (await post(base, '/api/animate/drivings?name=clip.mp4', fsSync.readFileSync(clip), 'application/octet-stream')).json();
     const runJob = async characterPath => {
-      const uploaded = await post(base, '/api/animate/character?name=c.png', fsSync.readFileSync(characterPath), 'image/png');
+      const uploaded = await post(base, `/api/characters?name=${encodeURIComponent('캐릭터')}&filename=c.png`, fsSync.readFileSync(characterPath), 'image/png');
       assert.equal(uploaded.status, 201);
-      await uploaded.arrayBuffer();
-      const response = await post(base, '/api/animate/jobs', { drivingId: driving.id, routeId: MOCK_ROUTE.id });
+      const photoId = (await uploaded.json()).character.basePhotoId;
+      const response = await post(base, '/api/animate/jobs', { drivingId: driving.id, routeId: MOCK_ROUTE.id, photoId });
       assert.equal(response.status, 202);
       const done = await waitForJob(base, (await response.json()).job.id, ['succeeded', 'failed']);
       assert.equal(done.state, 'succeeded', JSON.stringify(done.error));

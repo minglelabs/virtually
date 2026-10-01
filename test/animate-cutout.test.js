@@ -85,12 +85,13 @@ test('an opaque white-background character is cut out, keyed on blue and comes b
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${server.address().port}`;
   try {
-    let response = await fetch(`${base}/api/animate/characters?name=c.png`, { method: 'POST', body: fsSync.readFileSync(character) });
+    let response = await fetch(`${base}/api/characters?name=${encodeURIComponent('캐릭터')}&filename=c.png`, { method: 'POST', body: fsSync.readFileSync(character) });
     assert.equal(response.status, 201);
+    const photoId = (await response.json()).character.basePhotoId;
     response = await fetch(`${base}/api/animate/drivings?name=clip.mp4`, { method: 'POST', body: fsSync.readFileSync(clip) });
     const driving = await response.json();
     response = await fetch(`${base}/api/animate/jobs`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ drivingId: driving.id, routeId: 'mock/local-demo' }) });
+      body: JSON.stringify({ drivingId: driving.id, routeId: 'mock/local-demo', photoId }) });
     assert.equal(response.status, 202);
     const id = (await response.json()).job.id;
     let job;

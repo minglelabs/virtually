@@ -94,7 +94,7 @@ test('invalid billing fails closed: 503 billing_misconfigured and no job; the mo
   assert.equal(response.status, 503);
   assert.deepEqual((await H.get(ctx, '/api/animate/jobs', alice)).json.jobs, []);
   // The earlier checks still come first (an unconfirmed job is not_confirmed, not 503).
-  response = await H.post(ctx, '/api/animate/jobs', { drivingId: driving.id, routeId: H.PRICED_ROUTE.id }, alice);
+  response = await H.post(ctx, '/api/animate/jobs', { drivingId: driving.id, photoId: ctx.photoId, routeId: H.PRICED_ROUTE.id }, alice);
   assert.equal(response.json.code, 'not_confirmed');
 
   // The local mock route is never billed.

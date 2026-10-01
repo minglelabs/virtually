@@ -347,12 +347,12 @@ test('API: a bundled example serves its files, drives a padded job and hides wit
 
     // A job reads the bundled file in place; the 'normal' margin pads it by
     // round(0.12 * 240) = 29 px left, right and top: 218x269, then even -> 218x268.
-    response = await fetch(`${base}/api/animate/characters?name=c.png`, {
+    response = await fetch(`${base}/api/characters?name=${encodeURIComponent('캐릭터')}&filename=c.png`, {
       method: 'POST', headers: { 'Content-Type': 'image/png' }, body: fsSync.readFileSync(character),
     });
     assert.equal(response.status, 201);
-    await bodyOf(response);
-    response = await post('/api/animate/jobs', { drivingId: 'demo-idle', routeId: 'mock/local-demo', margin: 'normal' });
+    const photoId = (await response.json()).character.basePhotoId;
+    response = await post('/api/animate/jobs', { drivingId: 'demo-idle', routeId: 'mock/local-demo', photoId, margin: 'normal' });
     assert.equal(response.status, 202);
     const created = (await response.json()).job;
     assert.equal(created.drivingId, 'demo-idle');

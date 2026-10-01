@@ -1,7 +1,8 @@
 'use strict';
 
-// Animate page: pick a driving video, attach a character, run an AI animate
-// route, watch the results and add one as a library motion.
+// Animate page (동작 만들기): pick a character photo (GET /api/characters),
+// then either run an AI animate route with a driving video and add a result
+// as a motion of that photo, or upload a finished video as its motion.
 // All names and labels are user or provider data: the DOM is built with
 // createElement/textContent only, never from HTML strings.
 
@@ -75,6 +76,15 @@ const AnimateHelpers = (() => {
     if (code && ERROR_TEXT[code]) return ERROR_TEXT[code];
     const message = typeof error.error === 'string' ? error.error : error.message;
     return typeof message === 'string' && message ? message : '알 수 없는 오류';
+  }
+
+  /**
+   * The character API's error text: its own Korean `error` (every code it
+   * sends has one, e.g. 캐릭터를 찾을 수 없습니다.), else errorText.
+   */
+  function serverErrorText(error) {
+    const text = typeof error?.error === 'string' ? error.error.trim() : '';
+    return text || errorText(error);
   }
 
   /** Options a route actually exposes as selects (fixed value lists only). */
@@ -435,8 +445,8 @@ const AnimateHelpers = (() => {
    * The POST /api/animate/jobs body. `margin` is sent only when the server offers margins;
    * `confirmed` for every route but the free one (the page asked first).
    */
-  function jobPayload({ drivingId, route, options, margin, margins }) {
-    const payload = { drivingId, routeId: route?.id, options: options || {} };
+  function jobPayload({ drivingId, photoId, route, options, margin, margins }) {
+    const payload = { drivingId, photoId, routeId: route?.id, options: options || {} };
     if (Array.isArray(margins) && margins.some(m => m.value === margin)) payload.margin = margin;
     if (!isFreeRoute(route)) payload.confirmed = true;
     return payload;
@@ -530,7 +540,7 @@ const AnimateHelpers = (() => {
 
   /**
    * Image files from a paste's clipboard data (ClipboardEvent.clipboardData),
-   * for the character library. A copied screenshot arrives as an unnamed or
+   * added as photos of the chosen character. A copied screenshot arrives as an unnamed or
    * generic 'image.png' item, so each file gets a stable name with an extension
    * that matches its type. Files seen through both .files and .items count once.
    */
@@ -568,6 +578,167 @@ const AnimateHelpers = (() => {
     return `pasted-${stamp}${index ? `-${index + 1}` : ''}.${ext}`;
   }
 
+  // ---- Characters (GET /api/characters) ----
+
+  /** Every photo of a character list, in list order: [{ character, photo, index }] (index within its character). */
+  function listPhotos(list) {
+    const out = [];
+    for (const character of Array.isArray(list?.characters) ? list.characters : []) {
+      if (!character || typeof character.id !== 'string') continue;
+      const photos = Array.isArray(character.photos) ? character.photos : [];
+      photos.filter(photo => photo && typeof photo.id === 'string')
+        .forEach((photo, index) => out.push({ character, photo, index }));
+    }
+    return out;
+  }
+
+  /** { character, photo, index } for a photo id, or null. */
+  function findPhoto(list, photoId) {
+    if (typeof photoId !== 'string' || !photoId) return null;
+    return listPhotos(list).find(entry => entry.photo.id === photoId) || null;
+  }
+
+  /**
+   * The photo to show as chosen: `wanted` (?photo=, or the current choice)
+   * while it exists, else the on-air photo, else the first character's base
+   * photo (else its first photo); null without photos.
+   */
+  function choosePhotoId(list, wanted) {
+    if (findPhoto(list, wanted)) return wanted;
+    if (findPhoto(list, list?.activePhotoId)) return list.activePhotoId;
+    const first = listPhotos(list)[0];
+    if (!first) return null;
+    const base = findPhoto(list, first.character.basePhotoId);
+    return base && base.character === first.character ? base.photo.id : first.photo.id;
+  }
+
+  /** The name of a character made from a paste when `count` characters exist: '캐릭터 N', N = count + 1. */
+  function nextCharacterName(count) {
+    return `캐릭터 ${Number.isInteger(count) && count > 0 ? count + 1 : 1}`;
+  }
+
+  /**
+   * Where pasted images go: new photos of the chosen photo's character
+   * ({ kind: 'photo', characterId }), or, with no character yet, a new one
+   * ({ kind: 'character', name }).
+   */
+  function pasteTarget(list, photoId) {
+    const chosen = findPhoto(list, photoId);
+    if (chosen) return { kind: 'photo', characterId: chosen.character.id };
+    const count = Array.isArray(list?.characters) ? list.characters.length : 0;
+    return { kind: 'character', name: nextCharacterName(count) };
+  }
+
+  /** '캐릭터 1 사진 2': how a photo is named on the page (photos have no names of their own). */
+  function photoLabel(character, index) {
+    return `${String(character?.name ?? '')} 사진 ${Number.isInteger(index) && index >= 0 ? index + 1 : 1}`.trim();
+  }
+
+  /** A photo tile's caption: '기본 · 동작 2개', '동작 없음'. */
+  function photoCaption(photo) {
+    const count = Number.isInteger(photo?.motionCount) && photo.motionCount > 0 ? photo.motionCount : 0;
+    const motionsText = count ? `동작 ${count}개` : '동작 없음';
+    return photo?.isBase ? `기본 · ${motionsText}` : motionsText;
+  }
+
+  /** The chosen photo's line under the picker: '선택: 캐릭터 1 사진 2 · 1024×1536 · 방송 중'. */
+  function photoSummary(entry) {
+    if (!entry) return '';
+    const { character, photo, index } = entry;
+    const parts = [`선택: ${photoLabel(character, index)}`];
+    if (Number.isFinite(photo.width) && Number.isFinite(photo.height)) parts.push(`${photo.width}×${photo.height}`);
+    if (photo.cutout) parts.push('단색 배경을 지워서 보여 줍니다');
+    if (photo.onAir) parts.push('방송 중');
+    return parts.join(' · ');
+  }
+
+  /**
+   * Every motion id the page knows about: the photos' motions from the
+   * character list and the live library view's (motions without a photo).
+   */
+  function knownMotionIds(list, viewMotions) {
+    const ids = new Set();
+    for (const { photo } of listPhotos(list)) {
+      for (const motion of Array.isArray(photo.motions) ? photo.motions : []) {
+        if (motion && typeof motion.id === 'string') ids.add(motion.id);
+      }
+    }
+    for (const motion of Array.isArray(viewMotions) ? viewMotions : []) {
+      if (motion && typeof motion.id === 'string') ids.add(motion.id);
+    }
+    return ids;
+  }
+
+  /** `search` with ?photo= set to `photoId` (removed for none), other parameters kept: '' or '?...'. */
+  function searchWithPhoto(search, photoId) {
+    const params = new URLSearchParams(typeof search === 'string' ? search : '');
+    if (typeof photoId === 'string' && photoId) params.set('photo', photoId);
+    else params.delete('photo');
+    const text = params.toString();
+    return text ? `?${text}` : '';
+  }
+
+  // ---- Finished motion upload (완성된 영상 올리기) ----
+
+  // Mirrors the server: MAX_UPLOAD_BYTES and motion-upload.js MAX_SECONDS.
+  const MOTION_MAX_BYTES = 500 * 1024 * 1024;
+  const MOTION_MAX_SECONDS = 60;
+
+  /** A file name without its folder and last extension: 'clips/wink.final.webm' -> 'wink.final'. */
+  function fileBaseName(name) {
+    const base = String(name ?? '').split(/[\\/]/).pop();
+    const dot = base.lastIndexOf('.');
+    return (dot > 0 ? base.slice(0, dot) : base).trim();
+  }
+
+  /** Why a file cannot be uploaded as a finished motion (Korean), or '' when it can. */
+  function motionFileProblem(file) {
+    if (!file) return '';
+    if (fileKind(file.name, file.type) !== 'video') return 'WebM, MP4, MOV 영상만 올릴 수 있습니다';
+    if (Number(file.size) > MOTION_MAX_BYTES) return '영상은 500MB까지 올릴 수 있습니다';
+    return '';
+  }
+
+  /** The upload's path: POST /api/characters/<id>/photos/<photoId>/motions?name=&filename=. */
+  function motionUploadPath(characterId, photoId, { name = '', filename = '' } = {}) {
+    const params = new URLSearchParams({ name: String(name ?? '').trim(), filename: String(filename ?? '') });
+    return `/api/characters/${encodeURIComponent(characterId)}/photos/${encodeURIComponent(photoId)}/motions?${params}`;
+  }
+
+  // Upload keyReason (motion-upload.js: key.js detection, or the keying step) -> plain Korean.
+  const KEY_REASON_TEXT = Object.freeze({
+    not_uniform: '가장자리 배경이 한 가지 색이 아니라서 지우지 않았습니다',
+    not_key_color: '배경이 초록·파랑·분홍 단색이 아니라서 지우지 않았습니다',
+    unreadable: '영상 화면을 읽지 못해 배경을 지우지 않았습니다',
+    key_failed: '배경을 지우다가 실패했습니다',
+  });
+
+  function keyReasonText(reason) {
+    return (typeof reason === 'string' && KEY_REASON_TEXT[reason]) || '';
+  }
+
+  /**
+   * What happened to a finished motion's background, from the upload's 201
+   * answer: { text, kind }. Keyed: '배경을 지웠습니다 (#00FF00)'; its own
+   * alpha: '투명 배경 그대로 추가했습니다'; else '배경이 있는 채로 추가됨' and why.
+   */
+  function uploadResultText(answer) {
+    const upload = answer?.motion?.source?.upload || {};
+    const keyed = typeof answer?.keyed === 'boolean' ? answer.keyed : upload.keyed === true;
+    if (keyed) {
+      const color = typeof upload.keyColor === 'string' && /^#[0-9a-f]{6}$/i.test(upload.keyColor) ? upload.keyColor.toUpperCase() : '';
+      return { text: color ? `배경을 지웠습니다 (${color})` : '배경을 지웠습니다', kind: 'success' };
+    }
+    if (upload.alpha === true) return { text: '투명 배경 그대로 추가했습니다', kind: 'success' };
+    const why = keyReasonText(answer && 'keyReason' in answer ? answer.keyReason : upload.keyReason);
+    return { text: why ? `배경이 있는 채로 추가됨 · ${why}` : '배경이 있는 채로 추가됨', kind: 'warn' };
+  }
+
+  /** The preset labels, for the upload name's suggestions (motions.js is the one catalog). */
+  function presetNames() {
+    return motions.PRESET_MOTIONS.map(preset => preset.label);
+  }
+
   /**
    * Horizontal scroll delta for a wheel event over a strip, or 0 to leave the
    * event to the page: only mostly-vertical wheels, only when the strip can
@@ -590,9 +761,28 @@ const AnimateHelpers = (() => {
     fileKind,
     pastedImages,
     stripWheelDelta,
+    listPhotos,
+    findPhoto,
+    choosePhotoId,
+    nextCharacterName,
+    pasteTarget,
+    photoLabel,
+    photoCaption,
+    photoSummary,
+    knownMotionIds,
+    searchWithPhoto,
+    MOTION_MAX_BYTES,
+    MOTION_MAX_SECONDS,
+    fileBaseName,
+    motionFileProblem,
+    motionUploadPath,
+    keyReasonText,
+    uploadResultText,
+    presetNames,
     JOB_STATE_LABELS,
     ACTIVE_STATES,
     errorText,
+    serverErrorText,
     selectableOptions,
     effectiveOptions,
     estimateUsd,
@@ -647,7 +837,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = AnimateHel
 if (typeof document !== 'undefined') (() => {
   const H = AnimateHelpers;
   const MAX_DRIVING_BYTES = 200 * 1024 * 1024;
-  const MAX_CHARACTER_BYTES = 20 * 1024 * 1024;
+  const MAX_PHOTO_BYTES = 20 * 1024 * 1024;
 
   const $ = id => document.getElementById(id);
   const globalStatus = $('globalStatus');
@@ -662,12 +852,26 @@ if (typeof document !== 'undefined') (() => {
   const drivingStatus = $('drivingStatus');
   const drivingPreview = $('drivingPreview');
   const characterCard = $('characterCard');
-  const characterList = $('characterList');
-  const characterDrop = $('characterDrop');
-  const characterDropTitle = $('characterDropTitle');
+  const characterEmpty = $('characterEmpty');
+  const characterRows = $('characterRows');
   const characterMeta = $('characterMeta');
   const characterInput = $('characterInput');
   const characterStatus = $('characterStatus');
+  const photoDropTemplate = $('photoDropTemplate');
+  const pathTabs = [$('pathAiTab'), $('pathUploadTab')];
+  const aiPath = $('aiPath');
+  const uploadPath = $('uploadPath');
+  const motionUploadCard = $('motionUploadCard');
+  const motionTarget = $('motionTarget');
+  const motionDrop = $('motionDrop');
+  const motionDropTitle = $('motionDropTitle');
+  const motionInput = $('motionInput');
+  const motionName = $('motionName');
+  const presetNamesList = $('presetNames');
+  const motionUploadBtn = $('motionUploadBtn');
+  const motionProgress = $('motionProgress');
+  const motionUploadStatus = $('motionUploadStatus');
+  const motionResult = $('motionResult');
   const routeList = $('routeList');
   const routeOptions = $('routeOptions');
   const marginBox = $('marginBox');
@@ -681,13 +885,16 @@ if (typeof document !== 'undefined') (() => {
   const confirmDialog = $('confirmDialog');
   const confirmCredits = $('confirmCredits');
 
+  // ?photo=<photoId> (the list page's 동작 추가하러 가기) picks the photo at first.
+  const requestedPhotoId = new URLSearchParams(window.location.search).get('photo');
+
   const state = {
     ffmpeg: null,
     routes: [],
     providers: [],
-    characters: [],
-    selectedCharacterId: null,
-    idle: null, // the idle-image character view from /status, used while the library is empty
+    list: null, // GET /api/characters: { characters, activePhotoId, activeCharacterId }; null until loaded
+    photoId: null, // the chosen photo (every job and upload goes to it)
+    viewMotions: [], // the live library view's motions (SSE), for motions without a photo
     drivings: [],
     hiddenExamples: 0,
     drivingShown: 0,
@@ -700,7 +907,8 @@ if (typeof document !== 'undefined') (() => {
     jobs: [],
     libraryIds: null,
     billing: null, // GET /api/billing payload (auth.js VirtuallyBilling); null until known
-    busy: { fetch: false, restore: false, driving: false, character: false, create: false },
+    // photo: the character id photos are being added to ('' while a new character is made), else null.
+    busy: { fetch: false, restore: false, driving: false, photo: null, photoText: '', create: false },
   };
 
   // ---- Small DOM helpers ----
@@ -725,15 +933,16 @@ if (typeof document !== 'undefined') (() => {
   }
 
   class ApiError extends Error {
-    constructor(body, status) {
-      super(H.errorText(body));
+    constructor(body, status, text = H.errorText) {
+      super(text(body));
       this.code = body?.code || null;
       this.detail = body?.detail || null;
       this.status = status;
     }
   }
 
-  async function api(method, path, { json, body, contentType } = {}) {
+  // `errorText` turns an error body into the message (H.serverErrorText for the character API).
+  async function api(method, path, { json, body, contentType, errorText = H.errorText } = {}) {
     const init = { method, headers: { Accept: 'application/json' } };
     if (json !== undefined) {
       init.headers['Content-Type'] = 'application/json';
@@ -750,14 +959,14 @@ if (typeof document !== 'undefined') (() => {
     }
     let data = null;
     try { data = await response.json(); } catch { /* empty or non-JSON */ }
-    if (!response.ok) throw new ApiError(data || { error: `HTTP ${response.status}` }, response.status);
+    if (!response.ok) throw new ApiError(data || { error: `HTTP ${response.status}` }, response.status, errorText);
     return data;
   }
 
   const selectedDriving = () => state.drivings.find(d => d.id === state.drivingId) || null;
   const selectedRoute = () => state.routes.find(r => r.id === state.routeId) || null;
 
-  // ---- Horizontal strips (shared by 1 and 2) ----
+  // ---- Horizontal strips (the driving videos and each character's photos) ----
   // A strip is `.strip > .strip-scroller`; the scroller's first child is a
   // sticky lead tile (drop zone). This adds: vertical wheel -> horizontal
   // scroll, fade edges when there is more to see, and an optional sentinel
@@ -785,7 +994,8 @@ if (typeof document !== 'undefined') (() => {
       scroller.scrollLeft += delta;
     }, { passive: false });
     scroller.addEventListener('scroll', updateEdges, { passive: true });
-    if (typeof ResizeObserver === 'function') new ResizeObserver(updateEdges).observe(scroller);
+    const resizer = typeof ResizeObserver === 'function' ? new ResizeObserver(updateEdges) : null;
+    if (resizer) resizer.observe(scroller);
     else window.addEventListener('resize', updateEdges);
 
     const observer = sentinel && onMore && typeof IntersectionObserver === 'function'
@@ -807,6 +1017,12 @@ if (typeof document !== 'undefined') (() => {
           }
         }
         updateEdges();
+      },
+      // For a strip that leaves the page (a deleted character's row).
+      destroy() {
+        if (resizer) resizer.disconnect();
+        else window.removeEventListener('resize', updateEdges);
+        if (observer) observer.disconnect();
       },
     };
   }
@@ -861,7 +1077,7 @@ if (typeof document !== 'undefined') (() => {
     });
   }
 
-  // ---- 1. Driving videos ----
+  // ---- 2. Driving videos (AI로 만들기) ----
   const drivingStrip = setupStrip(drivingList, {
     sentinel: drivingSentinel,
     onMore: () => {
@@ -1078,188 +1294,466 @@ if (typeof document !== 'undefined') (() => {
     }
   }
 
-  // ---- 2. Character ----
-  const characterStrip = setupStrip(characterList);
+  // ---- 1. Character photo ----
+  // One row per character (server order): its name, then a strip of its
+  // photos behind a '+ 사진 추가' lead tile. Rows and tiles are keyed by id and
+  // patched in place, so a refresh keeps scroll positions and focus and never
+  // reloads an unchanged image (media is served no-store).
+  const charRows = new Map(); // character id -> row (see createCharacterRow)
 
-  // The character a new job would use: the selected library item, else the idle image.
-  function currentCharacter() {
-    const selected = state.characters.find(c => c.id === state.selectedCharacterId);
-    if (selected) return { source: 'upload', ...selected };
-    return state.characters.length === 0 && state.idle ? state.idle : null;
-  }
+  const chosenPhoto = () => H.findPhoto(state.list, state.photoId);
 
   function renderCharacters() {
-    characterDrop.setAttribute('aria-busy', String(state.busy.character));
-    const active = document.activeElement;
-    const focusedId = characterList.contains(active) ? active.closest('.char-tile')?.dataset.id : null;
-    const focusedDelete = Boolean(focusedId) && active.classList.contains('char-delete');
-    const tiles = state.characters.map(characterTile);
-    if (state.characters.length === 0 && state.idle) tiles.push(idleTile(state.idle));
-    setTiles(characterList, tiles);
-    if (focusedId) {
-      const tile = characterList.querySelector(`.char-tile[data-id="${CSS.escape(focusedId)}"]`);
-      (focusedDelete ? tile?.querySelector('.char-delete') : tile?.querySelector('.char-pick'))?.focus({ preventScroll: true });
+    const characters = (Array.isArray(state.list?.characters) ? state.list.characters : [])
+      .filter(character => character && typeof character.id === 'string');
+    characterEmpty.hidden = state.list == null || characters.length > 0;
+    const seen = new Set();
+    characters.forEach((character, index) => {
+      seen.add(character.id);
+      let row = charRows.get(character.id);
+      if (!row) {
+        row = createCharacterRow(character.id);
+        charRows.set(character.id, row);
+      }
+      if (characterRows.children[index] !== row.node) characterRows.insertBefore(row.node, characterRows.children[index] || null);
+      updateCharacterRow(row, character);
+    });
+    for (const [id, row] of charRows) {
+      if (seen.has(id)) continue;
+      row.strip.destroy();
+      row.node.remove();
+      charRows.delete(id);
     }
-    characterStrip.refresh();
-
-    const c = currentCharacter();
-    const meta = [];
-    if (c?.source === 'idle') meta.push('대기 이미지 사용 중');
-    else if (c) meta.push(`선택: ${c.filename || ''}`);
-    else meta.push('캐릭터 이미지를 올려 주세요');
-    if (c && c.width && c.height) meta.push(`${c.width}×${c.height}`);
-    characterMeta.textContent = meta.join(' · ');
+    characterMeta.textContent = state.list == null ? '캐릭터를 불러오는 중…' : H.photoSummary(chosenPhoto());
   }
 
-  function tileParts(src, name, selected) {
-    return [
-      el('span', { className: 'char-thumb checkerboard' }, [
-        el('img', { src, alt: '', loading: 'lazy', decoding: 'async', draggable: false }),
-      ]),
-      el('span', { className: 'char-name', text: name, title: name }),
-      selected ? el('span', { className: 'char-check', 'aria-hidden': 'true', text: '✓' }) : null,
-    ];
-  }
-
-  function characterTile(character) {
-    const selected = character.id === state.selectedCharacterId;
-    const name = character.filename || '캐릭터';
-    const [thumb, label, check] = tileParts(character.url, name, selected);
-    return el('div', {
-      className: 'char-tile' + (selected ? ' is-selected' : ''),
-      role: 'listitem',
-      dataset: { id: character.id },
-    }, [
-      el('button', {
-        type: 'button',
-        className: 'char-pick',
-        'aria-pressed': String(selected),
-        'aria-label': `${name}${selected ? ' (선택됨)' : ' 선택'}`,
-        onclick: () => selectCharacter(character),
-      }, [thumb, label]),
-      check,
-      el('button', {
-        type: 'button',
-        className: 'char-delete',
-        'aria-label': `${name} 삭제`,
-        title: '삭제',
-        text: '×',
-        onclick: () => deleteCharacter(character),
-      }),
+  function createCharacterRow(characterId) {
+    const nameId = `char-row-${characterId}`;
+    const name = el('span', { className: 'char-row-name', id: nameId });
+    const count = el('span', { className: 'char-row-count' });
+    const live = el('span', { className: 'badge badge-live', text: '방송 중' });
+    const drop = photoDropTemplate.content.firstElementChild.cloneNode(true);
+    const scroller = el('div', { className: 'strip-scroller', role: 'list', 'aria-labelledby': nameId }, [
+      el('div', { className: 'strip-lead' }, [drop]),
     ]);
-  }
-
-  function idleTile(idle) {
-    const [thumb, label, check] = tileParts(idle.url, '대기 이미지', true);
-    return el('div', { className: 'char-tile char-idle is-selected', role: 'listitem', dataset: { id: 'idle' } }, [
-      el('button', { type: 'button', className: 'char-pick', 'aria-pressed': 'true', 'aria-label': '대기 이미지 (사용 중)' }, [thumb, label]),
-      check,
-      el('span', { className: 'char-tag', text: '사용 중' }),
+    const node = el('div', { className: 'char-row', role: 'group', 'aria-labelledby': nameId, dataset: { id: characterId } }, [
+      el('div', { className: 'char-row-head' }, [name, count, live]),
+      el('div', { className: 'strip', dataset: { strip: '' } }, [scroller]),
     ]);
+    const row = {
+      node, name, count, live, drop, scroller,
+      dropTitle: drop.querySelector('.dropzone-title'),
+      dropSub: drop.querySelector('.dropzone-sub'),
+      tiles: new Map(), // photo id -> tile (see createPhotoTile)
+      strip: setupStrip(scroller),
+    };
+    drop.addEventListener('click', () => {
+      if (state.busy.photo != null) return;
+      photoInputTarget = characterId;
+      characterInput.click();
+    });
+    acceptDrops(node, drop, files => addPhotos(characterId, files));
+    return row;
   }
 
-  async function applyCharacters(data) {
-    if (!data || !Array.isArray(data.characters)) return;
-    state.characters = data.characters;
-    state.selectedCharacterId = typeof data.selectedId === 'string' ? data.selectedId : null;
-    if (state.characters.length === 0) {
-      // The idle fallback may only be known now that the library is empty.
-      try {
-        const status = await api('GET', '/api/animate/status');
-        state.idle = status?.character?.source === 'idle' ? status.character : null;
-      } catch { /* keep what we had */ }
+  function updateCharacterRow(row, character) {
+    const chosen = chosenPhoto()?.character.id === character.id;
+    const busy = state.busy.photo === character.id;
+    const photos = (Array.isArray(character.photos) ? character.photos : []).filter(photo => photo && typeof photo.id === 'string');
+    row.node.classList.toggle('is-chosen', chosen);
+    row.name.textContent = character.name;
+    row.name.title = character.name;
+    row.count.textContent = `사진 ${photos.length}장`;
+    row.live.hidden = !character.onAir;
+    // Paste goes to the chosen photo's character, so only its row mentions it.
+    row.dropTitle.textContent = busy ? state.busy.photoText || '올리는 중…' : '+ 사진 추가';
+    row.dropSub.textContent = chosen ? '클릭 · 끌어다 놓기 · 붙여넣기(⌘V / Ctrl+V)' : '클릭 · 끌어다 놓기';
+    row.drop.setAttribute('aria-label', `${character.name}에 사진 추가: 끌어다 놓거나 눌러서 고르기${chosen ? ', 붙여넣기' : ''}`);
+    row.drop.setAttribute('aria-busy', String(busy));
+    const seen = new Set();
+    photos.forEach((photo, index) => {
+      seen.add(photo.id);
+      let tile = row.tiles.get(photo.id);
+      if (!tile) {
+        tile = createPhotoTile(photo.id);
+        row.tiles.set(photo.id, tile);
+      }
+      updatePhotoTile(tile, character, photo, index);
+      const at = row.scroller.children[index + 1] || null; // after the lead tile
+      if (at !== tile.node) row.scroller.insertBefore(tile.node, at);
+    });
+    for (const [id, tile] of row.tiles) {
+      if (seen.has(id)) continue;
+      tile.node.remove();
+      row.tiles.delete(id);
     }
+    row.strip.refresh();
+  }
+
+  function createPhotoTile(photoId) {
+    const img = el('img', { alt: '', loading: 'lazy', decoding: 'async', draggable: false });
+    const caption = el('span', { className: 'char-name' });
+    const pick = el('button', { type: 'button', className: 'char-pick', onclick: () => selectPhoto(photoId, { byUser: true }) }, [
+      el('span', { className: 'char-thumb checkerboard' }, [img]),
+      caption,
+    ]);
+    const check = el('span', { className: 'char-check', 'aria-hidden': 'true', text: '✓' });
+    const live = el('span', { className: 'char-tag char-tag-live', text: '방송 중' });
+    const node = el('div', { className: 'char-tile', role: 'listitem', dataset: { id: photoId } }, [pick, check, live]);
+    return { node, pick, img, caption, check, live };
+  }
+
+  function updatePhotoTile(tile, character, photo, index) {
+    const selected = photo.id === state.photoId;
+    const label = H.photoLabel(character, index);
+    tile.node.classList.toggle('is-selected', selected);
+    // What OBS shows for the photo: its cutout when the plain background was cut out.
+    const src = photo.displayUrl || photo.url;
+    if (tile.img.getAttribute('src') !== src) tile.img.src = src;
+    tile.caption.textContent = H.photoCaption(photo);
+    tile.caption.title = label;
+    tile.check.hidden = !selected;
+    tile.live.hidden = !photo.onAir;
+    tile.pick.setAttribute('aria-pressed', String(selected));
+    const notes = [photo.isBase ? '기본' : '', photo.onAir ? '방송 중' : ''].filter(Boolean).join(', ');
+    tile.pick.setAttribute('aria-label', `${label}${notes ? ` (${notes})` : ''}${selected ? ', 선택됨' : ' 선택'}`);
+  }
+
+  // Scroll a photo's strip (never the page) so its tile is not under the lead tile or the edge.
+  function revealPhoto(photoId) {
+    for (const row of charRows.values()) {
+      const tile = row.tiles.get(photoId);
+      if (!tile) continue;
+      const lead = row.scroller.querySelector('.strip-lead');
+      const box = row.scroller.getBoundingClientRect();
+      const rect = tile.node.getBoundingClientRect();
+      const left = box.left + (lead ? lead.offsetWidth : 0) + 8;
+      const right = box.right - 8;
+      if (rect.left < left) row.scroller.scrollLeft -= left - rect.left;
+      else if (rect.right > right) row.scroller.scrollLeft += rect.right - right;
+      return;
+    }
+  }
+
+  // Answers can arrive out of order: a list request started before a newer
+  // answer was shown is dropped. Mutation answers count from when they arrive.
+  let listClock = 0;
+  let listShownAt = 0;
+  let photoInputTarget = null; // the character the file picker adds photos to
+
+  // Show a character list (GET /api/characters, or a mutation's answer).
+  function applyList(data, at = ++listClock) {
+    if (!data || !Array.isArray(data.characters) || at < listShownAt) return;
+    listShownAt = at;
+    state.list = {
+      characters: data.characters,
+      activePhotoId: typeof data.activePhotoId === 'string' ? data.activePhotoId : null,
+      activeCharacterId: typeof data.activeCharacterId === 'string' ? data.activeCharacterId : null,
+    };
+    // Keep the choice while it exists (the first list starts from ?photo=).
+    const first = state.photoId == null;
+    const next = H.choosePhotoId(state.list, first ? requestedPhotoId : state.photoId);
+    setPhoto(next);
+    updateLibraryIds();
     renderCharacters();
     renderCreate();
+    renderUpload();
+    renderJobs();
+    if (first && next) requestAnimationFrame(() => revealPhoto(next));
   }
 
   async function loadCharacters() {
-    await applyCharacters(await api('GET', '/api/animate/characters'));
+    const at = ++listClock;
+    applyList(await api('GET', '/api/characters', { errorText: H.serverErrorText }), at);
   }
 
-  // Upload images one by one; each upload becomes the selected one.
-  async function uploadCharacters(files) {
-    if (state.busy.character || files.length === 0) return;
+  // Refresh soon (the library view changed, or the tab came back): the other
+  // pages may have added, deleted or put photos on air meanwhile.
+  let listTimer = null;
+  function scheduleCharacters() {
+    clearTimeout(listTimer);
+    listTimer = setTimeout(() => loadCharacters().catch(() => {}), 150);
+  }
+  window.addEventListener('focus', scheduleCharacters);
+
+  // The page URL names the chosen photo (?photo=), so a reload keeps it. It is
+  // only rewritten for a choice the user made, or when it names a photo that is gone.
+  function setPhoto(photoId, { byUser = false } = {}) {
+    state.photoId = photoId || null;
+    const url = new URL(window.location.href);
+    const named = url.searchParams.get('photo');
+    if ((byUser || (named && named !== state.photoId)) && named !== state.photoId) {
+      history.replaceState(history.state, '', `${url.pathname}${H.searchWithPhoto(url.search, state.photoId)}${url.hash}`);
+    }
+  }
+
+  function selectPhoto(photoId, { byUser = false } = {}) {
+    if (!H.findPhoto(state.list, photoId)) return;
+    setPhoto(photoId, { byUser });
+    setStatus(characterStatus, '');
+    renderCharacters();
+    renderCreate();
+    renderUpload();
+    revealPhoto(photoId);
+  }
+
+  // Upload images one by one as photos of `characterId`; with `createName`
+  // and no character, the first image makes a new character first. The last
+  // photo added becomes the chosen one.
+  async function uploadPhotoFiles(files, { characterId = null, createName = null } = {}) {
+    if (files.length === 0) return;
+    if (state.busy.photo != null) {
+      setStatus(characterStatus, '올리는 중에는 더 올릴 수 없습니다. 끝난 뒤 다시 해 주세요', 'error');
+      return;
+    }
     const images = files.filter(file => H.fileKind(file.name, file.type) === 'image');
     const errors = [];
     if (images.length < files.length) errors.push('이미지 파일만 올릴 수 있습니다');
-    const fitting = images.filter(file => file.size <= MAX_CHARACTER_BYTES);
-    if (fitting.length < images.length) errors.push('20MB 이하만 올릴 수 있습니다');
+    const fitting = images.filter(file => file.size <= MAX_PHOTO_BYTES);
+    if (fitting.length < images.length) errors.push('사진은 20MB까지 올릴 수 있습니다');
     setStatus(characterStatus, errors.join(' · '), errors.length ? 'error' : null);
     if (fitting.length === 0) return;
-    state.busy.character = true;
-    renderCharacters();
+    let target = characterId;
+    let lastId = null;
+    let created = null;
+    state.busy.photo = target || '';
     try {
       for (const [index, file] of fitting.entries()) {
-        characterDropTitle.textContent = fitting.length > 1 ? `올리는 중… (${index + 1}/${fitting.length})` : '올리는 중…';
+        state.busy.photoText = fitting.length > 1 ? `올리는 중… (${index + 1}/${fitting.length})` : '올리는 중…';
+        if (!target) setStatus(characterStatus, `'${createName}' 캐릭터를 만드는 중…`);
+        renderCharacters();
+        const contentType = file.type || 'application/octet-stream';
         try {
-          const data = await api('POST', '/api/animate/characters?name=' + encodeURIComponent(file.name), {
-            body: file,
-            contentType: file.type || 'application/octet-stream',
-          });
-          await applyCharacters(data);
+          if (target) {
+            const data = await api('POST', `/api/characters/${encodeURIComponent(target)}/photos?filename=${encodeURIComponent(file.name)}`,
+              { body: file, contentType, errorText: H.serverErrorText });
+            applyList(data);
+            if (data?.photo?.id) lastId = data.photo.id;
+          } else {
+            const query = `name=${encodeURIComponent(createName)}&filename=${encodeURIComponent(file.name)}`;
+            const data = await api('POST', `/api/characters?${query}`, { body: file, contentType, errorText: H.serverErrorText });
+            applyList(data);
+            created = data?.character || null;
+            target = created?.id || null;
+            lastId = created?.basePhotoId || null;
+            state.busy.photo = target;
+            if (!target) break;
+          }
         } catch (error) {
-          errors.push(`올리기 실패: ${error.message}`);
+          errors.push(`${target ? '올리기' : '만들기'} 실패: ${error.message}`);
           setStatus(characterStatus, errors.join(' · '), 'error');
+          if (!target) break; // no character to add the other images to
         }
       }
     } finally {
-      state.busy.character = false;
-      characterDropTitle.textContent = '이미지를 끌어다 놓으세요';
-      renderCharacters();
+      state.busy.photo = null;
+      state.busy.photoText = '';
     }
-    characterList.scrollTo({ left: 0, behavior: 'smooth' });
-  }
-
-  async function selectCharacter(character) {
-    if (character.id === state.selectedCharacterId) return;
-    setStatus(characterStatus, '');
-    try {
-      await applyCharacters(await api('POST', `/api/animate/characters/${encodeURIComponent(character.id)}/select`, { json: {} }));
-      // The selected tile moves to the front.
-      characterList.scrollTo({ left: 0, behavior: 'smooth' });
-    } catch (error) {
-      setStatus(characterStatus, `선택 실패: ${error.message}`, 'error');
-      loadCharacters().catch(() => {});
+    if (lastId && H.findPhoto(state.list, lastId)) selectPhoto(lastId, { byUser: true });
+    else renderCharacters();
+    if (errors.length) {
+      setStatus(characterStatus, errors.join(' · '), 'error');
+    } else if (lastId) {
+      setStatus(characterStatus, created
+        ? `'${created.name}' 캐릭터를 만들었습니다. 이름은 캐릭터 목록에서 바꿀 수 있습니다`
+        : '사진을 추가했습니다', 'success');
     }
   }
 
-  async function deleteCharacter(character) {
-    if (!window.confirm('이 캐릭터를 지울까요?')) return;
-    setStatus(characterStatus, '');
-    try {
-      await applyCharacters(await api('DELETE', `/api/animate/characters/${encodeURIComponent(character.id)}`));
-    } catch (error) {
-      setStatus(characterStatus, `삭제 실패: ${error.message}`, 'error');
-      loadCharacters().catch(() => {});
-    }
+  function addPhotos(characterId, files) {
+    return uploadPhotoFiles(files, { characterId });
   }
 
-  characterDrop.addEventListener('click', () => { if (!state.busy.character) characterInput.click(); });
   characterInput.addEventListener('change', () => {
     const files = Array.from(characterInput.files || []);
     characterInput.value = '';
-    uploadCharacters(files);
+    if (photoInputTarget) addPhotos(photoInputTarget, files);
   });
-  acceptDrops(characterCard, characterDrop, uploadCharacters);
 
-  // Paste (Cmd+V / Ctrl+V) anywhere on the page adds copied images to the
-  // character library -- no focus needed, since only this card takes images.
+  // Paste (Cmd+V / Ctrl+V) anywhere on the page adds copied images as new
+  // photos of the chosen photo's character (no focus needed, since only the
+  // character card takes images); with no character yet it makes '캐릭터 N'.
   // A paste with no image (plain text into a field) is left to the browser.
   document.addEventListener('paste', (event) => {
     const pasted = H.pastedImages(event.clipboardData);
     if (pasted.length === 0) return;
     event.preventDefault();
-    if (state.busy.character) {
+    if (state.list == null) {
+      setStatus(characterStatus, '캐릭터를 불러온 뒤 다시 붙여넣어 주세요', 'error');
+      return;
+    }
+    if (state.busy.photo != null) {
       setStatus(characterStatus, '올리는 중에는 붙여넣을 수 없습니다. 끝난 뒤 다시 붙여넣어 주세요', 'error');
       return;
     }
-    characterDrop.classList.add('is-dragover');
-    setTimeout(() => characterDrop.classList.remove('is-dragover'), 600);
+    const files = pasted.map(({ file, name }) =>
+      name === file.name ? file : new File([file], name, { type: file.type || 'image/png' }));
+    const target = H.pasteTarget(state.list, state.photoId);
+    const zone = target.kind === 'photo' ? charRows.get(target.characterId)?.drop : null;
+    if (zone) {
+      zone.classList.add('is-dragover');
+      setTimeout(() => zone.classList.remove('is-dragover'), 600);
+    }
     characterCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    uploadCharacters(pasted.map(({ file, name }) =>
-      name === file.name ? file : new File([file], name, { type: file.type || 'image/png' })));
+    if (target.kind === 'photo') addPhotos(target.characterId, files);
+    else uploadPhotoFiles(files, { createName: target.name });
   });
+
+  // ---- How: AI로 만들기 | 완성된 영상 올리기 ----
+  function showPath(path, { focus = false } = {}) {
+    for (const tab of pathTabs) {
+      const on = tab.dataset.path === path;
+      tab.classList.toggle('is-selected', on);
+      tab.setAttribute('aria-selected', String(on));
+      tab.tabIndex = on ? 0 : -1;
+      if (on && focus) tab.focus();
+    }
+    aiPath.hidden = path !== 'ai';
+    uploadPath.hidden = path !== 'upload';
+    // A strip measured while hidden has no size: measure it again.
+    if (path === 'ai') drivingStrip.refresh({ more: state.drivingShown < state.drivings.length });
+  }
+
+  for (const tab of pathTabs) {
+    tab.addEventListener('click', () => showPath(tab.dataset.path));
+    // Arrow keys move between the two tabs (roving tabindex).
+    tab.addEventListener('keydown', (event) => {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+      event.preventDefault();
+      const index = pathTabs.indexOf(tab);
+      const next = event.key === 'Home' ? 0 : event.key === 'End' ? pathTabs.length - 1
+        : (index + (event.key === 'ArrowRight' ? 1 : -1) + pathTabs.length) % pathTabs.length;
+      showPath(pathTabs[next].dataset.path, { focus: true });
+    });
+  }
+
+  // ---- 2. 완성된 영상 올리기 (the other path) ----
+  // One video at a time: pick or drop it, name it (default: the file name),
+  // upload it with progress. The server keys or converts it before answering.
+  const upload = { file: null, defaultName: '', busy: false };
+  presetNamesList.replaceChildren(...H.presetNames().map(label => el('option', { value: label })));
+
+  function renderUpload() {
+    const chosen = chosenPhoto();
+    motionTarget.textContent = chosen
+      ? `선택한 사진에 추가합니다: ${H.photoLabel(chosen.character, chosen.index)}`
+      : '위에서 캐릭터 사진을 먼저 골라 주세요';
+    motionDrop.setAttribute('aria-busy', String(upload.busy));
+    motionDropTitle.textContent = upload.busy ? '올리는 중…' : upload.file ? upload.file.name : '영상을 끌어다 놓으세요';
+    motionName.disabled = upload.busy;
+    motionUploadBtn.disabled = upload.busy || !upload.file || !chosen;
+    motionUploadBtn.textContent = upload.busy ? '올리는 중…' : '동작으로 추가하기';
+  }
+
+  function chooseMotionFile(files) {
+    if (upload.busy || files.length === 0) return;
+    const file = files.find(item => !H.motionFileProblem(item)) || null;
+    if (!file) {
+      setStatus(motionUploadStatus, H.motionFileProblem(files[0]), 'error');
+      return;
+    }
+    // The name follows the chosen file until the user types a different one.
+    const typed = motionName.value.trim();
+    if (!typed || typed === upload.defaultName) motionName.value = H.fileBaseName(file.name);
+    upload.file = file;
+    upload.defaultName = H.fileBaseName(file.name);
+    setStatus(motionUploadStatus, files.length > 1 ? '한 번에 영상 하나씩 올립니다. 첫 영상을 골랐습니다' : '');
+    renderUpload();
+  }
+
+  motionDrop.addEventListener('click', () => { if (!upload.busy) motionInput.click(); });
+  motionInput.addEventListener('change', () => {
+    const files = Array.from(motionInput.files || []);
+    motionInput.value = '';
+    chooseMotionFile(files);
+  });
+  acceptDrops(motionUploadCard, motionDrop, chooseMotionFile);
+  motionUploadBtn.addEventListener('click', () => uploadMotion());
+  motionName.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && !motionUploadBtn.disabled) uploadMotion();
+  });
+
+  function uploadMotion() {
+    const chosen = chosenPhoto();
+    const file = upload.file;
+    if (!chosen || !file || upload.busy) return;
+    const path = H.motionUploadPath(chosen.character.id, chosen.photo.id, { name: motionName.value, filename: file.name });
+    upload.busy = true;
+    renderUpload();
+    motionProgress.hidden = false;
+    motionProgress.value = 0;
+    setStatus(motionUploadStatus, '올리는 중… 0%');
+    // XHR for upload progress. It bypasses auth.js's fetch guard, so a
+    // refused login is sent to /login here.
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', path);
+    xhr.setRequestHeader('Content-Type', H.videoContentType(file.name, file.type));
+    xhr.setRequestHeader('Accept', 'application/json');
+    xhr.upload.addEventListener('progress', (event) => {
+      if (!event.lengthComputable || !event.total) return;
+      const percent = Math.min(100, Math.round((event.loaded / event.total) * 100));
+      motionProgress.value = percent;
+      setStatus(motionUploadStatus, `올리는 중… ${percent}%`);
+    });
+    xhr.upload.addEventListener('load', () => {
+      motionProgress.removeAttribute('value'); // indeterminate while the server works
+      setStatus(motionUploadStatus, '영상을 확인하고 배경을 지우는 중…');
+    });
+    xhr.addEventListener('load', () => {
+      let data = null;
+      try { data = JSON.parse(xhr.responseText); } catch { /* not JSON */ }
+      if (xhr.status === 401 && String(xhr.getResponseHeader('X-Virtually-Auth') || '').toLowerCase() === 'required') {
+        const auth = window.VirtuallyAuth;
+        if (auth && typeof auth.loginUrlFor === 'function') {
+          window.location.assign(auth.loginUrlFor(window.location.pathname, window.location.search));
+        }
+      }
+      if (xhr.status === 201 && data?.motion) finishUpload(data);
+      else failUpload(H.serverErrorText(data || { error: `HTTP ${xhr.status}` }));
+    });
+    xhr.addEventListener('error', () => failUpload('서버에 연결할 수 없습니다'));
+    xhr.addEventListener('abort', () => failUpload('올리기를 멈췄습니다'));
+    xhr.send(file);
+  }
+
+  function endUpload() {
+    upload.busy = false;
+    motionProgress.hidden = true;
+    motionProgress.value = 0;
+    renderUpload();
+  }
+
+  function finishUpload(data) {
+    const motion = data.motion;
+    const result = H.uploadResultText(data);
+    upload.file = null;
+    upload.defaultName = '';
+    motionName.value = '';
+    endUpload();
+    setStatus(motionUploadStatus, `'${motion.name}' 동작을 추가했습니다 · ${result.text}`, result.kind);
+    applyList(data);
+    if (state.libraryIds && typeof motion.id === 'string') state.libraryIds.add(motion.id);
+    // The stored clip as the overlay will play it: transparent ones over the checkerboard.
+    const transparent = motion.mime === 'video/webm' && result.kind === 'success';
+    const video = el('video', {
+      className: 'job-video',
+      src: motion.url,
+      controls: true,
+      muted: true,
+      loop: true,
+      autoplay: true,
+      playsInline: true,
+      preload: 'metadata',
+    });
+    motionResult.replaceChildren(el('div', { className: `job-frame${transparent ? ' checkerboard' : ''}` }, [video]));
+    motionResult.hidden = false;
+    video.play().catch(() => { /* autoplay may be blocked; controls remain */ });
+  }
+
+  function failUpload(message) {
+    endUpload();
+    setStatus(motionUploadStatus, `올리기 실패: ${message}`, 'error');
+  }
 
   // ---- 3. Routes ----
   function routeOptionsFor(route) {
@@ -1519,10 +2013,6 @@ if (typeof document !== 'undefined') (() => {
       globalStatus.hidden = ok;
       globalStatus.textContent = ok ? '' : 'ffmpeg가 없어 영상을 처리할 수 없습니다';
     }
-    if ('character' in data) {
-      state.idle = data.character?.source === 'idle' ? data.character : null;
-      renderCharacters();
-    }
     renderRoutes();
   }
 
@@ -1531,8 +2021,8 @@ if (typeof document !== 'undefined') (() => {
     const driving = selectedDriving();
     const route = selectedRoute();
     if (state.ffmpeg && state.ffmpeg.available === false) return 'ffmpeg가 필요합니다';
+    if (!chosenPhoto()) return state.list && H.listPhotos(state.list).length === 0 ? '캐릭터를 먼저 만들어 주세요' : '캐릭터 사진을 고르세요';
     if (!driving) return '동작 영상을 고르세요';
-    if (!currentCharacter()) return '캐릭터를 올리세요';
     if (!route) return '모델을 고르세요';
     const rs = H.routeState(route, driving.duration);
     if (rs.tooLong) return '영상이 모델 제한보다 깁니다';
@@ -1554,6 +2044,8 @@ if (typeof document !== 'undefined') (() => {
   }
 
   function confirmCreate(route, driving) {
+    const chosen = chosenPhoto();
+    $('confirmPhoto').textContent = chosen ? H.photoLabel(chosen.character, chosen.index) : '';
     $('confirmModel').textContent = `${route.label} · ${route.providerLabel}`;
     $('confirmLength').textContent = H.formatSeconds(driving.duration) || '알 수 없음';
     $('confirmCost').textContent = routeCost(route) || '알 수 없음';
@@ -1591,6 +2083,7 @@ if (typeof document !== 'undefined') (() => {
     if (createBlocker()) return;
     const route = selectedRoute();
     const driving = selectedDriving();
+    const photo = chosenPhoto()?.photo;
     // The server's verdict: only its free route skips the paid confirmation.
     const free = H.isFreeRoute(route);
     if (!free && !(await confirmCreate(route, driving))) return;
@@ -1600,6 +2093,7 @@ if (typeof document !== 'undefined') (() => {
     try {
       const payload = H.jobPayload({
         drivingId: driving.id,
+        photoId: photo.id,
         route,
         options: routeOptionsFor(route),
         margin: state.margin,
@@ -1678,9 +2172,11 @@ if (typeof document !== 'undefined') (() => {
     const stateLabel = H.JOB_STATE_LABELS[job.state] || String(job.state ?? '');
     row.li.dataset.state = String(job.state ?? '');
     const creditsLabel = H.jobCreditsText(job);
+    // Jobs of every character are listed: the title names the job's character.
+    const title = [job.characterLabel, job.routeLabel || job.routeId, job.drivingLabel].filter(Boolean).join(' · ');
     row.head.replaceChildren(...[
       el('span', { className: `badge badge-state state-${job.state}`, text: stateLabel }),
-      el('span', { className: 'job-title', text: `${job.routeLabel || job.routeId || ''} · ${job.drivingLabel || ''}` }),
+      el('span', { className: 'job-title', text: title }),
       creditsLabel
         ? el('span', { className: 'badge job-credits' + (job.billing.refunded === true ? ' is-refunded' : ''), text: creditsLabel })
         : null,
@@ -1807,7 +2303,7 @@ if (typeof document !== 'undefined') (() => {
     if (added) {
       return [el('span', { className: 'job-added' }, [
         '추가됨 · ',
-        el('a', { className: 'link', href: './', text: '메인에서 보기' }),
+        el('a', { className: 'link', href: '/', text: '캐릭터 목록에서 보기' }),
       ]), rekeyButton, rekeyStatus];
     }
     const inputId = `name-${job.id}`;
@@ -1884,6 +2380,7 @@ if (typeof document !== 'undefined') (() => {
       addBusy.delete(job.id);
       nameDrafts.delete(job.id);
       if (data?.job) upsertJob(data.job);
+      scheduleCharacters(); // the photo's motion count changed
     } catch (error) {
       addBusy.delete(job.id);
       if (error.code === 'already_added') {
@@ -1917,10 +2414,20 @@ if (typeof document !== 'undefined') (() => {
     if (state.jobs.some(job => H.ACTIVE_STATES.has(job.state))) renderJobs();
   }, 1000);
 
+  // Which motions exist, for the jobs' 추가됨 state: every photo's motions (the
+  // character list) plus the live view's; null until the list is loaded (then
+  // any recorded motionId counts as added).
+  function updateLibraryIds() {
+    state.libraryIds = state.list ? H.knownMotionIds(state.list, state.viewMotions) : null;
+  }
+
   const events = new EventSource('/api/events');
   events.addEventListener('open', () => {
     // After a reconnect, refetch what may have changed while disconnected.
-    if (everConnected) loadJobs().catch(() => {});
+    if (everConnected) {
+      loadJobs().catch(() => {});
+      scheduleCharacters();
+    }
     everConnected = true;
   });
   events.addEventListener('message', (event) => {
@@ -1932,10 +2439,12 @@ if (typeof document !== 'undefined') (() => {
       // A failed or canceled job gave its credits back.
       if (H.refundTurnedOn(previous, data.job)) refreshBilling();
     } else if (data?.type === 'library') {
-      const list = Array.isArray(data.library?.motions) ? data.library.motions : [];
-      state.libraryIds = new Set(list.filter(m => m && typeof m.id === 'string').map(m => m.id));
+      state.viewMotions = Array.isArray(data.library?.motions) ? data.library.motions : [];
+      updateLibraryIds();
       // A job whose motion was deleted from the library can be added again.
       renderJobs();
+      // The on-air photo, its motions or its character's name changed: refresh the picker.
+      if (state.list) scheduleCharacters();
     }
   });
 
@@ -1943,6 +2452,7 @@ if (typeof document !== 'undefined') (() => {
   renderCharacters();
   renderDrivings();
   renderCreate();
+  renderUpload();
   if (sharedBilling && sharedBilling.ready && typeof sharedBilling.ready.then === 'function') {
     sharedBilling.ready.then(applyBilling).catch(() => {});
   }

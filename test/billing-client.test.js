@@ -510,8 +510,8 @@ test('free route: only the server\'s verdict (route view free) is free; a priced
   assert.equal(H.jobCredits(priced, 2, {}, customer), 600);
   // Its paid confirmation takes the credits, and the request says it was confirmed.
   assert.equal(H.confirmCreditsText(H.jobCredits(priced, 2, {}, customer), customer.balance), '600 크레딧이 차감됩니다 (보유 1,234).');
-  assert.deepEqual(H.jobPayload({ drivingId: 'd1', route: priced, options: {}, margin: null, margins: [] }),
-    { drivingId: 'd1', routeId: 'mock/priced', options: {}, confirmed: true });
+  assert.deepEqual(H.jobPayload({ drivingId: 'd1', photoId: 'ph-1', route: priced, options: {}, margin: null, margins: [] }),
+    { drivingId: 'd1', photoId: 'ph-1', routeId: 'mock/priced', options: {}, confirmed: true });
 
   // Without a price it is not free either: the server answers price_unknown.
   assert.equal(H.routeCostText(unpriced, 2, {}, customer), '가격 정보 없음');

@@ -91,9 +91,12 @@ test('POST .../key re-runs removal, falls back to the plain cut and swaps the ad
   const base = `http://127.0.0.1:${server.address().port}`;
   const post = (p, body) => fetch(`${base}${p}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   try {
-    await fetch(`${base}/api/animate/characters?name=c.png`, { method: 'POST', body: fsSync.readFileSync(character) });
+    const created = await (await fetch(`${base}/api/characters?name=${encodeURIComponent('캐릭터')}&filename=c.png`, { method: 'POST', body: fsSync.readFileSync(character) })).json();
+    const photoId = created.character.basePhotoId;
+    // On air, so the motion added below is in the overlay's library.
+    await fetch(`${base}/api/active-photo`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ photoId }) });
     const driving = await (await fetch(`${base}/api/animate/drivings?name=clip.mp4`, { method: 'POST', body: fsSync.readFileSync(clip) })).json();
-    const id = (await (await post('/api/animate/jobs', { drivingId: driving.id, routeId: 'mock/local-demo' })).json()).job.id;
+    const id = (await (await post('/api/animate/jobs', { drivingId: driving.id, routeId: 'mock/local-demo', photoId })).json()).job.id;
     let job;
     for (const deadline = Date.now() + 30000; ;) {
       job = await (await fetch(`${base}/api/animate/jobs/${id}`)).json();

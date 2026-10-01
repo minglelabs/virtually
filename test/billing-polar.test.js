@@ -1411,12 +1411,13 @@ test('orders: a full refund of spent credits leaves a negative balance, which bl
   ffmpeg(['-f', 'lavfi', '-i', "nullsrc=s=64x96,format=rgba,geq=r=255:g=0:b=0:a='255*between(X\\,16\\,47)*between(Y\\,24\\,71)'", '-frames:v', '1', character]);
   ffmpeg(['-f', 'lavfi', '-i', 'testsrc=size=320x240:rate=15', '-t', '4', '-pix_fmt', 'yuv420p', '-c:v', 'libx264', '-preset', 'ultrafast', clip]);
   const binary = { 'Content-Type': 'application/octet-stream' };
-  let response = await request(ctx.port, '/api/animate/character?name=c.png', { method: 'POST', cookie: alice, headers: binary, body: await fs.readFile(character) });
+  let response = await request(ctx.port, '/api/characters?name=c&filename=c.png', { method: 'POST', cookie: alice, headers: binary, body: await fs.readFile(character) });
   assert.equal(response.status, 201, response.text);
+  const photoId = response.json.character.basePhotoId;
   response = await request(ctx.port, '/api/animate/drivings?name=clip.mp4', { method: 'POST', cookie: alice, headers: binary, body: await fs.readFile(clip) });
   assert.equal(response.status, 201, response.text);
   const driving = response.json;
-  const createJob = extra => post(ctx, '/api/animate/jobs', { drivingId: driving.id, routeId: PRICED_ROUTE.id, confirmed: true, ...extra }, { cookie: alice });
+  const createJob = extra => post(ctx, '/api/animate/jobs', { drivingId: driving.id, photoId, routeId: PRICED_ROUTE.id, confirmed: true, ...extra }, { cookie: alice });
 
   const { order } = await buy(ctx, alice, pack.id);
   assert.equal(await balanceOf(ctx, alice), 150);

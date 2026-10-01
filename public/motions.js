@@ -21,6 +21,8 @@
   const SUB_VIDEO = '영상';
   const SUB_NO_VIDEO = '영상 없음 · 데모 재생';
   const SUB_DEMO = '기본 아바타';
+  // A preset without its video while a photo is on air: disabled, never the demo.
+  const SUB_NO_VIDEO_ON_AIR = '영상 없음';
 
   function normalizeName(value) {
     return String(value ?? '').trim().toLowerCase();
@@ -33,29 +35,43 @@
   }
 
   /**
+   * The id of the photo on air in a library view (GET /api/library, SSE
+   * `library`), or null: the one rule for "a photo is on air" on the client
+   * (app.js uses it; overlay.js mirrors it and a test keeps the two equal).
+   */
+  function onAirPhotoId(library) {
+    const photo = library && typeof library === 'object' ? library.photo : null;
+    return photo && typeof photo === 'object' && typeof photo.id === 'string' && photo.id ? photo.id : null;
+  }
+
+  /**
    * Build the ordered list of motion buttons from a library snapshot.
    * A preset links to the first library motion (library order) whose trimmed,
    * case-insensitive name equals the preset key or label; unlinked presets trigger 'demo'.
-   * Each item: { key, label, sub, triggerId, linked }.
+   * With a photo on air the demo avatar never replaces it: there is no 데모 동작
+   * item, and an unlinked preset is { sub: '영상 없음', triggerId: null, disabled: true }.
+   * Each item: { key, label, sub, triggerId, linked, disabled? }.
    */
   function buildMotionItems(library) {
     const motions = Array.isArray(library?.motions)
       ? library.motions.filter(m => m && typeof m.id === 'string')
       : [];
+    const onAir = onAirPhotoId(library) !== null;
     const linkedIds = new Set();
-    const items = [{ key: 'demo', label: '데모 동작', sub: SUB_DEMO, triggerId: 'demo', linked: false }];
+    const items = onAir ? [] : [{ key: 'demo', label: '데모 동작', sub: SUB_DEMO, triggerId: 'demo', linked: false }];
 
     for (const preset of PRESET_MOTIONS) {
       const names = new Set([normalizeName(preset.key), normalizeName(preset.label)]);
       const match = motions.find(m => names.has(normalizeName(m.name)));
-      if (match) linkedIds.add(match.id);
-      items.push({
-        key: `preset:${preset.key}`,
-        label: preset.label,
-        sub: match ? SUB_VIDEO : SUB_NO_VIDEO,
-        triggerId: match ? match.id : 'demo',
-        linked: Boolean(match),
-      });
+      const key = `preset:${preset.key}`;
+      if (match) {
+        linkedIds.add(match.id);
+        items.push({ key, label: preset.label, sub: SUB_VIDEO, triggerId: match.id, linked: true });
+      } else if (onAir) {
+        items.push({ key, label: preset.label, sub: SUB_NO_VIDEO_ON_AIR, triggerId: null, linked: false, disabled: true });
+      } else {
+        items.push({ key, label: preset.label, sub: SUB_NO_VIDEO, triggerId: 'demo', linked: false });
+      }
     }
 
     for (const motion of motions) {
@@ -91,6 +107,7 @@
     PRESET_MOTIONS,
     normalizeName,
     presetLabel,
+    onAirPhotoId,
     buildMotionItems,
     MOTION_BATCH_SIZE,
     motionRenderCount,
