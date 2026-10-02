@@ -597,7 +597,7 @@ if (typeof document !== 'undefined') (() => {
     row.aiCut.addEventListener('click', () => {
       const photoId = selectedIn(characterId);
       const price = aiCutPrice();
-      if (photoId && window.confirm(`AI로 이 사진의 배경을 지웁니다. 단색이 아닌 배경도 지울 수 있습니다.\n비용: 사진 1장당 ${price} (서비스 운영 비용으로 청구됩니다). 진행할까요?`)) {
+      if (photoId && window.confirm(`AI로 이 사진의 배경을 지워 새 사진으로 추가합니다. 단색이 아닌 배경도 지울 수 있습니다.\n비용: 사진 1장당 ${price} (서비스 운영 비용으로 청구됩니다). 진행할까요?`)) {
         setTransparent(characterId, photoId, true, 'ai');
       }
     });
@@ -744,11 +744,10 @@ if (typeof document !== 'undefined') (() => {
     row.keepOriginal.hidden = background.state !== 'cut';
     row.keepOriginal.disabled = busy;
     row.keepOriginal.title = '배경을 지우기 전의 사진으로 되돌립니다';
-    // The paid AI remover: only when the server has it, and not for a photo it already did.
-    row.aiCut.hidden = !(state.backgroundAi && state.backgroundAi.available === true) || background.state === 'own' || photo.cutoutMethod === 'ai';
+    // The paid AI remover, when the server has it: the result is added as a new photo.
+    row.aiCut.hidden = !(state.backgroundAi && state.backgroundAi.available === true) || background.state === 'own';
     row.aiCut.disabled = busy;
-    row.aiCut.textContent = `AI로 배경 지우기 (${aiCutPrice()})`;
-    if (photo.cutoutMethod === 'ai') row.bgTag.textContent = '배경 지움 (AI)';
+    row.aiCut.textContent = `AI로 배경 지우기 (${photo.aiCutReady === true ? '추가 비용 없음' : aiCutPrice()})`;
     row.count.textContent = H.motionCountText(photo);
     row.count.classList.toggle('has-motions', H.motionCount(photo) > 0);
     // Every motion of the photo is a button that plays it below (the idle one loops).
@@ -873,8 +872,11 @@ if (typeof document !== 'undefined') (() => {
   // The selected photo's background: cut the plain background out, or go back to the original.
   function setTransparent(characterId, photoId, on, method = null) {
     return rowAction(characterId, async () => {
-      applyList(await api(on ? 'POST' : 'DELETE', H.transparentPath(characterId, photoId), { json: method ? { method } : {} }));
-      setRowStatus(characterId, on ? '사진의 배경을 지웠습니다.' : '원본 사진으로 되돌렸습니다.', 'success');
+      const data = await api(on ? 'POST' : 'DELETE', H.transparentPath(characterId, photoId), { json: method ? { method } : {} });
+      // The photo without its background is a new photo of the row: select it.
+      if (data && data.photo && typeof data.photo.id === 'string') state.picked.set(characterId, data.photo.id);
+      applyList(data);
+      setRowStatus(characterId, on ? '배경을 지운 사진을 새로 추가했습니다. 원본 사진은 그대로 있습니다.' : '원본 사진으로 되돌렸습니다.', 'success');
     }, { busyText: on ? '배경 지우는 중…' : '' });
   }
 

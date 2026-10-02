@@ -444,7 +444,11 @@ const AnimateHelpers = (() => {
     if (photo.transparent === 'cut') {
       return { needed: false, done: true, note: `이미 배경을 지운 사진${photo.cutoutMethod === 'ai' ? ' (AI)' : ''}이라 그대로 씁니다. 추가 비용이 없습니다. 원본으로 보내려면 위에서 '원본 사진으로'를 누르세요.` };
     }
-    if (ai) return { needed: true, note: 'AI가 배경을 지운 뒤 보냅니다. 지운 결과는 사진에 저장되어 다음부터는 비용이 들지 않습니다.' };
+    if (ai) {
+      return photo.aiCutReady === true
+        ? { needed: true, note: '이 사진은 이미 AI로 배경을 지운 적이 있어 그 결과를 씁니다 (추가 비용 없음).' }
+        : { needed: true, note: 'AI가 배경을 지운 뒤 보냅니다. 지운 결과는 저장되어 이 사진에서는 다시 비용이 들지 않습니다.' };
+    }
     if (photo.transparent === 'no' && (photo.cutoutReason === 'not_uniform' || photo.cutoutReason === 'no_subject')) {
       return { needed: false, note: '배경이 한 가지 색이 아니라서 무료 방식으로는 지울 수 없습니다. 사진을 배경째 보냅니다.' };
     }
@@ -465,7 +469,7 @@ const AnimateHelpers = (() => {
    */
   function stepsExtraUsd({ photo, cutAi, keyAi, seconds, ai }) {
     let usd = 0;
-    if (cutAi && photo && photo.transparent !== 'own' && photo.cutoutMethod !== 'ai') usd += Number(ai?.imageUsd) || 0;
+    if (cutAi && photo && photo.transparent !== 'own' && photo.aiCutReady !== true) usd += Number(ai?.imageUsd) || 0;
     if (keyAi) usd += aiVideoUsd(seconds, ai) || 0;
     return Number(usd.toFixed(4));
   }
@@ -804,12 +808,12 @@ const AnimateHelpers = (() => {
     if (!photo) return null;
     if (photo.transparent === 'own') return { tag: '투명 배경', note: '처음부터 배경이 투명한 사진입니다.', canCut: false, cut: false, own: true };
     if (photo.transparent === 'cut') {
-      return { tag: photo.cutoutMethod === 'ai' ? '배경 지움 (AI)' : '배경 지움', note: '배경을 지운 사진을 보여 주고, 동작을 만들 때도 이 사진을 씁니다.', canCut: false, cut: true, own: false };
+      return { tag: '배경 지움', note: '올릴 때 단색 배경을 자동으로 지운 사진입니다.', canCut: false, cut: true, own: false };
     }
     const plain = !(photo.cutoutReason === 'not_uniform' || photo.cutoutReason === 'no_subject');
     return {
       tag: '배경 있음',
-      note: plain ? '단색 배경이면 무료로 지울 수 있습니다.' : '배경이 한 가지 색이 아니라서 무료 방식으로는 지울 수 없습니다.',
+      note: plain ? '배경을 지운 사진이 새로 추가되고, 이 사진은 그대로 남습니다.' : '배경이 한 가지 색이 아니라서 무료 방식으로는 지울 수 없습니다. AI로 지우면 새 사진으로 추가됩니다.',
       canCut: plain, cut: false, own: false,
     };
   }
@@ -1022,6 +1026,7 @@ if (typeof document !== 'undefined') (() => {
   const photoBgAi = $('photoBgAi');
   const photoBgKeep = $('photoBgKeep');
   const photoBgNote = $('photoBgNote');
+  const photoBgDelete = $('photoBgDelete');
   const characterInput = $('characterInput');
   const characterStatus = $('characterStatus');
   const photoDropTemplate = $('photoDropTemplate');
@@ -1518,10 +1523,11 @@ if (typeof document !== 'undefined') (() => {
     photoBgNote.textContent = background.note;
     photoBgCut.hidden = background.own || background.cut;
     photoBgCut.disabled = photoBgBusy || !background.canCut;
-    photoBgAi.hidden = background.own || entry.photo.cutoutMethod === 'ai' || state.backgroundAi?.available !== true;
+    photoBgAi.hidden = background.own || state.backgroundAi?.available !== true;
+    photoBgDelete.disabled = photoBgBusy;
     photoBgAi.disabled = photoBgBusy;
     // The price is on the button, not only in the question it asks.
-    photoBgAi.textContent = `AI로 배경 지우기 (${H.priceText(state.backgroundAi?.imageUsd, state.billing)})`;
+    photoBgAi.textContent = `AI로 배경 지우기 (${entry.photo.aiCutReady === true ? '추가 비용 없음' : H.priceText(state.backgroundAi?.imageUsd, state.billing)})`;
     photoBgKeep.hidden = !background.cut;
     photoBgKeep.disabled = photoBgBusy;
   }
@@ -1534,7 +1540,10 @@ if (typeof document !== 'undefined') (() => {
     setStatus(characterStatus, method === 'POST' ? '배경을 지우는 중…' : '');
     try {
       const path = `/api/characters/${encodeURIComponent(entry.character.id)}/photos/${encodeURIComponent(entry.photo.id)}/transparent`;
-      applyList(await api(method, path, { json: body, errorText: H.serverErrorText }));
+      const data = await api(method, path, { json: body, errorText: H.serverErrorText });
+      applyList(data);
+      // The photo without its background is a new photo: show it as the chosen one.
+      if (data?.photo?.id && H.findPhoto(state.list, data.photo.id)) selectPhoto(data.photo.id, { byUser: true });
       setStatus(characterStatus, doneText, 'success');
     } catch (error) {
       setStatus(characterStatus, error.message, 'error');
@@ -1543,12 +1552,30 @@ if (typeof document !== 'undefined') (() => {
       renderPhotoBg();
     }
   }
-  photoBgCut.addEventListener('click', () => changePhotoBg('POST', {}, '사진의 배경을 지웠습니다'));
+  photoBgCut.addEventListener('click', () => changePhotoBg('POST', {}, '배경을 지운 사진을 새로 추가했습니다. 원본 사진은 그대로 있습니다'));
+  photoBgDelete.addEventListener('click', async () => {
+    const entry = chosenPhoto();
+    if (!entry || photoBgBusy) return;
+    const label = H.photoLabel(entry.character, entry.index);
+    const motions = Number(entry.photo.motionCount) || 0;
+    if (!window.confirm(`'${label}'을(를) 지울까요?${motions ? ` 이 사진의 동작 ${motions}개도 함께 지워집니다.` : ''}`)) return;
+    photoBgBusy = true;
+    renderPhotoBg();
+    try {
+      applyList(await api('DELETE', `/api/characters/${encodeURIComponent(entry.character.id)}/photos/${encodeURIComponent(entry.photo.id)}`, { errorText: H.serverErrorText }));
+      setStatus(characterStatus, '사진을 지웠습니다', 'success');
+    } catch (error) {
+      setStatus(characterStatus, error.message, 'error');
+    } finally {
+      photoBgBusy = false;
+      renderPhotoBg();
+    }
+  });
   photoBgKeep.addEventListener('click', () => changePhotoBg('DELETE', {}, '원본 사진으로 되돌렸습니다'));
   photoBgAi.addEventListener('click', () => {
     const price = H.priceText(state.backgroundAi?.imageUsd, state.billing);
-    if (window.confirm(`AI로 이 사진의 배경을 지웁니다. 단색이 아닌 배경도 지울 수 있습니다.\n비용: 사진 1장당 ${price} (서비스 운영 비용으로 청구됩니다). 진행할까요?`)) {
-      changePhotoBg('POST', { method: 'ai' }, 'AI로 사진의 배경을 지웠습니다');
+    if (chosenPhoto()?.photo.aiCutReady === true || window.confirm(`AI로 이 사진의 배경을 지워 새 사진으로 추가합니다. 단색이 아닌 배경도 지울 수 있습니다.\n비용: 사진 1장당 ${price} (서비스 운영 비용으로 청구됩니다). 진행할까요?`)) {
+      changePhotoBg('POST', { method: 'ai' }, 'AI로 배경을 지운 사진을 새로 추가했습니다. 원본 사진은 그대로 있습니다');
     }
   });
 
@@ -2453,12 +2480,12 @@ if (typeof document !== 'undefined') (() => {
     stepCut.checked = cut.done === true || (cut.needed && state.steps.cut);
     stepCutMethod.hidden = !aiAvailable() || !cut.needed && !(photo && photo.transparent === 'no');
     if (aiAvailable()) {
-      stepCutMethod.options[1].textContent = `AI · 어떤 배경이든 (${H.priceText(ai.imageUsd, state.billing)})`;
+      stepCutMethod.options[1].textContent = `AI · 어떤 배경이든 (${photo?.aiCutReady === true ? '추가 비용 없음' : H.priceText(ai.imageUsd, state.billing)})`;
       const keyUsd = H.aiVideoUsd(selectedDriving()?.duration, ai);
       stepKeyMethod.options[1].textContent = `AI · 배경 인식 (${keyUsd == null ? `1초당 ${H.priceText(ai.videoUsdPerSecond, state.billing)}` : H.priceText(keyUsd, state.billing)})`;
     }
     stepCutMethod.value = cutAi() ? 'ai' : 'free';
-    const cutCost = cutAi() && cut.needed && state.steps.cut && photo?.cutoutMethod !== 'ai' ? ` 추가 비용: ${H.priceText(ai.imageUsd, state.billing)}.` : '';
+    const cutCost = cutAi() && cut.needed && state.steps.cut && photo?.aiCutReady !== true ? ` 추가 비용: ${H.priceText(ai.imageUsd, state.billing)}.` : '';
     stepCutNote.textContent = cut.note + cutCost;
     stepKeyMethod.hidden = !aiAvailable();
     stepKeyMethod.value = keyAi() ? 'ai' : 'free';
