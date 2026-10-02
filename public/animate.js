@@ -371,6 +371,7 @@ const AnimateHelpers = (() => {
    */
   function keyNote(job) {
     const result = job?.result;
+    if (result?.keyAiFailed) return 'AI 배경 제거에 실패해서 무료 방식으로 처리했습니다';
     if (result?.keyedUrl && result.keyMethod === 'plain') {
       return '배경이 요청한 색으로 나오지 않아, 가장자리와 이어진 배경만 지웠습니다(캐릭터가 감싼 틈은 남을 수 있습니다)';
     }
@@ -436,13 +437,37 @@ const AnimateHelpers = (() => {
    * Step 1 (사진 투명배경화) for the chosen photo: { needed, note }. Not needed for a
    * photo that is transparent already; a photo whose background is not one colour cannot be cut.
    */
-  function cutStepView(photo) {
+  function cutStepView(photo, { ai = false } = {}) {
     if (!photo) return { needed: false, note: '캐릭터 사진을 먼저 골라 주세요.' };
     if (photo.transparent === 'own') return { needed: false, note: '이미 투명 배경인 사진이라 필요 없습니다.' };
+    if (ai) {
+      return photo.cutoutMethod === 'ai'
+        ? { needed: true, note: '이미 AI로 배경을 지운 사진을 씁니다 (추가 비용 없음).' }
+        : { needed: true, note: 'AI가 배경을 지운 뒤 보냅니다. 지운 결과는 사진에 저장되어 다음부터는 비용이 들지 않습니다.' };
+    }
     if (photo.transparent === 'no' && (photo.cutoutReason === 'not_uniform' || photo.cutoutReason === 'no_subject')) {
-      return { needed: false, note: '배경이 한 가지 색이 아니라서 지울 수 없습니다. 사진을 배경째 보냅니다.' };
+      return { needed: false, note: '배경이 한 가지 색이 아니라서 무료 방식으로는 지울 수 없습니다. 사진을 배경째 보냅니다.' };
     }
     return { needed: true, note: '사진의 단색 배경을 지우고 보냅니다. 끄면 배경이 있는 사진 그대로 보냅니다.' };
+  }
+
+  /** What removing the background of `seconds` of video costs with the paid AI remover (mirrors background-ai.js). */
+  function aiVideoUsd(seconds, ai) {
+    const rate = Number(ai?.videoUsdPerSecond);
+    if (!Number.isFinite(rate) || !Number.isFinite(seconds)) return null;
+    const billed = Math.max(Number(ai.videoMinSeconds) || 0, Math.ceil(seconds - 1e-9));
+    return Number((billed * rate).toFixed(4));
+  }
+
+  /**
+   * The cost the paid AI steps add to a job: the photo's AI cut (once per photo) and the
+   * result's AI background removal. 0 without them.
+   */
+  function stepsExtraUsd({ photo, cutAi, keyAi, seconds, ai }) {
+    let usd = 0;
+    if (cutAi && photo && photo.transparent !== 'own' && photo.cutoutMethod !== 'ai') usd += Number(ai?.imageUsd) || 0;
+    if (keyAi) usd += aiVideoUsd(seconds, ai) || 0;
+    return Number(usd.toFixed(4));
   }
 
   const STEP_CUT_TEXT = Object.freeze({
@@ -456,7 +481,8 @@ const AnimateHelpers = (() => {
   function jobSteps(job) {
     const state = job?.state;
     const steps = job?.steps && typeof job.steps === 'object' ? job.steps : null;
-    const cut = steps ? STEP_CUT_TEXT[steps.cut] || ['', 'muted'] : (job?.characterCutout ? STEP_CUT_TEXT.done : ['기록 없음', 'muted']);
+    let cut = steps ? STEP_CUT_TEXT[steps.cut] || ['', 'muted'] : (job?.characterCutout ? STEP_CUT_TEXT.done : ['기록 없음', 'muted']);
+    if (steps && steps.cut === 'done' && steps.cutMethod === 'ai') cut = ['완료 (AI)', 'done'];
     let make;
     if (state === 'failed') make = ['실패', 'error'];
     else if (state === 'canceled') make = ['취소', 'muted'];
@@ -465,7 +491,7 @@ const AnimateHelpers = (() => {
     let key;
     if (steps && steps.key === false) key = ['건너뜀', 'muted'];
     else if (state === 'keying') key = ['진행 중', 'active'];
-    else if (state === 'succeeded') key = job.result?.keyedUrl ? ['완료', 'done'] : ['지우지 못함', 'warn'];
+    else if (state === 'succeeded') key = job.result?.keyedUrl ? [job.result.keyMethod === 'ai' ? '완료 (AI)' : '완료', 'done'] : ['지우지 못함', 'warn'];
     else if (state === 'failed' || state === 'canceled') key = ['하지 않음', 'muted'];
     else key = ['대기', 'muted'];
     return [
@@ -482,8 +508,8 @@ const AnimateHelpers = (() => {
    */
   function jobPayload({ drivingId, photoId, route, options, margin, margins, cutPhoto = true, keyResult = true }) {
     const payload = { drivingId, photoId, routeId: route?.id, options: options || {} };
-    if (cutPhoto === false) payload.cutPhoto = false;
-    if (keyResult === false) payload.keyResult = false;
+    if (cutPhoto === false || cutPhoto === 'ai') payload.cutPhoto = cutPhoto;
+    if (keyResult === false || keyResult === 'ai') payload.keyResult = keyResult;
     if (Array.isArray(margins) && margins.some(m => m.value === margin)) payload.margin = margin;
     if (!isFreeRoute(route)) payload.confirmed = true;
     return payload;
@@ -928,6 +954,8 @@ const AnimateHelpers = (() => {
     marginText,
     fitNote,
     cutStepView,
+    aiVideoUsd,
+    stepsExtraUsd,
     jobSteps,
     jobPayload,
     formatTime,
@@ -991,6 +1019,8 @@ if (typeof document !== 'undefined') (() => {
   const marginBox = $('marginBox');
   const marginSelect = $('marginSelect');
   const stepCut = $('stepCut');
+  const stepCutMethod = $('stepCutMethod');
+  const stepKeyMethod = $('stepKeyMethod');
   const stepCutNote = $('stepCutNote');
   const stepMakeNote = $('stepMakeNote');
   const stepKey = $('stepKey');
@@ -1025,7 +1055,9 @@ if (typeof document !== 'undefined') (() => {
     billing: null, // GET /api/billing payload (auth.js VirtuallyBilling); null until known
     // photo: the character id photos are being added to ('' while a new character is made), else null.
     // 4. 작업 순서: whether step 1 (when the photo needs it) and step 3 are wanted.
-    steps: { cut: true, key: true },
+    // cutAi / keyAi: the paid AI remover for that step (only offered when the server has it).
+    steps: { cut: true, key: true, cutAi: false, keyAi: false },
+    backgroundAi: null, // { available, imageUsd, videoUsdPerSecond, videoMinSeconds } from the status payload
     busy: { fetch: false, restore: false, driving: false, photo: null, photoText: '', create: false },
   };
 
@@ -2249,6 +2281,7 @@ if (typeof document !== 'undefined') (() => {
       state.margins = H.marginOptions(data);
       renderJobs(); // job cards show margin labels from the payload
     }
+    if (data.backgroundAi && typeof data.backgroundAi === 'object') state.backgroundAi = data.backgroundAi;
     if ('ffmpeg' in data) {
       state.ffmpeg = data.ffmpeg;
       const ok = data.ffmpeg?.available !== false;
@@ -2273,22 +2306,54 @@ if (typeof document !== 'undefined') (() => {
   }
 
   // 4. 작업 순서: step 1 follows the chosen photo, step 2 the chosen model.
+  const aiAvailable = () => state.backgroundAi?.available === true;
+  const cutAi = () => aiAvailable() && state.steps.cutAi;
+  const keyAi = () => aiAvailable() && state.steps.keyAi;
+  // The paid AI steps of the request as it stands, in USD.
+  function extraUsd() {
+    const photo = chosenPhoto()?.photo;
+    return H.stepsExtraUsd({
+      photo, seconds: selectedDriving()?.duration, ai: state.backgroundAi,
+      cutAi: cutAi() && state.steps.cut && H.cutStepView(photo, { ai: true }).needed,
+      keyAi: keyAi() && state.steps.key,
+    });
+  }
+
   function renderSteps() {
-    const cut = H.cutStepView(chosenPhoto()?.photo);
+    const photo = chosenPhoto()?.photo;
+    const ai = state.backgroundAi;
+    const cut = H.cutStepView(photo, { ai: cutAi() });
     stepCut.disabled = !cut.needed;
     stepCut.checked = cut.needed && state.steps.cut;
-    stepCutNote.textContent = cut.note;
+    stepCutMethod.hidden = !aiAvailable() || photo?.transparent === 'own';
+    stepCutMethod.value = cutAi() ? 'ai' : 'free';
+    const cutCost = cutAi() && cut.needed && state.steps.cut && photo?.cutoutMethod !== 'ai' ? ` 추가 비용: ${H.priceText(ai.imageUsd, state.billing)}.` : '';
+    stepCutNote.textContent = cut.note + cutCost;
+    stepKeyMethod.hidden = !aiAvailable();
+    stepKeyMethod.value = keyAi() ? 'ai' : 'free';
     const route = selectedRoute();
     stepMakeNote.textContent = route
       ? `${route.label}${route.providerLabel && route.providerLabel !== route.label ? ` · ${route.providerLabel}` : ''}에 요청합니다. 비용이 드는 단계는 이것뿐입니다.`
       : '모델을 골라 주세요.';
     stepKey.checked = state.steps.key;
-    stepKeyNote.textContent = state.steps.key
-      ? 'AI가 만든 영상의 단색 배경을 지워 투명 영상으로 만듭니다.'
-      : '배경이 있는 영상 그대로 받습니다. 결과에서 배경 제거하기로 나중에 지울 수 있습니다.';
+    if (!state.steps.key) stepKeyNote.textContent = '배경이 있는 영상 그대로 받습니다. 결과에서 배경 제거하기로 나중에 지울 수 있습니다.';
+    else if (keyAi()) {
+      const usd = H.aiVideoUsd(selectedDriving()?.duration, ai);
+      stepKeyNote.textContent = `AI가 영상에서 배경을 알아보고 지웁니다. 배경이 단색으로 나오지 않아도 됩니다.${usd == null ? '' : ` 추가 비용: ${H.priceText(usd, state.billing)}.`}`;
+    } else stepKeyNote.textContent = 'AI가 만든 영상의 단색 배경을 색으로 지워 투명 영상으로 만듭니다.';
   }
-  stepCut.addEventListener('change', () => { state.steps.cut = stepCut.checked; renderSteps(); });
-  stepKey.addEventListener('change', () => { state.steps.key = stepKey.checked; renderSteps(); });
+  stepCut.addEventListener('change', () => { state.steps.cut = stepCut.checked; renderCreate(); });
+  stepKey.addEventListener('change', () => { state.steps.key = stepKey.checked; renderCreate(); });
+  stepCutMethod.addEventListener('change', () => {
+    state.steps.cutAi = stepCutMethod.value === 'ai';
+    if (state.steps.cutAi) state.steps.cut = true;
+    renderCreate();
+  });
+  stepKeyMethod.addEventListener('change', () => {
+    state.steps.keyAi = stepKeyMethod.value === 'ai';
+    if (state.steps.keyAi) state.steps.key = true;
+    renderCreate();
+  });
 
   function renderCreate() {
     renderSteps();
@@ -2309,8 +2374,14 @@ if (typeof document !== 'undefined') (() => {
     $('confirmPhoto').textContent = chosen ? H.photoLabel(chosen.character, chosen.index) : '';
     $('confirmModel').textContent = `${route.label} · ${route.providerLabel}`;
     $('confirmLength').textContent = H.formatSeconds(driving.duration) || '알 수 없음';
-    $('confirmCost').textContent = routeCost(route) || '알 수 없음';
-    const needed = H.jobCredits(route, driving.duration, routeOptionsFor(route), state.billing);
+    // The paid AI steps are part of the price.
+    const extra = extraUsd();
+    const routeUsd = H.estimateUsd(route, driving.duration, routeOptionsFor(route));
+    const totalUsd = routeUsd == null ? null : routeUsd + extra;
+    $('confirmCost').textContent = (extra > 0 ? H.priceText(totalUsd, state.billing) : routeCost(route)) || '알 수 없음';
+    const needed = extra > 0 && H.billingActive(state.billing)
+      ? H.creditsForEstimate(totalUsd, state.billing)
+      : H.jobCredits(route, driving.duration, routeOptionsFor(route), state.billing);
     const creditLine = H.confirmCreditsText(needed, state.billing?.balance);
     confirmCredits.textContent = creditLine;
     confirmCredits.hidden = !creditLine;
@@ -2359,8 +2430,8 @@ if (typeof document !== 'undefined') (() => {
         options: routeOptionsFor(route),
         margin: state.margin,
         margins: state.margins,
-        cutPhoto: !H.cutStepView(photo).needed || state.steps.cut,
-        keyResult: state.steps.key,
+        cutPhoto: H.cutStepView(photo, { ai: cutAi() }).needed && !state.steps.cut ? false : cutAi() ? 'ai' : true,
+        keyResult: !state.steps.key ? false : keyAi() ? 'ai' : true,
       });
       const data = await api('POST', '/api/animate/jobs', { json: payload });
       if (data?.job) upsertJob(data.job);
@@ -2529,7 +2600,7 @@ if (typeof document !== 'undefined') (() => {
 
     const added = H.isAdded(job, state.libraryIds);
     const actionsKey = JSON.stringify([job.state, added, addBusy.has(job.id), addErrors.get(job.id) || null,
-      keyBusy.has(job.id), keyErrors.get(job.id) || null, H.offersRefetch(job) ? H.refetchTitle(job, state.billing) : null,
+      keyBusy.has(job.id), keyErrors.get(job.id) || null, aiAvailable(), H.offersRefetch(job) ? H.refetchTitle(job, state.billing) : null,
       job.canRefetch === true, refetchBusy.has(job.id), refetchErrors.get(job.id) || null]);
     if (actionsKey !== row.actionsKey) {
       row.actionsKey = actionsKey;
@@ -2593,12 +2664,24 @@ if (typeof document !== 'undefined') (() => {
       title: '이 결과의 배경 제거만 다시 실행합니다. 이미 추가한 동작도 새 투명 영상으로 바뀝니다.',
       onclick: () => rekey(job),
     });
+    // The paid AI remover for this result, when the server has it: asks first, with the price.
+    const aiUsd = aiAvailable() ? H.aiVideoUsd(Number(job.result?.duration), state.backgroundAi) : null;
+    const aiKeyButton = aiUsd == null ? null : el('button', {
+      type: 'button',
+      className: 'btn btn-ghost btn-sm',
+      disabled: keyBusyNow,
+      text: 'AI로 배경 제거 (유료)',
+      title: 'AI가 영상에서 배경을 알아보고 지웁니다. 배경이 단색으로 나오지 않은 결과에 씁니다.',
+      onclick: () => {
+        if (window.confirm(`AI로 이 영상의 배경을 지웁니다. 비용: ${H.priceText(aiUsd, state.billing)} (서비스 운영 비용으로 청구됩니다). 진행할까요?`)) rekey(job, 'ai');
+      },
+    });
     const rekeyStatus = keyError ? el('span', { className: 'status', dataset: { kind: 'error' }, text: keyError }) : null;
     if (added) {
       return [el('span', { className: 'job-added' }, [
         '추가됨 · ',
         el('a', { className: 'link', href: '/', text: '캐릭터 목록에서 보기' }),
-      ]), rekeyButton, rekeyStatus];
+      ]), rekeyButton, aiKeyButton, rekeyStatus];
     }
     const inputId = `name-${job.id}`;
     const input = el('input', {
@@ -2623,16 +2706,17 @@ if (typeof document !== 'undefined') (() => {
       }),
       error ? el('span', { className: 'status', dataset: { kind: 'error' }, text: error }) : null,
       rekeyButton,
+      aiKeyButton,
       rekeyStatus,
     ];
   }
 
-  async function rekey(job) {
+  async function rekey(job, method = null) {
     keyBusy.add(job.id);
     keyErrors.delete(job.id);
     renderJobs();
     try {
-      const data = await api('POST', `/api/animate/jobs/${encodeURIComponent(job.id)}/key`, { json: {} });
+      const data = await api('POST', `/api/animate/jobs/${encodeURIComponent(job.id)}/key`, { json: method ? { method } : {} });
       if (data?.job) upsertJob(data.job);
       if (!data?.keyed) keyErrors.set(job.id, H.keyNote(data?.job) || '배경을 지우지 못했습니다');
     } catch (error) {

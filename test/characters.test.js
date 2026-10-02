@@ -317,7 +317,7 @@ test('create: name and photo validation, sniffing, views and the files on disk',
   assert.match(photo.id, /^ph-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
   assert.equal(character.basePhotoId, photo.id);
   assert.deepEqual(photo, {
-    id: photo.id, url: `/api/media/${photo.id}`, displayUrl: `/api/media/${photo.id}`, cutout: false, transparent: 'own', cutoutReason: null,
+    id: photo.id, url: `/api/media/${photo.id}`, displayUrl: `/api/media/${photo.id}`, cutout: false, transparent: 'own', cutoutReason: null, cutoutMethod: null,
     width: 64, height: 96, hasAlpha: true, createdAt: character.createdAt,
     isBase: true, onAir: false, idle: 'photo', idleMotionId: null, idleBy: null, idleDefault: 'photo', defaultIdleMotionId: null, motionCount: 0, motions: [],
   });
@@ -847,7 +847,7 @@ test('migration: every old photo becomes a character with the same id; motions f
     assert.equal(list.activePhotoId, selected, 'the old selection is on air');
     assert.equal(list.activeCharacterId, list.characters[1].id);
     assert.deepEqual(list.characters[0].photos[0], {
-      id: older, url: `/api/media/${older}`, displayUrl: `/api/media/${older}`, cutout: false, transparent: 'no', cutoutReason: 'no_subject',
+      id: older, url: `/api/media/${older}`, displayUrl: `/api/media/${older}`, cutout: false, transparent: 'no', cutoutReason: 'no_subject', cutoutMethod: null,
       width: 48, height: 48, hasAlpha: false, createdAt: '2026-09-01T00:00:00.000Z',
       isBase: true, onAir: false, idle: 'photo', idleMotionId: null, idleBy: null, idleDefault: 'photo', defaultIdleMotionId: null, motionCount: 1,
       motions: [{ id: motions[0].id, name: motions[0].name, mime: 'video/webm', createdAt: motions[0].createdAt, isIdle: false }],
