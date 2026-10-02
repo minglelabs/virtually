@@ -440,11 +440,11 @@ const AnimateHelpers = (() => {
   function cutStepView(photo, { ai = false } = {}) {
     if (!photo) return { needed: false, note: '캐릭터 사진을 먼저 골라 주세요.' };
     if (photo.transparent === 'own') return { needed: false, note: '이미 투명 배경인 사진이라 필요 없습니다.' };
-    if (ai) {
-      return photo.cutoutMethod === 'ai'
-        ? { needed: true, note: '이미 AI로 배경을 지운 사진을 씁니다 (추가 비용 없음).' }
-        : { needed: true, note: 'AI가 배경을 지운 뒤 보냅니다. 지운 결과는 사진에 저장되어 다음부터는 비용이 들지 않습니다.' };
+    // Its background was cut out before (when it was uploaded, or by a button): nothing left to choose or pay.
+    if (photo.transparent === 'cut') {
+      return { needed: false, done: true, note: `이미 배경을 지운 사진${photo.cutoutMethod === 'ai' ? ' (AI)' : ''}이라 그대로 씁니다. 추가 비용이 없습니다. 원본으로 보내려면 위에서 '원본 사진으로'를 누르세요.` };
     }
+    if (ai) return { needed: true, note: 'AI가 배경을 지운 뒤 보냅니다. 지운 결과는 사진에 저장되어 다음부터는 비용이 들지 않습니다.' };
     if (photo.transparent === 'no' && (photo.cutoutReason === 'not_uniform' || photo.cutoutReason === 'no_subject')) {
       return { needed: false, note: '배경이 한 가지 색이 아니라서 무료 방식으로는 지울 수 없습니다. 사진을 배경째 보냅니다.' };
     }
@@ -2369,6 +2369,7 @@ if (typeof document !== 'undefined') (() => {
     const route = selectedRoute();
     const options = route ? H.selectableOptions(route) : [];
     const chosen = route ? routeOptionsFor(route) : {};
+    const seconds = Number.isFinite(selectedDriving()?.duration) ? selectedDriving().duration : null;
     routeOptions.replaceChildren(...options.map(option => {
       const id = `opt-${option.key}`;
       const select = el('select', {
@@ -2378,11 +2379,18 @@ if (typeof document !== 'undefined') (() => {
           state.options[route.id] = { ...(state.options[route.id] || {}), [option.key]: select.value };
           renderRoutes();
         },
-      }, option.values.map(value => el('option', { value: String(value), text: String(value) })));
+      }, option.values.map((value) => {
+        // An option that changes the price says what it costs for this video ('480p · 약 240 크레딧').
+        const priced = route.pricing?.byOption?.[option.key]?.[value] != null && seconds != null;
+        const price = priced ? H.priceText(H.estimateUsd(route, seconds, { ...chosen, [option.key]: value }), state.billing) : '';
+        return el('option', { value: String(value), text: price ? `${value} · ${price}` : String(value) });
+      }));
       select.value = String(chosen[option.key]);
+      const pricedOption = route.pricing?.byOption?.[option.key] != null;
       return el('div', { className: 'route-option' }, [
         el('label', { for: id, text: option.label || option.key }),
         select,
+        pricedOption ? el('span', { className: 'route-option-note', text: '가격이 달라지는 선택입니다' }) : null,
       ]);
     }));
     routeOptions.hidden = options.length === 0;
@@ -2442,10 +2450,10 @@ if (typeof document !== 'undefined') (() => {
     const ai = state.backgroundAi;
     const cut = H.cutStepView(photo, { ai: cutAi() });
     stepCut.disabled = !cut.needed;
-    stepCut.checked = cut.needed && state.steps.cut;
-    stepCutMethod.hidden = !aiAvailable() || photo?.transparent === 'own';
+    stepCut.checked = cut.done === true || (cut.needed && state.steps.cut);
+    stepCutMethod.hidden = !aiAvailable() || !cut.needed && !(photo && photo.transparent === 'no');
     if (aiAvailable()) {
-      stepCutMethod.options[1].textContent = `AI · 어떤 배경이든 (${photo?.cutoutMethod === 'ai' ? '추가 비용 없음' : H.priceText(ai.imageUsd, state.billing)})`;
+      stepCutMethod.options[1].textContent = `AI · 어떤 배경이든 (${H.priceText(ai.imageUsd, state.billing)})`;
       const keyUsd = H.aiVideoUsd(selectedDriving()?.duration, ai);
       stepKeyMethod.options[1].textContent = `AI · 배경 인식 (${keyUsd == null ? `1초당 ${H.priceText(ai.videoUsdPerSecond, state.billing)}` : H.priceText(keyUsd, state.billing)})`;
     }
@@ -2478,11 +2486,26 @@ if (typeof document !== 'undefined') (() => {
     renderCreate();
   });
 
+  // What the request as it stands costs: '3초 · 약 540 크레딧' (the model's price plus the paid AI steps), '' when unknown.
+  function totalCostText() {
+    const route = selectedRoute();
+    const driving = selectedDriving();
+    if (!route || !driving) return '';
+    const length = H.formatSeconds(driving.duration);
+    const extra = extraUsd();
+    if (H.isFreeRoute(route)) return extra > 0 ? `${length} · ${H.priceText(extra, state.billing)}` : '무료';
+    const routeUsd = H.estimateUsd(route, driving.duration, routeOptionsFor(route));
+    if (routeUsd == null) return '';
+    return `${length} · ${H.priceText(routeUsd + extra, state.billing)}`;
+  }
+
   function renderCreate() {
     renderSteps();
     const blocker = createBlocker();
     createBtn.disabled = Boolean(blocker) || state.busy.create;
-    createBtn.textContent = state.busy.create ? '요청 중…' : '동작 만들기';
+    // The price is on the button: the model list above is long.
+    const total = blocker ? '' : totalCostText();
+    createBtn.textContent = state.busy.create ? '요청 중…' : total ? `동작 만들기 · ${total}` : '동작 만들기';
     createBtn.title = blocker || '';
     // Show why the button is disabled, without hiding a result or error message.
     if (blocker && (!createStatus.dataset.kind || createStatus.dataset.kind === 'hint')) {
@@ -2553,7 +2576,9 @@ if (typeof document !== 'undefined') (() => {
         options: routeOptionsFor(route),
         margin: state.margin,
         margins: state.margins,
-        cutPhoto: H.cutStepView(photo, { ai: cutAi() }).needed && !state.steps.cut ? false : cutAi() ? 'ai' : true,
+        // A photo cut before goes as that cutout (its AI cutout is reused, not paid again).
+        cutPhoto: photo.transparent === 'cut' ? (photo.cutoutMethod === 'ai' ? 'ai' : true)
+          : H.cutStepView(photo, { ai: cutAi() }).needed && !state.steps.cut ? false : cutAi() ? 'ai' : true,
         keyResult: !state.steps.key ? false : keyAi() ? 'ai' : true,
       });
       const data = await api('POST', '/api/animate/jobs', { json: payload });
