@@ -163,6 +163,9 @@ test('routeState and groupRoutes', () => {
     route({ id: 'c', familyLabel: 'Wan' }),
   ]);
   assert.deepEqual(groups.map(g => [g.familyLabel, g.routes.map(r => r.id)]), [['Wan', ['a', 'c']], ['Kling', ['b']]]);
+  // WaveSpeed's routes stay in view; every other service's go into the closed menu.
+  const split = H.splitRoutes([{ id: 'w1', provider: 'wavespeed' }, { id: 'f1', provider: 'fal' }, { id: 'w2', provider: 'wavespeed' }, { id: 'r1', provider: 'replicate' }]);
+  assert.deepEqual([split.main.map(r => r.id), split.others.map(r => r.id)], [['w1', 'w2'], ['f1', 'r1']]);
   // Free only by the server's verdict (route view `free`), never by the provider.
   assert.equal(H.isFreeRoute({ id: 'mock/local-demo', provider: 'mock', free: true }), true);
   assert.equal(H.isFreeRoute({ id: 'mock/priced', provider: 'mock', free: false }), false);

@@ -421,6 +421,9 @@ a.driving-credit:hover { color: var(--text); }
 /* ---- 3. Routes ---- */
 .route-list { display: flex; flex-direction: column; gap: 12px; }
 .route-group { margin: 0; padding: 0; border: 0; min-width: 0; }
+.route-more { display: flex; flex-direction: column; gap: 10px; }
+.route-more > summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+.route-more[open] > summary { margin-bottom: 4px; }
 .route-group legend { padding: 0; margin-bottom: 4px; font-size: 12px; color: var(--muted); }
 .route-row {
   display: flex;
