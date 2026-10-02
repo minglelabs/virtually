@@ -93,12 +93,15 @@ test('a photo\'s background is cut out or kept on request, and a job leaves step
   let photo = (await response.json()).character.photos[0];
   assert.deepEqual([photo.transparent, photo.cutoutReason, photo.displayUrl], ['no', 'kept', `/api/media/${photoId}`]);
   assert.equal((await fetch(`${base}/api/media/${photoId}?variant=cutout`)).status, 404);
+  // Cutting it now adds the result as a new photo; the original stays as it is.
   response = await json('POST', route, {});
-  assert.equal(response.status, 200);
-  photo = (await response.json()).character.photos[0];
-  assert.equal(photo.transparent, 'cut');
-  assert.match(photo.displayUrl, new RegExp(`^/api/media/${photoId}\\?variant=cutout&v=\\d+$`));
-  response = await fetch(`${base}${photo.displayUrl}`);
+  assert.equal(response.status, 201);
+  let answer = await response.json();
+  assert.equal(answer.character.photos.length, 2);
+  assert.deepEqual([answer.character.photos[0].id, answer.character.photos[0].transparent], [photoId, 'no']);
+  assert.notEqual(answer.photo.id, photoId);
+  assert.deepEqual([answer.photo.transparent, answer.photo.hasAlpha], ['own', true]);
+  response = await fetch(`${base}${answer.photo.url}`);
   assert.deepEqual([response.status, response.headers.get('content-type')], [200, 'image/png']);
   await response.arrayBuffer();
 
@@ -121,7 +124,7 @@ test('a photo\'s background is cut out or kept on request, and a job leaves step
     }
   };
 
-  // The default: all three steps.
+  // The default: all three steps (the kept original is cut for the job only).
   let job = await run({ photoId });
   assert.equal(job.state, 'succeeded', JSON.stringify(job.error));
   assert.deepEqual(job.steps, { cut: 'done', key: true });
@@ -209,7 +212,7 @@ test('the paid AI removers run only when picked: photo and result, with their co
   assert.deepEqual([job.result.keyMethod, job.result.keyAiFailed, Boolean(job.result.keyedUrl)], ['ai', false, true]);
   assert.equal(Number((job.estimate.usd - plainEstimate).toFixed(4)), 0.04, '$0.01 for the photo + 3 s of video at $0.01');
   let photo = (await (await fetch(`${base}/api/characters`)).json()).characters[0].photos[0];
-  assert.deepEqual([photo.transparent, photo.cutoutMethod], ['cut', 'ai']);
+  assert.deepEqual([photo.transparent, photo.aiCutReady], ['no', true], 'the photo itself is not changed; its AI cut is kept for next time');
 
   // The photo's AI cutout is reused; a failing video remover falls back to the free key.
   videoFails = true;
@@ -222,8 +225,10 @@ test('the paid AI removers run only when picked: photo and result, with their co
 
   // The buttons: the photo again on request, a result by 'AI로 배경 제거'.
   response = await json('POST', `/api/characters/${character.id}/photos/${photoId}/transparent`, { method: 'ai' });
-  assert.equal(response.status, 200);
-  assert.equal(calls.image, 2);
+  assert.equal(response.status, 201);
+  const copy = await response.json();
+  assert.equal(calls.image, 1, 'the kept AI cut is reused: not paid again');
+  assert.deepEqual([copy.character.photos.length, copy.photo.transparent], [2, 'own'], 'added as a new photo');
   response = await json('POST', `/api/animate/jobs/${job.id}/key`, { method: 'ai' });
   assert.equal((await response.json()).job.result.keyMethod, 'ai');
   assert.equal(calls.video, 3);
@@ -269,7 +274,7 @@ test('AI step helpers: what it adds to the price and how the request names it', 
   assert.equal(A.aiVideoUsd(5, null), null);
   const photo = { transparent: 'no', cutoutReason: 'not_uniform', cutoutMethod: null };
   assert.equal(A.stepsExtraUsd({ photo, cutAi: true, keyAi: true, seconds: 5, ai }), 0.06);
-  assert.equal(A.stepsExtraUsd({ photo: { ...photo, transparent: 'cut', cutoutMethod: 'ai' }, cutAi: true, keyAi: false, seconds: 5, ai }), 0);
+  assert.equal(A.stepsExtraUsd({ photo: { ...photo, aiCutReady: true }, cutAi: true, keyAi: false, seconds: 5, ai }), 0);
   assert.equal(A.stepsExtraUsd({ photo, cutAi: false, keyAi: false, seconds: 5, ai }), 0);
   assert.equal(A.cutStepView(photo).needed, false, 'the free cut cannot do this photo');
   assert.equal(A.cutStepView(photo, { ai: true }).needed, true, 'the AI one can');

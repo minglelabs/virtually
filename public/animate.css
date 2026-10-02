@@ -625,3 +625,5 @@ button.motion-thumb:hover .motion-play { background: var(--accent); }
 .photo-bg { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 8px; }
 
 .route-option-note { font-size: 12px; color: var(--muted); }
+
+.btn-danger { color: var(--danger); }
