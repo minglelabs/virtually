@@ -231,7 +231,7 @@ test('one character at a time: its first photo, its motions, its jobs and what i
 test('동작 관리 page wiring: the character switcher, the motion list and no leftover 동작 추가하러 가기', () => {
   const html = readPublic('animate.html');
   assert.match(html, /<title>동작 관리 · Virtually<\/title>/);
-  assert.match(html, /<h1>동작 관리<\/h1>/);
+  assert.match(html, /<h1 class="page-h1">동작 관리<\/h1>/);
   // The switcher is a horizontal strip above the one character's photos.
   assert.match(html, /<section id="switchCard"[^>]*>\s*<h2 id="switchTitle">캐릭터<\/h2>\s*<div class="strip" data-strip>\s*<div id="characterSwitch" class="strip-scroller"/);
   assert.ok(html.indexOf('id="switchCard"') < html.indexOf('id="characterCard"'));

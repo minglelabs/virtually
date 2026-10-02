@@ -9,16 +9,18 @@
   <link rel="stylesheet" href="./auth.css">
 </head>
 <body>
+  <header class="topbar">
+    <a href="/" class="brand-link brand-mark">Virtually</a>
+    <nav class="topnav" aria-label="화면">
+      <a href="/" class="topnav-tab">캐릭터</a>
+      <a href="/broadcast" class="topnav-tab">방송 화면</a>
+      <a href="/animate" class="topnav-tab">동작 관리</a>
+      <a href="/billing" class="topnav-tab" aria-current="page">크레딧</a>
+    </nav>
+    <div id="authSlot" class="auth-slot" hidden></div>
+  </header>
   <main class="page">
-    <header class="page-header">
-      <a href="/" class="brand-link brand-mark">Virtually</a>
-      <nav class="page-links" aria-label="다른 화면">
-        <a href="/" class="back-link">컨트롤러</a>
-        <a href="/animate" class="back-link">동작 관리</a>
-      </nav>
-      <h1>크레딧</h1>
-      <div id="authSlot" class="auth-slot" hidden></div>
-    </header>
+    <h1 class="page-h1">크레딧</h1>
 
     <!-- billing.js: disabled / invalid / offline, and the return from Polar. -->
     <div id="billingMessage" class="messages" role="alert"></div>
