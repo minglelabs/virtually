@@ -2568,10 +2568,10 @@ if (typeof document !== 'undefined') (() => {
     if (aiAvailable()) {
       const keyUsd = H.aiVideoUsd(selectedDriving()?.duration, ai);
       setSeg(stepCutMethod, cutAi() ? 'ai' : 'free', {
-        ai: `AI · 어떤 배경이든 (${photo?.aiCutReady === true ? '추가 비용 없음' : H.priceText(ai.imageUsd, state.billing)})`,
+        ai: `유료 · AI로 인식해서 지우기 (${photo?.aiCutReady === true ? '추가 비용 없음' : H.priceText(ai.imageUsd, state.billing)})`,
       }, { free: !freeCut });
       setSeg(stepKeyMethod, keyAi() ? 'ai' : 'free', {
-        ai: `AI · 배경 인식 (${keyUsd == null ? `1초당 ${H.priceText(ai.videoUsdPerSecond, state.billing)}` : H.priceText(keyUsd, state.billing)})`,
+        ai: `유료 · AI로 인식해서 지우기 (${keyUsd == null ? `1초당 ${H.priceText(ai.videoUsdPerSecond, state.billing)}` : H.priceText(keyUsd, state.billing)})`,
       });
     }
     const cutCost = cutAi() && cut.needed && state.steps.cut && photo?.aiCutReady !== true ? ` 추가 비용: ${H.priceText(ai.imageUsd, state.billing)}.` : '';
