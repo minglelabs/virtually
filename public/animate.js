@@ -1623,6 +1623,9 @@ if (typeof document !== 'undefined') (() => {
     const sub = el('span', { className: 'motion-tile-sub' });
     const idleBtn = el('button', { type: 'button', className: 'btn btn-ghost btn-sm' });
     const removeBtn = el('button', { type: 'button', className: 'btn btn-ghost btn-sm', text: '삭제' });
+    // Only for a clip that still has its background (an uploaded video, a result added as it was).
+    const keyBtn = el('button', { type: 'button', className: 'btn btn-ghost btn-sm', text: '배경 제거' });
+    const aiKeyBtn = el('button', { type: 'button', className: 'btn btn-ghost btn-sm', text: 'AI로 배경 제거 (유료)' });
     // The picture is the play button: a click plays the clip once from the start
     // (the idle motion loops, as on air), another click stops it.
     const mark = el('span', { className: 'motion-play', 'aria-hidden': 'true', text: '▶' });
@@ -1631,9 +1634,9 @@ if (typeof document !== 'undefined') (() => {
       thumb,
       name,
       sub,
-      el('div', { className: 'motion-tile-actions' }, [idleBtn, removeBtn]),
+      el('div', { className: 'motion-tile-actions' }, [idleBtn, keyBtn, aiKeyBtn, removeBtn]),
     ]);
-    const tile = { node, video, thumb, badge, name, sub, idleBtn, removeBtn, isIdle: false };
+    const tile = { node, video, thumb, badge, name, sub, idleBtn, removeBtn, keyBtn, aiKeyBtn, isIdle: false, mime: motion.mime };
     const setPlaying = (playing) => {
       node.classList.toggle('is-playing', playing);
       mark.textContent = playing ? '■' : '▶';
@@ -1676,6 +1679,25 @@ if (typeof document !== 'undefined') (() => {
       : '방송 중 다른 동작이 재생되지 않을 때 이 영상을 반복 재생합니다';
     tile.idleBtn.disabled = motionBusy;
     tile.removeBtn.disabled = motionBusy;
+    const background = motion.hasBackground === true;
+    tile.keyBtn.hidden = !background;
+    tile.keyBtn.disabled = motionBusy;
+    tile.keyBtn.title = '초록·파랑·분홍 단색 배경이나, 가장자리와 이어진 단색 배경을 지웁니다 (무료)';
+    tile.keyBtn.onclick = () => keyMotion(motion, null);
+    tile.aiKeyBtn.hidden = !background || state.backgroundAi?.available !== true;
+    tile.aiKeyBtn.disabled = motionBusy;
+    tile.aiKeyBtn.title = 'AI가 영상에서 배경을 알아보고 지웁니다. 단색이 아닌 배경도 됩니다';
+    tile.aiKeyBtn.onclick = () => {
+      const ai = state.backgroundAi;
+      const price = `1초당 ${H.priceText(ai.videoUsdPerSecond, state.billing)}, 최소 ${ai.videoMinSeconds}초`;
+      if (window.confirm(`AI로 '${motion.name}' 영상의 배경을 지웁니다. 비용: ${price} (서비스 운영 비용으로 청구됩니다). 진행할까요?`)) keyMotion(motion, 'ai');
+    };
+    // The file changed (its background is gone): load it again.
+    if (tile.mime !== motion.mime || tile.hadBackground !== background) {
+      if (tile.hadBackground !== undefined) tile.video.src = `/api/media/${encodeURIComponent(motion.id)}?v=${Date.now()}`;
+      tile.mime = motion.mime;
+      tile.hadBackground = background;
+    }
     tile.idleBtn.onclick = () => setIdleMotion(character, photo, chosen ? null : motion);
     tile.removeBtn.onclick = () => deleteMotion(motion);
   }
@@ -1691,6 +1713,23 @@ if (typeof document !== 'undefined') (() => {
       setStatus(motionsStatus, motion ? `'${motion.name}'을(를) 대기 동작으로 정했습니다` : '기본 대기 동작으로 돌아갔습니다', 'success');
     } catch (error) {
       setStatus(motionsStatus, `대기 동작 바꾸기 실패: ${error.message}`, 'error');
+    } finally {
+      motionBusy = false;
+      renderMotions();
+    }
+  }
+
+  // Remove the background of a motion in place (free, or the paid AI remover when asked).
+  async function keyMotion(motion, method) {
+    if (motionBusy) return;
+    motionBusy = true;
+    renderMotions();
+    setStatus(motionsStatus, method === 'ai' ? `AI로 '${motion.name}'의 배경을 지우는 중… (영상 길이에 따라 1~2분 걸릴 수 있습니다)` : `'${motion.name}'의 배경을 지우는 중…`);
+    try {
+      applyList(await api('POST', `/api/media/${encodeURIComponent(motion.id)}/key`, { json: method ? { method } : {} }));
+      setStatus(motionsStatus, `'${motion.name}'의 배경을 지웠습니다`, 'success');
+    } catch (error) {
+      setStatus(motionsStatus, `배경 제거 실패: ${error.message}`, 'error');
     } finally {
       motionBusy = false;
       renderMotions();
