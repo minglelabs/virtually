@@ -375,6 +375,7 @@ const AnimateHelpers = (() => {
       return '배경이 요청한 색으로 나오지 않아, 가장자리와 이어진 배경만 지웠습니다(캐릭터가 감싼 틈은 남을 수 있습니다)';
     }
     if (!result || result.keyedUrl) return '';
+    if (result.keySkipped === 'not_requested') return '영상 투명배경화를 건너뛰었습니다. 배경 제거하기로 나중에 지울 수 있습니다';
     if (result.keySkipped) return '배경이 한 가지 색이 아니라서 원본 영상을 그대로 씁니다';
     if (result.keyFailed) return '배경을 지우지 못해 원본 영상을 그대로 씁니다';
     return '';
@@ -429,12 +430,60 @@ const AnimateHelpers = (() => {
     return '';
   }
 
+  // ---- The three steps of one motion (4. 작업 순서, and each result card) ----
+
+  /**
+   * Step 1 (사진 투명배경화) for the chosen photo: { needed, note }. Not needed for a
+   * photo that is transparent already; a photo whose background is not one colour cannot be cut.
+   */
+  function cutStepView(photo) {
+    if (!photo) return { needed: false, note: '캐릭터 사진을 먼저 골라 주세요.' };
+    if (photo.transparent === 'own') return { needed: false, note: '이미 투명 배경인 사진이라 필요 없습니다.' };
+    if (photo.transparent === 'no' && (photo.cutoutReason === 'not_uniform' || photo.cutoutReason === 'no_subject')) {
+      return { needed: false, note: '배경이 한 가지 색이 아니라서 지울 수 없습니다. 사진을 배경째 보냅니다.' };
+    }
+    return { needed: true, note: '사진의 단색 배경을 지우고 보냅니다. 끄면 배경이 있는 사진 그대로 보냅니다.' };
+  }
+
+  const STEP_CUT_TEXT = Object.freeze({
+    done: ['완료', 'done'], own: ['필요 없음', 'done'], skipped: ['건너뜀', 'muted'], not_plain: ['지울 수 없는 배경', 'warn'],
+  });
+
+  /**
+   * The three steps of a job as chips: [{ label, text, kind }], kind 'done' | 'active' |
+   * 'muted' | 'warn' | 'error'. Jobs from before steps were recorded show what is known.
+   */
+  function jobSteps(job) {
+    const state = job?.state;
+    const steps = job?.steps && typeof job.steps === 'object' ? job.steps : null;
+    const cut = steps ? STEP_CUT_TEXT[steps.cut] || ['', 'muted'] : (job?.characterCutout ? STEP_CUT_TEXT.done : ['기록 없음', 'muted']);
+    let make;
+    if (state === 'failed') make = ['실패', 'error'];
+    else if (state === 'canceled') make = ['취소', 'muted'];
+    else if (state === 'keying' || state === 'succeeded') make = ['완료', 'done'];
+    else make = [JOB_STATE_LABELS[state] || '대기', 'active'];
+    let key;
+    if (steps && steps.key === false) key = ['건너뜀', 'muted'];
+    else if (state === 'keying') key = ['진행 중', 'active'];
+    else if (state === 'succeeded') key = job.result?.keyedUrl ? ['완료', 'done'] : ['지우지 못함', 'warn'];
+    else if (state === 'failed' || state === 'canceled') key = ['하지 않음', 'muted'];
+    else key = ['대기', 'muted'];
+    return [
+      { label: '① 사진 투명배경화', text: cut[0], kind: cut[1] },
+      { label: '② AI 동작 생성', text: make[0], kind: make[1] },
+      { label: '③ 영상 투명배경화', text: key[0], kind: key[1] },
+    ];
+  }
+
   /**
    * The POST /api/animate/jobs body. `margin` is sent only when the server offers margins;
-   * `confirmed` for every route but the free one (the page asked first).
+   * `confirmed` for every route but the free one (the page asked first). `cutPhoto` /
+   * `keyResult` are sent (as false) only when step 1 / step 3 is left out.
    */
-  function jobPayload({ drivingId, photoId, route, options, margin, margins }) {
+  function jobPayload({ drivingId, photoId, route, options, margin, margins, cutPhoto = true, keyResult = true }) {
     const payload = { drivingId, photoId, routeId: route?.id, options: options || {} };
+    if (cutPhoto === false) payload.cutPhoto = false;
+    if (keyResult === false) payload.keyResult = false;
     if (Array.isArray(margins) && margins.some(m => m.value === margin)) payload.margin = margin;
     if (!isFreeRoute(route)) payload.confirmed = true;
     return payload;
@@ -878,6 +927,8 @@ const AnimateHelpers = (() => {
     routeDefaultMargin,
     marginText,
     fitNote,
+    cutStepView,
+    jobSteps,
     jobPayload,
     formatTime,
     formatElapsed,
@@ -939,6 +990,11 @@ if (typeof document !== 'undefined') (() => {
   const routeOptions = $('routeOptions');
   const marginBox = $('marginBox');
   const marginSelect = $('marginSelect');
+  const stepCut = $('stepCut');
+  const stepCutNote = $('stepCutNote');
+  const stepMakeNote = $('stepMakeNote');
+  const stepKey = $('stepKey');
+  const stepKeyNote = $('stepKeyNote');
   const createBtn = $('createBtn');
   const createStatus = $('createStatus');
   const jobsEmpty = $('jobsEmpty');
@@ -968,6 +1024,8 @@ if (typeof document !== 'undefined') (() => {
     libraryIds: null,
     billing: null, // GET /api/billing payload (auth.js VirtuallyBilling); null until known
     // photo: the character id photos are being added to ('' while a new character is made), else null.
+    // 4. 작업 순서: whether step 1 (when the photo needs it) and step 3 are wanted.
+    steps: { cut: true, key: true },
     busy: { fetch: false, restore: false, driving: false, photo: null, photoText: '', create: false },
   };
 
@@ -2214,7 +2272,26 @@ if (typeof document !== 'undefined') (() => {
     return null;
   }
 
+  // 4. 작업 순서: step 1 follows the chosen photo, step 2 the chosen model.
+  function renderSteps() {
+    const cut = H.cutStepView(chosenPhoto()?.photo);
+    stepCut.disabled = !cut.needed;
+    stepCut.checked = cut.needed && state.steps.cut;
+    stepCutNote.textContent = cut.note;
+    const route = selectedRoute();
+    stepMakeNote.textContent = route
+      ? `${route.label}${route.providerLabel && route.providerLabel !== route.label ? ` · ${route.providerLabel}` : ''}에 요청합니다. 비용이 드는 단계는 이것뿐입니다.`
+      : '모델을 골라 주세요.';
+    stepKey.checked = state.steps.key;
+    stepKeyNote.textContent = state.steps.key
+      ? 'AI가 만든 영상의 단색 배경을 지워 투명 영상으로 만듭니다.'
+      : '배경이 있는 영상 그대로 받습니다. 결과에서 배경 제거하기로 나중에 지울 수 있습니다.';
+  }
+  stepCut.addEventListener('change', () => { state.steps.cut = stepCut.checked; renderSteps(); });
+  stepKey.addEventListener('change', () => { state.steps.key = stepKey.checked; renderSteps(); });
+
   function renderCreate() {
+    renderSteps();
     const blocker = createBlocker();
     createBtn.disabled = Boolean(blocker) || state.busy.create;
     createBtn.textContent = state.busy.create ? '요청 중…' : '동작 만들기';
@@ -2282,6 +2359,8 @@ if (typeof document !== 'undefined') (() => {
         options: routeOptionsFor(route),
         margin: state.margin,
         margins: state.margins,
+        cutPhoto: !H.cutStepView(photo).needed || state.steps.cut,
+        keyResult: state.steps.key,
       });
       const data = await api('POST', '/api/animate/jobs', { json: payload });
       if (data?.job) upsertJob(data.job);
@@ -2361,14 +2440,15 @@ if (typeof document !== 'undefined') (() => {
   function createRow() {
     const head = el('div', { className: 'job-head' });
     const info = el('p', { className: 'job-info' });
+    const steps = el('ol', { className: 'job-steps' });
     const colorNote = el('p', { className: 'job-info job-key-color' });
     colorNote.hidden = true;
     const fitNote = el('p', { className: 'job-info job-fit' });
     fitNote.hidden = true;
     const media = el('div', { className: 'job-media' });
     const actions = el('div', { className: 'job-actions' });
-    const li = el('li', { className: 'job' }, [head, info, colorNote, fitNote, media, actions]);
-    return { li, head, info, colorNote, fitNote, media, actions, mediaKey: null, actionsKey: null };
+    const li = el('li', { className: 'job' }, [head, steps, info, colorNote, fitNote, media, actions]);
+    return { li, head, steps, info, colorNote, fitNote, media, actions, mediaKey: null, actionsKey: null, stepsKey: null };
   }
 
   function updateRow(row, job) {
@@ -2385,6 +2465,13 @@ if (typeof document !== 'undefined') (() => {
         : null,
       el('time', { className: 'job-time', dateTime: String(job.createdAt ?? ''), text: H.formatTime(job.createdAt) }),
     ].filter(Boolean));
+
+    const stepList = H.jobSteps(job);
+    const stepsKey = JSON.stringify(stepList);
+    if (stepsKey !== row.stepsKey) {
+      row.stepsKey = stepsKey;
+      row.steps.replaceChildren(...stepList.map(step => el('li', { dataset: { kind: step.kind }, text: `${step.label}: ${step.text}` })));
+    }
 
     let info = '';
     let infoKind = null;

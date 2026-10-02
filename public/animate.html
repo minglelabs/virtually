@@ -113,6 +113,26 @@
         </div>
       </section>
 
+
+      <!-- 4. What Virtually does for one motion: 1 and 3 run on our server and can be left out -->
+      <section class="card" aria-labelledby="stepsTitle">
+        <h2 id="stepsTitle">4. 작업 순서</h2>
+        <ol class="step-list">
+          <li>
+            <label class="step-pick"><input type="checkbox" id="stepCut" checked> <span class="step-name">① 사진 투명배경화</span></label>
+            <span id="stepCutNote" class="step-note"></span>
+          </li>
+          <li>
+            <span class="step-pick"><input type="checkbox" checked disabled aria-label="AI 동작 생성 (항상 실행)"> <span class="step-name">② AI 동작 생성</span></span>
+            <span id="stepMakeNote" class="step-note"></span>
+          </li>
+          <li>
+            <label class="step-pick"><input type="checkbox" id="stepKey" checked> <span class="step-name">③ 결과 영상 투명배경화</span></label>
+            <span id="stepKeyNote" class="step-note"></span>
+          </li>
+        </ol>
+      </section>
+
       <div class="create-row">
         <button type="button" id="createBtn" class="btn btn-primary" disabled>동작 만들기</button>
         <p id="createStatus" class="status" aria-live="polite"></p>
@@ -120,7 +140,7 @@
 
       <!-- 4. Results -->
       <section class="card" aria-labelledby="resultTitle">
-        <h2 id="resultTitle">4. 결과</h2>
+        <h2 id="resultTitle">5. 결과</h2>
         <p id="jobsEmpty" class="muted">아직 없습니다</p>
         <ol id="jobList" class="job-list"></ol>
       </section>
