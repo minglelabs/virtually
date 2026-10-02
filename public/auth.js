@@ -307,3 +307,30 @@
   root.VirtuallyAuth = Object.freeze({ ready, logout, rotateOverlayKey, loginUrlFor, overlayUrlFor });
   root.VirtuallyBilling = Object.freeze({ ready: billingReady, refresh: refreshBilling });
 })(typeof window !== 'undefined' ? window : null);
+
+// The top bar of a scrolling page (.page > .page-header / .brand-row; not the 방송 화면,
+// whose panes scroll inside the window): it stays at the top, slides away while the page
+// is scrolled down and comes back as soon as it is scrolled up a little.
+if (typeof document !== 'undefined' && typeof window !== 'undefined' && typeof document.querySelector === 'function') (() => {
+  const header = document.querySelector('.page > .page-header, .page > .brand-row');
+  if (!header || !header.classList || typeof window.addEventListener !== 'function') return;
+  header.classList.add('autohide-header');
+  const NUDGE = 6; // px of scrolling that counts as a direction
+  let lastY = window.scrollY;
+  let ticking = false;
+  window.addEventListener('scroll', () => {
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(() => {
+      ticking = false;
+      const y = window.scrollY;
+      if (y <= header.offsetHeight) header.classList.remove('is-hidden');
+      else if (y > lastY + NUDGE) header.classList.add('is-hidden');
+      else if (y < lastY - NUDGE) header.classList.remove('is-hidden');
+      else return; // too small to decide: keep the reference point
+      lastY = y;
+    });
+  }, { passive: true });
+  // Reaching it with the keyboard brings it back.
+  header.addEventListener('focusin', () => header.classList.remove('is-hidden'));
+})();
