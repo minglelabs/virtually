@@ -204,6 +204,8 @@ test('one character at a time: its first photo, its motions, its jobs and what i
   assert.equal(H.characterPhotoId(alice, 'ph-b1'), 'ph-a1', 'else its base photo');
   assert.equal(H.characterPhotoId({ id: 'c-e', photos: [] }, null), null);
   assert.deepEqual(H.characterMotions(alice).map(item => [item.motion.id, item.photo.id, item.index]), [['m-wave', 'ph-a1', 0], ['m-idle', 'ph-a1', 0]]);
+  assert.deepEqual(H.photoMotions(alice, 'ph-a1').map(item => item.motion.id), ['m-wave', 'm-idle']);
+  assert.deepEqual(H.photoMotions(alice, 'ph-other'), [], "another photo's motions are not listed");
   assert.equal(H.characterChipText(alice), '사진 2장 · 동작 2개');
 
   // Jobs name their photo (older ones in characterId); without a character every job shows.
