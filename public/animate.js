@@ -2963,7 +2963,7 @@ if (typeof document !== 'undefined') (() => {
       className: 'btn btn-ghost btn-sm',
       disabled: keyBusyNow,
       text: `AI로 배경 제거 (${H.priceText(aiUsd, state.billing)})`,
-      title: 'AI가 영상에서 배경을 알아보고 지웁니다. 배경이 단색으로 나오지 않은 결과에 씁니다.',
+      title: 'AI가 영상에서 배경을 알아보고 지웁니다. 머리카락 같은 가는 부분도 부드럽게 남고, 배경이 단색이 아니어도 됩니다.',
       onclick: () => {
         if (window.confirm(`AI로 이 영상의 배경을 지웁니다. 비용: ${H.priceText(aiUsd, state.billing)}. 진행할까요?`)) rekey(job, 'ai');
       },
