@@ -319,7 +319,7 @@ test('create: name and photo validation, sniffing, views and the files on disk',
   assert.deepEqual(photo, {
     id: photo.id, url: `/api/media/${photo.id}`, displayUrl: `/api/media/${photo.id}`, cutout: false,
     width: 64, height: 96, hasAlpha: true, createdAt: character.createdAt,
-    isBase: true, onAir: false, idle: 'photo', idleMotionId: null, idleBy: null, motionCount: 0, motions: [],
+    isBase: true, onAir: false, idle: 'photo', idleMotionId: null, idleBy: null, idleDefault: 'photo', defaultIdleMotionId: null, motionCount: 0, motions: [],
   });
   assert.equal(first.activePhotoId, null, 'a new character does not go on air');
   let response = await fetch(`${base}${photo.url}`);
@@ -849,7 +849,7 @@ test('migration: every old photo becomes a character with the same id; motions f
     assert.deepEqual(list.characters[0].photos[0], {
       id: older, url: `/api/media/${older}`, displayUrl: `/api/media/${older}`, cutout: false,
       width: 48, height: 48, hasAlpha: false, createdAt: '2026-09-01T00:00:00.000Z',
-      isBase: true, onAir: false, idle: 'photo', idleMotionId: null, idleBy: null, motionCount: 1,
+      isBase: true, onAir: false, idle: 'photo', idleMotionId: null, idleBy: null, idleDefault: 'photo', defaultIdleMotionId: null, motionCount: 1,
       motions: [{ id: motions[0].id, name: motions[0].name, mime: 'video/webm', createdAt: motions[0].createdAt, isIdle: false }],
     });
     assert.equal(list.characters[1].photos[0].idle, 'upload', 'the legacy idle belongs to the on-air photo now');

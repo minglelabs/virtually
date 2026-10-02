@@ -89,6 +89,10 @@ test('idle: 기본 대기 동작 replaces the photo, any motion can be chosen, a
   assert.equal(now.idle.id, photoId);
   assert.deepEqual(now.motions.map(item => item.id), [wave.id]);
   assert.deepEqual([(await photoOf()).idle, (await photoOf()).idleMotionId], ['photo', null]);
+  // With no idle video the default is the photo, also while another motion is chosen.
+  assert.equal((await json('PUT', idlePath, { motionId: wave.id })).status, 200);
+  assert.deepEqual([(await photoOf()).idle, (await photoOf()).idleDefault, (await photoOf()).defaultIdleMotionId], ['motion', 'photo', null]);
+  assert.equal((await json('PUT', idlePath, { motionId: null })).status, 200);
 
   // The default idle video: it loops instead of the photo and is not a motion button.
   const idle = await upload(IDLE_MOTION_NAME);
@@ -107,6 +111,7 @@ test('idle: 기본 대기 동작 replaces the photo, any motion can be chosen, a
   assert.equal(response.status, 200);
   photo = (await response.json()).character.photos[0];
   assert.deepEqual([photo.idle, photo.idleMotionId, photo.idleBy], ['motion', wave.id, 'choice']);
+  assert.deepEqual([photo.idleDefault, photo.defaultIdleMotionId], ['motion', idle.id], 'what it goes back to without the choice');
   now = await view();
   assert.equal(now.idle.id, wave.id);
   assert.deepEqual(now.motions.map(item => item.id), [idle.id]);
