@@ -139,6 +139,9 @@ async function createAppServer({
   const billing = await createBilling({ ...billingOptions, dataDir, docs, auth, sendJson, readBody });
   // The server's provider keys and model routes, one set for every account.
   const animateShared = await createAnimateShared({ dataDir, mock: animateMock, ...animateOptions });
+  // A redeploy runs two servers on one database for a moment: each job names the one running it.
+  animateShared.instanceId = crypto.randomUUID();
+  animateShared.restoreFile = mirror ? file => mirror.restore(file) : null;
 
   // --- workspaces: one per Google account, <dataDir>/users/<id>/ -------------------
   // With login off there is one workspace, <dataDir>/ itself (the single-user layout).
@@ -361,6 +364,14 @@ async function createAppServer({
   // The workspace of an account (by Google sub; null: the login-off workspace), once opened.
   server.workspaceFor = async userId => (userId ? openWorkspace(workspaceDirName(userId)) : defaultWorkspace);
   server.workspaces = workspaces;
+  // SIGTERM (a redeploy): hand the running jobs to the next server instead of dropping them.
+  // Their files first reach the bucket, so the next server can restore what it takes over.
+  server.handoff = async () => {
+    const pipelines = (await everyWorkspace()).map(workspace => workspace.animate.pipeline);
+    await Promise.all(pipelines.map(pipeline => pipeline.stopForHandoff()));
+    if (mirror) await mirror.flush({ force: true }).catch(error => console.warn(`[storage] upload before the handoff failed: ${error.message}`));
+    await Promise.all(pipelines.map(pipeline => pipeline.releaseLeases()));
+  };
   return server;
 }
 
@@ -426,6 +437,11 @@ if (require.main === module) {
     // A redeploy sends SIGTERM: upload what the last seconds produced before the disk goes.
     for (const signal of ['SIGTERM', 'SIGINT']) {
       process.once(signal, async () => {
+        try {
+          await server.handoff();
+        } catch (error) {
+          console.warn(`[animate] job handoff failed: ${error.message}`);
+        }
         try {
           if (server.mirror) await server.mirror.flush({ force: true });
         } catch (error) {
