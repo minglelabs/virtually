@@ -30,7 +30,7 @@ test('page helpers: the photo background state, step 1 for a photo, a job\'s ste
   assert.equal(C.transparentPath('c-1', 'ph-1'), '/api/characters/c-1/photos/ph-1/transparent');
 
   assert.equal(A.cutStepView({ transparent: 'own' }).needed, false);
-  assert.equal(A.cutStepView({ transparent: 'cut' }).needed, true);
+  assert.deepEqual([A.cutStepView({ transparent: 'cut' }).needed, A.cutStepView({ transparent: 'cut' }).done], [false, true], 'cut before: nothing to choose');
   assert.equal(A.cutStepView({ transparent: 'no', cutoutReason: 'kept' }).needed, true);
   assert.equal(A.cutStepView({ transparent: 'no', cutoutReason: 'not_uniform' }).needed, false);
   assert.equal(A.cutStepView(null).needed, false);

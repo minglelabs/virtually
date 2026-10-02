@@ -623,3 +623,5 @@ button.motion-thumb:hover .motion-play { background: var(--accent); }
 
 /* The chosen photo's background state and its buttons (1. 캐릭터 사진). */
 .photo-bg { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 8px; }
+
+.route-option-note { font-size: 12px; color: var(--muted); }
