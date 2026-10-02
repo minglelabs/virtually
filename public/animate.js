@@ -1577,7 +1577,7 @@ if (typeof document !== 'undefined') (() => {
   photoBgKeep.addEventListener('click', () => changePhotoBg('DELETE', {}, '원본 사진으로 되돌렸습니다'));
   photoBgAi.addEventListener('click', () => {
     const price = H.priceText(state.backgroundAi?.imageUsd, state.billing);
-    if (chosenPhoto()?.photo.aiCutReady === true || window.confirm(`AI로 이 사진의 배경을 지워 새 사진으로 추가합니다. 단색이 아닌 배경도 지울 수 있습니다.\n비용: 사진 1장당 ${price} (서비스 운영 비용으로 청구됩니다). 진행할까요?`)) {
+    if (chosenPhoto()?.photo.aiCutReady === true || window.confirm(`AI로 이 사진의 배경을 지워 새 사진으로 추가합니다. 단색이 아닌 배경도 지울 수 있습니다.\n비용: 사진 1장당 ${price}. 진행할까요?`)) {
       changePhotoBg('POST', { method: 'ai' }, 'AI로 배경을 지운 사진을 새로 추가했습니다. 원본 사진은 그대로 있습니다');
     }
   });
@@ -1792,7 +1792,7 @@ if (typeof document !== 'undefined') (() => {
     tile.aiKeyBtn.onclick = () => {
       const ai = state.backgroundAi;
       const price = `1초당 ${H.priceText(ai.videoUsdPerSecond, state.billing)}, 최소 ${ai.videoMinSeconds}초`;
-      if (window.confirm(`AI로 '${motion.name}' 영상의 배경을 지웁니다. 비용: ${price} (서비스 운영 비용으로 청구됩니다). 진행할까요?`)) keyMotion(motion, 'ai');
+      if (window.confirm(`AI로 '${motion.name}' 영상의 배경을 지웁니다. 비용: ${price}. 진행할까요?`)) keyMotion(motion, 'ai');
     };
     // The file changed (its background is gone): load it again.
     if (tile.mime !== motion.mime || tile.hadBackground !== background) {
@@ -2873,7 +2873,7 @@ if (typeof document !== 'undefined') (() => {
       text: `AI로 배경 제거 (${H.priceText(aiUsd, state.billing)})`,
       title: 'AI가 영상에서 배경을 알아보고 지웁니다. 배경이 단색으로 나오지 않은 결과에 씁니다.',
       onclick: () => {
-        if (window.confirm(`AI로 이 영상의 배경을 지웁니다. 비용: ${H.priceText(aiUsd, state.billing)} (서비스 운영 비용으로 청구됩니다). 진행할까요?`)) rekey(job, 'ai');
+        if (window.confirm(`AI로 이 영상의 배경을 지웁니다. 비용: ${H.priceText(aiUsd, state.billing)}. 진행할까요?`)) rekey(job, 'ai');
       },
     });
     const rekeyStatus = keyError ? el('span', { className: 'status', dataset: { kind: 'error' }, text: keyError }) : null;
