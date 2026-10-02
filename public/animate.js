@@ -300,6 +300,12 @@ const AnimateHelpers = (() => {
   }
 
   /** Routes grouped by familyLabel, groups and routes in server order. */
+  /** { main: the WaveSpeed routes, others: every other service's }, order kept. */
+  function splitRoutes(routes) {
+    const list = Array.isArray(routes) ? routes : [];
+    return { main: list.filter(route => route?.provider === 'wavespeed'), others: list.filter(route => route?.provider !== 'wavespeed') };
+  }
+
   function groupRoutes(routes) {
     const groups = [];
     const byLabel = new Map();
@@ -993,6 +999,7 @@ const AnimateHelpers = (() => {
     isFreeRoute,
     routeState,
     groupRoutes,
+    splitRoutes,
     defaultMotionName,
     upsertJob,
     isAdded,
@@ -2337,6 +2344,8 @@ if (typeof document !== 'undefined') (() => {
     return H.routeCostText(route, selectedDriving()?.duration, routeOptionsFor(route), state.billing);
   }
 
+  let routesMoreOpen = false;
+
   function renderRoutes() {
     // Keep the selection if it is still available, else the first available route.
     if (!state.routes.some(r => r.id === state.routeId && r.available)) {
@@ -2346,12 +2355,22 @@ if (typeof document !== 'undefined') (() => {
     const focusedId = routeList.contains(document.activeElement) ? document.activeElement.value : null;
     const fragment = document.createDocumentFragment();
     if (state.routes.length === 0) fragment.append(el('p', { className: 'muted', text: '모델 없음' }));
-    for (const group of H.groupRoutes(state.routes)) {
-      const rows = group.routes.map(route => routeRow(route, H.routeState(route, seconds)));
-      fragment.append(el('fieldset', { className: 'route-group' }, [
-        el('legend', { text: group.familyLabel }),
-        ...rows,
-      ]));
+    const groupNodes = routes => H.groupRoutes(routes).map(group => el('fieldset', { className: 'route-group' }, [
+      el('legend', { text: group.familyLabel }),
+      ...group.routes.map(route => routeRow(route, H.routeState(route, seconds))),
+    ]));
+    // WaveSpeed (the service whose key the server has) first; the other services in a
+    // menu closed by default (kept open while it holds the selection or was opened).
+    const { main, others } = H.splitRoutes(state.routes);
+    fragment.append(...groupNodes(main));
+    if (others.length) {
+      const open = routesMoreOpen || others.some(route => route.id === state.routeId);
+      const more = el('details', { className: 'route-more', open }, [
+        el('summary', { text: `다른 서비스 모델 ${others.length}개` }),
+        ...groupNodes(others),
+      ]);
+      more.addEventListener('toggle', () => { routesMoreOpen = more.open; });
+      fragment.append(more);
     }
     routeList.replaceChildren(fragment);
     if (focusedId) routeList.querySelector(`input[value="${CSS.escape(focusedId)}"]`)?.focus();
