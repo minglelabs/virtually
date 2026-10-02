@@ -146,3 +146,21 @@ test('settings saved before the v1 removal load and fall back to the first avail
   assert.equal(registry.get('wavespeed/wan-2.2-animate'), null);
   assert.equal(registry.defaultRouteId(), A2_ID);
 });
+
+test('Animate 2 crops the image to the driving shape, so the photo is sent in that shape with the same margin', () => {
+  const { computeGeometry } = require('../lib/animate/media');
+  const { marginFactor } = require('../lib/animate/margin');
+  assert.equal(route(A2_ID).imageFollowsDriving, true);
+  for (const r of ROUTES) if (r.id !== A2_ID) assert.equal(r.imageFollowsDriving, undefined, r.id);
+  assert.deepEqual([marginFactor('none'), marginFactor('normal'), marginFactor('wide'), marginFactor('?')], [0, 0.12, 0.25, 0]);
+  // A tall 302x706 photo and a 396x900 driving clip padded by 'normal' (612x1008): the
+  // photo gets the top margin too (0.12 x 706), is widened to the clip's shape and stands on the bottom edge.
+  const normal = computeGeometry(302, 706, {}, { aspect: 612 / 1008, marginFactor: 0.12 });
+  assert.deepEqual(normal, { canvas: { w: 302, h: 706 }, sent: { w: 480, h: 790 }, content: { x: 89, y: 84, w: 302, h: 706 } });
+  assert.ok(Math.abs(normal.sent.w / normal.sent.h - 612 / 1008) < 0.01);
+  // A wide photo for a tall clip: the room goes above it.
+  const wide = computeGeometry(1000, 600, {}, { aspect: 0.5, marginFactor: 0 });
+  assert.deepEqual([wide.sent, wide.content], [{ w: 1000, h: 2000 }, { x: 0, y: 1400, w: 1000, h: 600 }]);
+  // Without a frame nothing changes.
+  assert.deepEqual(computeGeometry(302, 706, {}), { canvas: { w: 302, h: 706 }, sent: { w: 302, h: 706 }, content: { x: 0, y: 0, w: 302, h: 706 } });
+});
