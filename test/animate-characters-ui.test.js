@@ -187,3 +187,53 @@ test('animate page wiring: character API only, photo picker, two paths, finished
   // No markup parsing anywhere, including the cloned template.
   assert.doesNotMatch(js, /innerHTML|outerHTML|insertAdjacentHTML/);
 });
+
+test('one character at a time: its first photo, its motions, its jobs and what its idle is', () => {
+  const wave = { id: 'm-wave', name: 'wave', isIdle: false };
+  const idle = { id: 'm-idle', name: '기본 대기 동작', isIdle: true };
+  const alice = character('c-a', '앨리스', [
+    photo('ph-a1', { isBase: true, motions: [wave, idle], motionCount: 2, idle: 'motion', idleMotionId: 'm-idle', idleBy: 'default' }),
+    photo('ph-a2'),
+  ], { basePhotoId: 'ph-a1' });
+  const bob = character('c-b', '밥', [photo('ph-b1', { isBase: true })], { basePhotoId: 'ph-b1' });
+  const list = { characters: [alice, bob], activePhotoId: 'ph-a2' };
+
+  assert.equal(H.findCharacter(list, 'c-b'), bob);
+  assert.equal(H.findCharacter(list, 'c-x'), null);
+  assert.equal(H.characterPhotoId(alice, 'ph-a2'), 'ph-a2', 'the on-air photo of the character');
+  assert.equal(H.characterPhotoId(alice, 'ph-b1'), 'ph-a1', 'else its base photo');
+  assert.equal(H.characterPhotoId({ id: 'c-e', photos: [] }, null), null);
+  assert.deepEqual(H.characterMotions(alice).map(item => [item.motion.id, item.photo.id, item.index]), [['m-wave', 'ph-a1', 0], ['m-idle', 'ph-a1', 0]]);
+  assert.equal(H.characterChipText(alice), '사진 2장 · 동작 2개');
+
+  // Jobs name their photo (older ones in characterId); without a character every job shows.
+  const jobs = [{ id: 'j1', photoId: 'ph-a2' }, { id: 'j2', photoId: 'ph-b1' }, { id: 'j3', photoId: null, characterId: 'ph-a1' }, { id: 'j4', characterId: 'c-a' }];
+  assert.deepEqual(H.jobsOfCharacter(jobs, alice).map(job => job.id), ['j1', 'j3', 'j4']);
+  assert.deepEqual(H.jobsOfCharacter(jobs, bob).map(job => job.id), ['j2']);
+  assert.equal(H.jobsOfCharacter(jobs, null), jobs);
+
+  assert.match(H.idleSummary(alice.photos[0]), /^대기 화면: '기본 대기 동작' 영상이 반복 재생됩니다\./);
+  assert.match(H.idleSummary({ ...alice.photos[0], idleBy: 'choice' }, '앨리스 사진 1'), /^앨리스 사진 1의 대기 화면: '기본 대기 동작' 영상이 반복 재생됩니다 \(직접 고름\)/);
+  assert.match(H.idleSummary(alice.photos[1]), /^대기 화면: 사진\. '기본 대기 동작' 영상을 만들면/);
+  assert.equal(H.idleSummary(null), '');
+
+  // A result made from an idle loop is named 기본 대기 동작, so it becomes the idle once added.
+  assert.equal(H.defaultMotionName({ idle: true, presetKey: null, drivingLabel: '사람 대기 (idle · 무표정)' }), '기본 대기 동작');
+  assert.equal(H.defaultMotionName({ presetKey: 'hi', drivingLabel: '인사' }), PRESET_MOTIONS.find(preset => preset.key === 'hi').label);
+});
+
+test('동작 관리 page wiring: the character switcher, the motion list and no leftover 동작 추가하러 가기', () => {
+  const html = readPublic('animate.html');
+  assert.match(html, /<title>동작 관리 · Virtually<\/title>/);
+  assert.match(html, /<h1>동작 관리<\/h1>/);
+  // The switcher is a horizontal strip above the one character's photos.
+  assert.match(html, /<section id="switchCard"[^>]*>\s*<h2 id="switchTitle">캐릭터<\/h2>\s*<div class="strip" data-strip>\s*<div id="characterSwitch" class="strip-scroller"/);
+  assert.ok(html.indexOf('id="switchCard"') < html.indexOf('id="characterCard"'));
+  assert.match(html, /<section id="motionsCard"[\s\S]*id="idleSummary"[\s\S]*id="motionTiles"/);
+  for (const name of ['index.html', 'characters.html', 'app.js', 'characters.js', 'animate.js']) {
+    assert.doesNotMatch(readPublic(name), /동작 추가하러 가기/, name);
+  }
+  const js = readPublic('animate.js');
+  assert.match(js, /characters\.filter\(character => character\.id === chosenId\)/, 'only the chosen character has a photo row');
+  assert.match(js, /H\.jobsOfCharacter\(state\.jobs, character\)/);
+});

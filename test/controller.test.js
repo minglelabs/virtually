@@ -96,8 +96,8 @@ test('main page links to the animate page instead of uploading', () => {
   const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
   // app.js points it at /animate?photo=<on-air photo> while a photo is on air.
   assert.match(html, /<a href="\.\/animate" id="motionAddLink" class="motion-add-btn">/);
-  assert.match(html, /\+ 동작 추가하러 가기/);
-  assert.match(html, /AI로 만들기 · 완성된 영상 올리기/);
+  assert.match(html, /동작 관리/);
+  assert.match(html, /동작 추가 · 대기 동작 고르기/);
   assert.doesNotMatch(html, /type="file"|addMotionInput|uploadStatus/);
   const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
   assert.doesNotMatch(app, /\/api\/upload/);

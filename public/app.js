@@ -58,7 +58,7 @@ if (typeof document !== 'undefined') (() => {
   const idleBtn = document.getElementById('idleBtn');
   // The hint under 동작: the HTML text (demo mode), or this while a photo is on air.
   const HINT_DEMO = motionHint.textContent;
-  const HINT_ON_AIR = '영상이 없는 동작은 누를 수 없습니다. 동작 추가하러 가기에서 영상을 넣어 주세요.';
+  const HINT_ON_AIR = '영상이 없는 동작은 누를 수 없습니다. 동작 관리에서 영상을 넣어 주세요.';
 
   const overlayUrl = new URL('/overlay', window.location.origin).href;
   function showOverlayUrl(url) {

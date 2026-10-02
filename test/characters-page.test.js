@@ -246,7 +246,7 @@ test('page wiring: own CSS, auth chip, header links, no other page script', () =
   // animate.js and app.js run their page code whenever a document exists.
   assert.doesNotMatch(html, /animate\.js|app\.js|app\.css|animate\.css|motions\.js|<script>/);
   assert.equal((html.match(/id="authSlot"/g) || []).length, 1);
-  assert.match(html, /<div class="brand-row">\s*<h1 class="brand"><a href="\/" class="brand-link">Virtually<\/a><\/h1>\s*<nav class="page-links" aria-label="다른 화면">\s*<a href="\/broadcast" class="nav-link">방송 화면<\/a>\s*<a href="\/animate" class="nav-link">동작 만들기<\/a>\s*<\/nav>\s*<div id="authSlot" class="auth-slot" hidden><\/div>/);
+  assert.match(html, /<div class="brand-row">\s*<h1 class="brand"><a href="\/" class="brand-link">Virtually<\/a><\/h1>\s*<nav class="page-links" aria-label="다른 화면">\s*<a href="\/broadcast" class="nav-link">방송 화면<\/a>\s*<a href="\/animate" class="nav-link">동작 관리<\/a>\s*<\/nav>\s*<div id="authSlot" class="auth-slot" hidden><\/div>/);
   assert.match(html, /<h2 class="page-title">캐릭터<\/h2>/);
   assert.match(html, /사진을 고르고 '이 캐릭터로 방송하기'를 누르면 그 사진이 방송에 나갑니다\. 동작은 사진마다 따로 만듭니다\./);
   assert.match(html, /<a id="onAirPill" class="onair" href="\/broadcast"[^>]*hidden>/);
@@ -280,8 +280,8 @@ test('page wiring: the dashed create row, the empty state and the row / photo te
   assert.match(row, /<input type="file" accept="image\/png,image\/jpeg,image\/webp" multiple hidden data-part="input">/);
   assert.match(row, /data-part="makeBase">기본으로<\/button>/);
   assert.match(row, /class="btn btn-ghost btn-sm btn-danger" data-part="deletePhoto">사진 삭제<\/button>/);
-  assert.match(row, /<a class="add-motion" data-part="addMotion">\+ 동작 추가하러 가기<\/a>/);
-  assert.match(row, /이 사진으로 AI 동작을 만들거나 완성된 영상을 올립니다/);
+  assert.match(row, /<a class="add-motion" data-part="addMotion">동작 관리<\/a>/);
+  assert.match(row, /이 캐릭터의 동작을 만들고, 올리고, 대기 동작을 고릅니다/);
   // A small photo is one button: select it, see its badges and its motion caption.
   const thumb = html.slice(html.indexOf('<template id="photoTemplate">'));
   assert.match(thumb, /<button type="button" class="thumb">\s*<span class="thumb-img checkerboard">/);

@@ -2,13 +2,13 @@
 
 A local proof of concept for putting a pre-rendered character over a live camera feed in OBS. The camera remains an ordinary OBS source. Virtually supplies a **separate transparent Browser Source** for the character and a controller with motion buttons, an OBS setup guide, and a large live preview. A button plays one motion once, then the overlay returns to the idle character.
 
-You keep **characters** (a name plus photos) on the main page, pick one photo and put it **on air**: the overlay then shows that photo as the idle character and plays that photo's motions. New motions are made ahead of time for one photo on the **동작 만들기** page — generated from a driving video by an AI video API (see [Make motions](#make-motions-동작-만들기)), or a finished video you made yourself (see [Upload a finished motion](#upload-a-finished-motion-완성된-영상-올리기)) — or added through the HTTP API (see [Add clips](#add-clips)).
+You keep **characters** (a name plus photos) on the main page, pick one photo and put it **on air**: the overlay then shows that photo as the idle character and plays that photo's motions. New motions are made ahead of time for one photo on the **동작 관리** page — generated from a driving video by an AI video API (see [Make motions](#make-motions-동작-만들기)), or a finished video you made yourself (see [Upload a finished motion](#upload-a-finished-motion-완성된-영상-올리기)) — or added through the HTTP API (see [Add clips](#add-clips)).
 
 This is a small first step toward the broader [Virtually presentation](https://translator.minglelabs.xyz/xr-virtually). It does not generate animations during a stream.
 
 ## Run
 
-Requires Node.js 20 or newer and pnpm. The controller and overlay need no external service. The **동작 만들기** page also needs `ffmpeg` and `ffprobe` with `libx264` on the `PATH` (or `FFMPEG_PATH` / `FFPROBE_PATH`), and an API key for at least one provider to generate real motions.
+Requires Node.js 20 or newer and pnpm. The controller and overlay need no external service. The **동작 관리** page also needs `ffmpeg` and `ffprobe` with `libx264` on the `PATH` (or `FFMPEG_PATH` / `FFPROBE_PATH`), and an API key for at least one provider to generate real motions.
 
 ```bash
 pnpm start
@@ -26,19 +26,19 @@ Open the printed character list URL in your browser. It works before you add any
 
 | Path | Page |
 |---|---|
-| `/` | **캐릭터 목록** (character list): your characters and their photos. Create characters, add photos, pick the photo to put on air (**이 캐릭터로 방송하기**, which then opens `/broadcast`). The selected photo of every character has **동작 추가하러 가기**, which opens `/animate?photo=<photoId>`. |
+| `/` | **캐릭터 목록** (character list): your characters and their photos. Create characters, add photos, pick the photo to put on air (**이 캐릭터로 방송하기**, which then opens `/broadcast`). The selected photo of every character has **동작 관리**, which opens `/animate?photo=<photoId>`. |
 | `/broadcast` | **방송 화면**: the controller (motion buttons, OBS guide) next to the true-scale canvas preview, for the photo on air. |
-| `/animate?photo=<photoId>` | **동작 만들기**: make motions for one photo, with AI or by uploading a finished video. |
+| `/animate?photo=<photoId>` | **동작 관리**: one character's motions — make them for one photo, with AI or by uploading a finished video. |
 | `/overlay` | The OBS Browser Source. Its URL never changes: it follows the photo on air. |
 | `/login` | Google login (only when [login](#google-login-optional) is on); afterwards it returns to the page you came from (default `/`). |
 
 ### The character list page
 
-`/` is where a stream starts. The header links to **방송 화면** (`/broadcast`) and **동작 만들기** (`/animate`) and shows what is on air (**방송 중** with the character's name and photo number, a link to the 방송 화면), or that nothing is.
+`/` is where a stream starts. The header links to **방송 화면** (`/broadcast`) and **동작 관리** (`/animate`) and shows what is on air (**방송 중** with the character's name and photo number, a link to the 방송 화면), or that nothing is.
 
 - **One row per character** (oldest first; the page scrolls down). The left column is the character: its **base photo**, name, **방송 중** when one of its photos is on air, the counts (`사진 5장 · 동작 7개`), **이름 바꾸기** (edit the name in place, up to 40 characters; Enter saves, Esc cancels), **삭제**, and **이 캐릭터로 방송하기**. The right column is its photos.
 - **The photo strip** shows small photos the way OBS shows them (a photo whose plain background was cut out appears as its cutout, on a checkerboard) with the badges **기본** (base photo) and **방송 중** and a caption (`동작 2개` / `동작 없음`). It scrolls sideways inside the row; its last tile, **+ 사진 추가**, adds photos (click, or drop image files anywhere on the row).
-- **Clicking a small photo selects it** in its row (accent ring); by default a row selects its photo on air, else its base photo. Under the strip, a detail area belongs to the selected photo: **선택한 사진 · N번째**, its motion count and motion names (or **아직 동작이 없습니다**), **+ 동작 추가하러 가기** (`/animate?photo=<photoId>`, which opens with that photo chosen; you can generate with AI there or upload a finished video), **기본으로** (make it the base photo) and **사진 삭제**.
+- **Clicking a small photo selects it** in its row (accent ring); by default a row selects its photo on air, else its base photo. Under the strip, a detail area belongs to the selected photo: **선택한 사진 · N번째**, its motion count and motion names (or **아직 동작이 없습니다**), **동작 관리** (`/animate?photo=<photoId>`, which opens with that photo chosen; you can generate with AI there or upload a finished video), **기본으로** (make it the base photo) and **사진 삭제**.
 - **이 캐릭터로 방송하기** puts the selected photo on air and opens the 방송 화면; the overlay switches to it at once.
 - **Deleting** asks first and says what goes with it: a photo takes its motions and uploaded idle with it, a deleted base photo passes the role to the oldest remaining photo, and a character takes all of its photos and motions. Deleting what is on air leaves nothing on air, so the overlay goes back to the demo avatar. A character's only photo cannot be deleted; the page says so (the server's own `last_photo` text) instead of asking.
 - **새 캐릭터 만들기** is the dashed first row of the list, always there: the **기본 사진** (required: click, drop, or paste an image with ⌘V / Ctrl+V) and the **캐릭터 이름** (required, up to 40 characters). **만들기** stays disabled, with a note on what is missing, until both are set. With no character yet, the page also says **첫 캐릭터를 만들어 주세요**.
@@ -53,7 +53,7 @@ A **character** is a name (1–40 characters; duplicates are allowed) plus **pho
 
 **Opaque photos.** A photo without transparency, such as character art on a white background, must not show that background in OBS. When such a photo is added, the server cuts its plain background out with the same step the animate jobs use (`lib/animate/cutout.js`: the border colour is flood-filled from the image edges, so enclosed areas such as the eyes stay) into a PNG kept next to the photo. The overlay's idle image and the photo cards then use the cutout (`/api/media/<photoId>?variant=cutout`), while `/api/media/<photoId>` stays the original file. A photo or scene whose border is not one colour, or one where nothing would be left, is shown as it is. Photos stored before cutouts existed are decided in the background after startup.
 
-The 방송 화면 shows the character on air at the top of the control pane — a small thumbnail of what the overlay shows, its name, **캐릭터 바꾸기** (back to `/`) and **동작 추가하러 가기** (`/animate?photo=<on-air photo>`). With nothing on air it says **방송할 캐릭터를 골라 주세요** and links to `/`.
+The 방송 화면 shows the character on air at the top of the control pane — a small thumbnail of what the overlay shows, its name, **캐릭터 바꾸기** (back to `/`) and **동작 관리** (`/animate?photo=<on-air photo>`). With nothing on air it says **방송할 캐릭터를 골라 주세요** and links to `/`.
 
 ## Motion buttons
 
@@ -78,13 +78,13 @@ The **동작** (Motions) card sits at the bottom of the controller on the 방송
 
 **Linking rule:** a preset is linked to the first of those motions whose name, trimmed and compared case-insensitively, equals the preset key or its label. A linked preset plays that clip ("영상"). With nothing on air, an unlinked preset plays the demo avatar reaction ("영상 없음 · 데모 재생"). The list updates live when the library or the photo on air changes; no reload is needed.
 
-**While a photo is on air, the demo avatar never replaces it.** There is no 데모 동작 button, and an unlinked preset is a disabled button ("영상 없음"); the hint under the card title says so and points to **동작 추가하러 가기**. `POST /api/trigger` refuses `demo` then (`409`, code `demo_on_air`), and the overlay itself answers a `demo` or unknown-motion trigger by staying on (or returning to) the photo and telling the preview it is idle. The overlay also shows no layer until it knows the library, so a photo on air does not flash the demo avatar when the OBS source loads.
+**While a photo is on air, the demo avatar never replaces it.** There is no 데모 동작 button, and an unlinked preset is a disabled button ("영상 없음"); the hint under the card title says so and points to **동작 관리**. `POST /api/trigger` refuses `demo` then (`409`, code `demo_on_air`), and the overlay itself answers a `demo` or unknown-motion trigger by staying on (or returning to) the photo and telling the preview it is idle. The overlay also shows no layer until it knows the library, so a photo on air does not flash the demo avatar when the OBS source loads.
 
 A new trigger replaces a motion that is already playing. The OBS source and the controller's preview receive the same event. Only motions of the current view can be triggered (`POST /api/trigger` answers `404` for any other id).
 
 The card header, which stays visible at the top while the list scrolls, has a **대기로 돌아가기** (Back to idle) button. It stops the current motion and returns the overlay to the idle character (`POST /api/idle`).
 
-The **+ 동작 추가하러 가기** button stays visible at the bottom of the list while it scrolls and rests under the last row at the end. It opens the **동작 만들기** page for the photo on air (`/animate?photo=<photoId>`; `/animate` with nothing on air).
+The **동작 관리** button stays visible at the bottom of the list while it scrolls and rests under the last row at the end. It opens the **동작 관리** page for the photo on air (`/animate?photo=<photoId>`; `/animate` with nothing on air).
 
 Motions are transparent WebM clips (keyed AI results, finished videos with a transparent or plain key-colour background, or uploads through the API) or MP4/WebM videos kept with their own background. The name decides the link: a motion named `wink` or `윙크` becomes the video of the **윙크** button, and any other name becomes a new button with that name.
 
@@ -161,6 +161,13 @@ afterwards: it keeps an account's records in memory once it has opened it.
 
 ## Configuration without a disk (Railway and similar)
 
+**Deploys without downtime.** `railway.json` gives Railway a health check, `GET /healthz` (no login, answers
+`ok`). The server only listens once the media is back from the bucket, so Railway keeps the old deployment
+serving until the new one answers, then sends the old one `SIGTERM` and gives it 30 seconds
+(`drainingSeconds`) to upload its last files. The service needs **no volume**: records are in Postgres, media
+in R2, and the container's own disk is only the working copy (ffmpeg and range requests read local files).
+A volume attached to the service makes Railway stop the old deployment before starting the new one.
+
 `data/*/config.json` cannot survive a redeploy there, so the same settings come from environment variables
 while the file does not exist (`data/animate/config.json` and `custom-routes.json` are not read at all any
 more: their settings are only environment variables):
@@ -190,7 +197,7 @@ production. Nothing else reads `.env`: the tests never do.
 
 ## Google login (optional)
 
-Login is off by default. It turns on when `data/auth/config.json` exists; from then on the character list, the 방송 화면, the 동작 만들기 page and the API need a Google account (from your allowlist, or any account with `"*"`) (open `http://127.0.0.1:8787/login`, or any page, to log in). The server re-reads the file when it changes (at most once a second), so no restart is needed; delete the file to turn login off again. A file that is present but unusable (broken JSON, a missing field) keeps everything locked until it is fixed: every page leads to `/login`, which names the problem. The server's startup output also says whether login is on.
+Login is off by default. It turns on when `data/auth/config.json` exists; from then on the character list, the 방송 화면, the 동작 관리 page and the API need a Google account (from your allowlist, or any account with `"*"`) (open `http://127.0.0.1:8787/login`, or any page, to log in). The server re-reads the file when it changes (at most once a second), so no restart is needed; delete the file to turn login off again. A file that is present but unusable (broken JSON, a missing field) keeps everything locked until it is fixed: every page leads to `/login`, which names the problem. The server's startup output also says whether login is on.
 
 ### Create the Google OAuth client
 
@@ -236,7 +243,7 @@ With login off there is one set of data directly under `data/`, as before. Login
 
 - **Public**: `/login`, the sign-in routes under `/auth/google/`, `POST /auth/logout`, `GET /api/auth/status`, the static `.css`/`.js` files (the source is public anyway) and the Polar webhook `POST /api/billing/polar/webhook` (checked by its signature instead; see [Card payments with Polar (optional)](#card-payments-with-polar-optional)).
 - **Login or overlay key**: `/overlay` and the calls it makes — `GET /api/library`, `GET /api/events`, media files (`/api/media/<id>`, which includes the photos and their cutouts, so OBS reaches the photo on air with its key) and `GET`/`POST /api/obs-source` (the overlay reports its size).
-- **Login**: everything else — the character list, the 방송 화면, the 동작 만들기 page, the 크레딧 page (`/billing`), the 크레딧 관리 page (`/admin`, whose API answers [admins](#credits-configjson) only) and every other API call (triggers, uploads, deletes, `/api/characters*`, `/api/active-photo`, `/api/animate/*`, `/api/billing/*`). A page opened without a login goes to `/login` and comes back afterwards; an API call gets `401` with the header `X-Virtually-Auth: required`.
+- **Login**: everything else — the character list, the 방송 화면, the 동작 관리 page, the 크레딧 page (`/billing`), the 크레딧 관리 page (`/admin`, whose API answers [admins](#credits-configjson) only) and every other API call (triggers, uploads, deletes, `/api/characters*`, `/api/active-photo`, `/api/animate/*`, `/api/billing/*`). A page opened without a login goes to `/login` and comes back afterwards; an API call gets `401` with the header `X-Virtually-Auth: required`.
 
 A login lasts 30 days and is extended while you use it. **로그아웃**, next to your name at the top of the pages, ends it in that browser.
 
@@ -258,7 +265,7 @@ Google accepts plain `http` redirect URIs only for `localhost` and loopback addr
 
 Credits are off by default. With them on, every Google account has a credit balance (크레딧), and paid 동작 만들기 generations take credits from it. **1 credit = 1 KRW** (원): customers pay by bank transfer and an admin adds the same number of credits to their account on the **크레딧 관리** page. Card payments through Polar are optional (see [Card payments with Polar (optional)](#card-payments-with-polar-optional)). Balances are kept per Google account in a local ledger, `data/billing/ledger.json`.
 
-- **Price of a job**: its estimated model cost at `creditsPerUsd` credits per US dollar, rounded up. The default is 2000, so a $0.30 job costs 600 credits (600 원). The 동작 만들기 page shows every price in credits (`약 600 크레딧`); admins, and everyone while credits are off, also see the model cost (`약 600 크레딧 (원가 $0.30)`). A route without a known price shows `가격 정보 없음` and cannot be paid for with credits (`price_unknown`); only the local demo route (`mock/local-demo`) stays `무료` (custom routes on the mock provider are paid like any other).
+- **Price of a job**: its estimated model cost at `creditsPerUsd` credits per US dollar, rounded up. The default is 2000, so a $0.30 job costs 600 credits (600 원). The 동작 관리 page shows every price in credits (`약 600 크레딧`); admins, and everyone while credits are off, also see the model cost (`약 600 크레딧 (원가 $0.30)`). A route without a known price shows `가격 정보 없음` and cannot be paid for with credits (`price_unknown`); only the local demo route (`mock/local-demo`) stays `무료` (custom routes on the mock provider are paid like any other).
 - **Charge and refund**: the credits are taken when the job is created (the balance must cover them). On any problem they come back: a job that ends `failed`, or that the provider itself reports canceled, gives them back. A job you cancel gives them back only while no provider task exists yet: once the request has reached the provider, the generation keeps running there and is billed, so the credits stay spent. The cancel button says which applies before it cancels. A delivered result is paid once: **다시 받기** on a job whose credits were given back takes the same credits again before it fetches the result (the page asks first; a short balance refuses it like a new job, and a re-fetch that fails again gives them back again). Jobs that ended while the server was down are settled on startup.
 - **The 크레딧 page** (`/billing`, or the 크레딧 chip next to your name on every page) shows the balance (`1크레딧 = 1원`), **충전 안내** (how to top up: the config's `transferNote`, else "ask the admin"), the last 30 credit changes (**사용 내역**, with the admin's memo for top-ups) and, with Polar configured, the Polar credit products. Admins also get **크레딧 관리** there and a **관리** link next to the chip.
 
@@ -384,11 +391,15 @@ Recommended properties, in OBS order:
 
 Do not add a camera feed to the overlay page. Audio stays with your regular microphone and OBS sources.
 
-## Make motions (동작 만들기)
+## Manage motions (동작 관리)
 
-Open **동작 추가하러 가기** on a photo card of the character list or on the 방송 화면; it opens `http://127.0.0.1:8787/animate?photo=<photoId>`. The header links back to **캐릭터 목록** (`/`) and **방송 화면** (`/broadcast`).
+Open **동작 관리** on a photo card of the character list or on the 방송 화면; it opens `http://127.0.0.1:8787/animate?photo=<photoId>`. The header links back to **캐릭터 목록** (`/`) and **방송 화면** (`/broadcast`).
 
-1. **캐릭터 사진** — one row per character with its photos, shown the way OBS shows them (a cut-out photo as its cutout, on a checkerboard); each tile says **기본** for the base photo, **방송 중** for the photo on air and how many motions the photo has. The photo named by `?photo=` is chosen, else the photo on air, else the first character's base photo; click another tile to switch (the address follows, so a reload keeps the choice). Everything made on the page goes to the chosen photo. **+ 사진 추가** at the start of each row adds photos to that character (click it, or drop image files on the row). Pasting an image (⌘V / Ctrl+V) anywhere on the page adds it as a new photo of the chosen photo's character and chooses it; with no character yet, it creates one named `캐릭터 1` (N = the number of characters + 1). With no character at all, the card says **캐릭터를 먼저 만들어 주세요** and links to the list.
+The page is about **one character at a time**. A strip of characters at the top (**캐릭터**, scrolls sideways) switches between them; the character of the photo named by `?photo=` is shown first. Below it are only that character's photos, its motions (**이 캐릭터의 동작**) and the results made with its photos.
+
+**이 캐릭터의 동작** lists the character's motions with **삭제** and **대기 동작으로**. The idle is what the overlay loops while no motion plays, per photo: the motion you picked (**대기 동작으로**; **대기 해제** undoes the pick), else the photo's newest idle motion — a result made from one of the idle example videos (it is named **기본 대기 동작** when added), or any motion with 대기 or idle in its name — else the still photo. So making the 기본 대기 동작 video is enough to replace the photo. The idle motion is not one of the 방송 화면's motion buttons.
+
+1. **캐릭터 사진** — the chosen character's row with its photos, shown the way OBS shows them (a cut-out photo as its cutout, on a checkerboard); each tile says **기본** for the base photo, **방송 중** for the photo on air and how many motions the photo has. The photo named by `?photo=` is chosen, else the photo on air, else the first character's base photo; click another tile to switch (the address follows, so a reload keeps the choice). Everything made on the page goes to the chosen photo. **+ 사진 추가** at the start of each row adds photos to that character (click it, or drop image files on the row). Pasting an image (⌘V / Ctrl+V) anywhere on the page adds it as a new photo of the chosen photo's character and chooses it; with no character yet, it creates one named `캐릭터 1` (N = the number of characters + 1). With no character at all, the card says **캐릭터를 먼저 만들어 주세요** and links to the list.
 
 Then choose how to make the motion: **AI로 만들기** (steps 2–4) or **완성된 영상 올리기** (see [Upload a finished motion](#upload-a-finished-motion-완성된-영상-올리기)).
 
@@ -414,6 +425,8 @@ Download the downloaded ones with the page's **예시 영상 받기** button, or
 ```bash
 pnpm run fetch-examples
 ```
+
+With login on, the downloaded examples are shared: they live once in `data/animate/drivings/examples/` (and in the bucket), `node server.js` downloads the missing ones when it starts, and every account sees them. Deleting one then only hides it for that account; the files stay.
 
 Deleting an example on the page (×) hides it for this install: its id is kept in `data/animate/drivings/hidden-examples.json`, a downloaded example's files are removed (a bundled example's files stay in the repository), and neither the button nor `fetch-examples` downloads it again. **숨긴 예시 N개 되돌리기** under the strip clears that list; bundled examples are back at once, press **예시 영상 받기** to download the others again.
 
@@ -492,7 +505,7 @@ Job states: `queued`, `preparing`, `submitting`, `running`, `downloading`, `keyi
 
 ## Upload a finished motion (완성된 영상 올리기)
 
-On the 동작 만들기 page, **완성된 영상 올리기** adds a video you made yourself as a motion of the chosen photo. Pick or drop one WebM, MP4 or MOV file (up to 500 MB and 60 seconds), name it — the default is the file name without its extension; the field suggests the preset labels, and a preset name such as `원영턴` puts the video on that preset's button on the 방송 화면 — and press **동작으로 추가하기**. The page shows the upload progress, then what happened to the background, and plays the stored clip.
+On the 동작 관리 page, **완성된 영상 올리기** adds a video you made yourself as a motion of the chosen photo. Pick or drop one WebM, MP4 or MOV file (up to 500 MB and 60 seconds), name it — the default is the file name without its extension; the field suggests the preset labels, and a preset name such as `원영턴` puts the video on that preset's button on the 방송 화면 — and press **동작으로 추가하기**. The page shows the upload progress, then what happened to the background, and plays the stored clip.
 
 The server processes the video before it answers (short clips take seconds) and always stores a file a browser can play (`lib/animate/motion-upload.js`):
 
@@ -517,11 +530,12 @@ The pages use these routes; with login on they need a login, like every page. JS
 | `DELETE /api/characters/<id>/photos/<photoId>` | Delete a photo with its motions and idle; the only photo is `409 last_photo`; a deleted base photo passes to the oldest remaining one. `200 { character, ...list }` |
 | `PUT /api/characters/<id>/base` | Make a photo the base photo: `{ "photoId" }`. `200 { character, ...list }` |
 | `POST /api/characters/<id>/photos/<photoId>/motions?name=<name>&filename=<file>` | Upload a finished motion (raw body, see [above](#upload-a-finished-motion-완성된-영상-올리기)). `201 { motion, keyed, keyReason, character, ...list }` |
+| `PUT /api/characters/<id>/photos/<photoId>/idle` | The photo's idle: `{ "motionId": "<one of its motions>" }`, or `{ "motionId": null }` for the default (its 기본 대기 동작, else the photo). `200 { character, ...list }`; each photo view carries `idle` (`motion` \| `upload` \| `photo`), `idleMotionId`, `idleBy` (`choice` \| `default`) and `isIdle` on its motions |
 | `PUT /api/active-photo` | Put a photo on air: `{ "photoId": "<photoId>" }`, or `{ "photoId": null }` for none. `200 { activePhotoId, activeCharacterId, library }` (the new library view) |
 
 `...list` stands for `characters, activePhotoId, activeCharacterId`. Deleting the photo on air, or its character, takes it off air.
 
-**Library view.** `GET /api/library` and the `{ "type": "library", "library" }` message on `/api/events` carry `{ idle, motions, character, photo }`: with a photo on air, `idle` is the idle uploaded for it, else the photo itself (`url` = its cutout or its file, `source: { photoId }`), `motions` are that photo's motions, `character` is `{ id, name }` and `photo` is `{ id, url, width, height, hasAlpha }`; with nothing on air, `idle` is the old library idle (`null`: the demo avatar), `motions` are the motions without a photo, and both others are `null`. It is broadcast whenever it may change: the photo on air changes, a motion is added or deleted, a photo or character is deleted, an idle is uploaded, or the character on air is renamed. `POST /api/trigger` accepts a motion of the current view (else `404`), and `demo` only while nothing is on air (else `409 { "error": "캐릭터 사진이 방송 중일 때는 데모 동작을 재생할 수 없습니다.", "code": "demo_on_air" }`). `GET /api/media/<id>` serves library items and, by photo id, the photos (`?variant=cutout` for a cut-out photo's PNG); `DELETE /api/media/<id>` removes motions and idles only (photos go through the character API).
+**Library view.** `GET /api/library` and the `{ "type": "library", "library" }` message on `/api/events` carry `{ idle, motions, character, photo }`: with a photo on air, `idle` is the photo's idle motion (chosen, or its 기본 대기 동작; `kind: "idle"`, and it is left out of `motions`), else the idle uploaded for it, else the photo itself (`url` = its cutout or its file, `source: { photoId }`), `motions` are that photo's motions, `character` is `{ id, name }` and `photo` is `{ id, url, width, height, hasAlpha }`; with nothing on air, `idle` is the old library idle (`null`: the demo avatar), `motions` are the motions without a photo, and both others are `null`. It is broadcast whenever it may change: the photo on air changes, a motion is added or deleted, a photo or character is deleted, an idle is uploaded, or the character on air is renamed. `POST /api/trigger` accepts a motion of the current view (else `404`), and `demo` only while nothing is on air (else `409 { "error": "캐릭터 사진이 방송 중일 때는 데모 동작을 재생할 수 없습니다.", "code": "demo_on_air" }`). `GET /api/media/<id>` serves library items and, by photo id, the photos (`?variant=cutout` for a cut-out photo's PNG); `DELETE /api/media/<id>` removes motions and idles only (photos go through the character API).
 
 | `code` | Status | `error` |
 |---|---|---|
@@ -544,7 +558,7 @@ Everything lives in `data/` (Git-ignored). With login on, the per-account items 
 
 - `data/characters/index.json` — `{ "v": 1, "activePhotoId", "characters" }`, written atomically (temporary file + rename). A character is `{ id: "c-<uuid>", name, createdAt, basePhotoId, photos }`; a photo is `{ id: "ph-<uuid>" (a migrated one keeps its "ch-<uuid>"), filename, mime, width, height, hasAlpha, createdAt, fit, cutout }`, where `cutout` is `{ "cut": true, "color", "fit" }` or `{ "cut": false, "reason": "has_alpha" | "not_uniform" | "no_subject" }` (absent: not decided yet, retried at startup).
 - `data/characters/photos/` — `<photoId>.png` / `.jpg` / `.webp`, and `<photoId>.cutout.png` for a photo whose plain background was cut out.
-- `data/library.json` — `{ idle, motions, idles }`. Every motion has a `photoId` (`null`: no photo, shown only while nothing is on air); `idles` maps a photo id to the idle uploaded for that photo; `idle` is the old library idle, shown only while nothing is on air.
+- `data/library.json` — `{ idle, motions, idles, idleChoice }` (`idleChoice` maps a photo id to the motion chosen as its idle). Every motion has a `photoId` (`null`: no photo, shown only while nothing is on air); `idles` maps a photo id to the idle uploaded for that photo; `idle` is the old library idle, shown only while nothing is on air.
 - `data/media/` — the motion and idle files (`<id>.webm`, `.mp4`, `.png` or `.webp`).
 - `data/animate/` — the 동작 만들기 settings, driving videos and jobs.
 
@@ -582,7 +596,7 @@ Use your server's actual port. The `Content-Type` header is required: without it
 ## Prepare media
 
 - **Idle:** usually the photo on air itself (see [Characters and photos](#characters-and-photos)). An uploaded idle is one transparent WebM video that loops, or a transparent PNG/WebP image.
-- **Motions:** individually named transparent WebM clips, each played once per trigger. Finished videos uploaded on the 동작 만들기 page may also be MP4/MOV with a transparent or plain key-colour background (see [Upload a finished motion](#upload-a-finished-motion-완성된-영상-올리기)). MP4 motions without transparency play the same way, with their background.
+- **Motions:** individually named transparent WebM clips, each played once per trigger. Finished videos uploaded on the 동작 관리 page may also be MP4/MOV with a transparent or plain key-colour background (see [Upload a finished motion](#upload-a-finished-motion-완성된-영상-올리기)). MP4 motions without transparency play the same way, with their background.
 - Use the same canvas size and character position across idle and motion clips for a clean transition. Put the character on a transparent background before encoding; changing the file extension to `.webm` does not create transparency.
 
 For example, if `input.mov` already contains an alpha channel, FFmpeg can encode a transparent VP9 WebM:
