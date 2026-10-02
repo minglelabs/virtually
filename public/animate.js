@@ -918,7 +918,13 @@ const AnimateHelpers = (() => {
     return delta;
   }
 
+  /** The 다운로드 link of a clip URL (?download=1 added). */
+  function downloadUrl(src) {
+    return `${src}${String(src).includes('?') ? '&' : '?'}download=1`;
+  }
+
   return {
+    downloadUrl,
     DRIVING_BATCH_SIZE,
     drivingRenderCount,
     fileKind,
@@ -1740,6 +1746,11 @@ if (typeof document !== 'undefined') (() => {
     const sub = el('span', { className: 'motion-tile-sub' });
     const idleBtn = el('button', { type: 'button', className: 'btn btn-ghost btn-sm' });
     const removeBtn = el('button', { type: 'button', className: 'btn btn-ghost btn-sm', text: '삭제' });
+    const downloadBtn = el('a', {
+      className: 'btn btn-ghost btn-sm', href: H.downloadUrl(`/api/media/${encodeURIComponent(motion.id)}`), download: '',
+      text: motion.mime === 'video/webm' ? '다운로드 (MOV)' : '다운로드 (MP4)',
+      title: motion.mime === 'video/webm' ? '투명 배경을 유지한 MOV(ProRes 4444)로 받습니다.' : '배경이 있는 그대로 MP4로 받습니다.',
+    });
     // Only for a clip that still has its background (an uploaded video, a result added as it was).
     const keyBtn = el('button', { type: 'button', className: 'btn btn-ghost btn-sm', text: '배경 제거' });
     const aiKeyBtn = el('button', { type: 'button', className: 'btn btn-ghost btn-sm', text: 'AI로 배경 제거 (유료)' });
@@ -1751,9 +1762,9 @@ if (typeof document !== 'undefined') (() => {
       thumb,
       name,
       sub,
-      el('div', { className: 'motion-tile-actions' }, [idleBtn, keyBtn, aiKeyBtn, removeBtn]),
+      el('div', { className: 'motion-tile-actions' }, [idleBtn, keyBtn, aiKeyBtn, downloadBtn, removeBtn]),
     ]);
-    const tile = { node, video, thumb, badge, name, sub, idleBtn, removeBtn, keyBtn, aiKeyBtn, isIdle: false, mime: motion.mime };
+    const tile = { node, video, thumb, badge, name, sub, idleBtn, removeBtn, keyBtn, aiKeyBtn, downloadBtn, isIdle: false, mime: motion.mime };
     const setPlaying = (playing) => {
       node.classList.toggle('is-playing', playing);
       mark.textContent = playing ? '■' : '▶';
@@ -1815,6 +1826,8 @@ if (typeof document !== 'undefined') (() => {
       if (tile.hadBackground !== undefined) tile.video.src = `/api/media/${encodeURIComponent(motion.id)}?v=${Date.now()}`;
       tile.mime = motion.mime;
       tile.hadBackground = background;
+      tile.downloadBtn.textContent = motion.mime === 'video/webm' ? '다운로드 (MOV)' : '다운로드 (MP4)';
+      tile.downloadBtn.title = motion.mime === 'video/webm' ? '투명 배경을 유지한 MOV(ProRes 4444)로 받습니다.' : '배경이 있는 그대로 MP4로 받습니다.';
     }
     tile.idleBtn.onclick = () => setIdleMotion(character, photo, chosen ? null : motion);
     tile.removeBtn.onclick = () => deleteMotion(motion);
@@ -2792,6 +2805,8 @@ if (typeof document !== 'undefined') (() => {
           src,
           poster: original ? job.result.posterUrl || null : null,
           controls: true,
+          // The browser's own download would save the WebM: the 다운로드 button gives the right file.
+          controlsList: 'nodownload',
           playsInline: true,
           preload: 'metadata',
         })
@@ -2808,8 +2823,12 @@ if (typeof document !== 'undefined') (() => {
           },
         })
         : null;
+      // The clip shown, as a file: a transparent one comes as a MOV (it keeps its alpha), the original as MP4.
+      const download = src
+        ? el('a', { className: 'btn btn-ghost btn-sm job-download', href: H.downloadUrl(src), download: '', text: original ? '다운로드 (MP4)' : '다운로드 (MOV · 투명)' })
+        : null;
       row.media.replaceChildren(...(video
-        ? [el('div', { className: `job-frame${original ? '' : ' checkerboard'}` }, [video]), toggle].filter(Boolean)
+        ? [el('div', { className: `job-frame${original ? '' : ' checkerboard'}` }, [video]), el('div', { className: 'job-media-actions' }, [toggle, download].filter(Boolean))]
         : []));
       row.media.hidden = !src;
     }
