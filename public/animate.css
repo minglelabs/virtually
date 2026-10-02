@@ -638,3 +638,11 @@ button.motion-thumb:hover .motion-play { background: var(--accent); }
 .char-delete:hover { color: var(--danger); }
 .char-delete:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .char-tile:hover .char-tag, .char-tile:focus-within .char-tag { opacity: 0; }
+
+/* A choice of two (free | AI) as buttons side by side; the chosen one is filled. */
+.seg { display: inline-flex; flex: none; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.seg button { padding: 5px 12px; border: 0; background: transparent; color: var(--text); font: inherit; font-size: 13px; cursor: pointer; white-space: nowrap; }
+.seg button + button { border-left: 1px solid var(--border); }
+.seg button[aria-pressed="true"] { background: var(--accent); color: #fff; font-weight: 600; }
+.seg button:disabled { color: var(--muted); opacity: 0.55; cursor: not-allowed; text-decoration: line-through; }
+.seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }

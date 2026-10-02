@@ -1547,6 +1547,8 @@ if (typeof document !== 'undefined') (() => {
       setStatus(characterStatus, doneText, 'success');
     } catch (error) {
       setStatus(characterStatus, error.message, 'error');
+      // A refused free cut tells the server the background is not plain: show the buttons as they now are.
+      loadCharacters().catch(() => {});
     } finally {
       photoBgBusy = false;
       renderPhotoBg();
@@ -2483,16 +2485,20 @@ if (typeof document !== 'undefined') (() => {
     stepCut.disabled = !cut.needed;
     stepCut.checked = cut.done === true || (cut.needed && state.steps.cut);
     stepCutMethod.hidden = !aiAvailable() || !cut.needed && !(photo && photo.transparent === 'no');
+    // The free cut only does a plain one-colour background: its button is off for any other photo.
+    const freeCut = !(photo && photo.transparent === 'no' && (photo.cutoutReason === 'not_uniform' || photo.cutoutReason === 'no_subject'));
     if (aiAvailable()) {
-      stepCutMethod.options[1].textContent = `AI · 어떤 배경이든 (${photo?.aiCutReady === true ? '추가 비용 없음' : H.priceText(ai.imageUsd, state.billing)})`;
       const keyUsd = H.aiVideoUsd(selectedDriving()?.duration, ai);
-      stepKeyMethod.options[1].textContent = `AI · 배경 인식 (${keyUsd == null ? `1초당 ${H.priceText(ai.videoUsdPerSecond, state.billing)}` : H.priceText(keyUsd, state.billing)})`;
+      setSeg(stepCutMethod, cutAi() ? 'ai' : 'free', {
+        ai: `AI · 어떤 배경이든 (${photo?.aiCutReady === true ? '추가 비용 없음' : H.priceText(ai.imageUsd, state.billing)})`,
+      }, { free: !freeCut });
+      setSeg(stepKeyMethod, keyAi() ? 'ai' : 'free', {
+        ai: `AI · 배경 인식 (${keyUsd == null ? `1초당 ${H.priceText(ai.videoUsdPerSecond, state.billing)}` : H.priceText(keyUsd, state.billing)})`,
+      });
     }
-    stepCutMethod.value = cutAi() ? 'ai' : 'free';
     const cutCost = cutAi() && cut.needed && state.steps.cut && photo?.aiCutReady !== true ? ` 추가 비용: ${H.priceText(ai.imageUsd, state.billing)}.` : '';
     stepCutNote.textContent = cut.note + cutCost;
     stepKeyMethod.hidden = !aiAvailable();
-    stepKeyMethod.value = keyAi() ? 'ai' : 'free';
     const route = selectedRoute();
     stepMakeNote.textContent = route
       ? `${route.label}${route.providerLabel && route.providerLabel !== route.label ? ` · ${route.providerLabel}` : ''}에 요청합니다. 비용이 드는 단계는 이것뿐입니다.`
@@ -2506,14 +2512,29 @@ if (typeof document !== 'undefined') (() => {
   }
   stepCut.addEventListener('change', () => { state.steps.cut = stepCut.checked; renderCreate(); });
   stepKey.addEventListener('change', () => { state.steps.key = stepKey.checked; renderCreate(); });
-  stepCutMethod.addEventListener('change', () => {
-    state.steps.cutAi = stepCutMethod.value === 'ai';
-    if (state.steps.cutAi) state.steps.cut = true;
+  // A two-button choice: marks the chosen one, sets labels ({ value: text }) and which are off ({ value: true }).
+  function setSeg(group, value, labels = {}, disabled = {}) {
+    for (const button of group.querySelectorAll('button')) {
+      const key = button.dataset.value;
+      // The one that cannot be used is never shown as chosen.
+      button.setAttribute('aria-pressed', String(key === value && disabled[key] !== true));
+      button.disabled = disabled[key] === true;
+      button.title = disabled[key] === true ? '단색 배경이 아니라서 무료 방식으로는 지울 수 없습니다' : '';
+      if (labels[key]) button.textContent = labels[key];
+    }
+  }
+  stepCutMethod.addEventListener('click', (event) => {
+    const button = event.target.closest('button[data-value]');
+    if (!button || button.disabled) return;
+    state.steps.cutAi = button.dataset.value === 'ai';
+    state.steps.cut = true;
     renderCreate();
   });
-  stepKeyMethod.addEventListener('change', () => {
-    state.steps.keyAi = stepKeyMethod.value === 'ai';
-    if (state.steps.keyAi) state.steps.key = true;
+  stepKeyMethod.addEventListener('click', (event) => {
+    const button = event.target.closest('button[data-value]');
+    if (!button || button.disabled) return;
+    state.steps.keyAi = button.dataset.value === 'ai';
+    state.steps.key = true;
     renderCreate();
   });
 
