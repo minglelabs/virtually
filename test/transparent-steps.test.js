@@ -266,6 +266,17 @@ test('the paid AI removers run only when picked: photo and result, with their co
   assert.equal(response.status, 200);
   assert.equal(calls.video, 4);
   assert.deepEqual([(await motionOf(busyClip.id)).mime, (await motionOf(busyClip.id)).hasBackground], ['video/webm', false]);
+  // The clip as it was is kept: DELETE puts it back, once.
+  assert.equal((await motionOf(white.id)).hasOriginal, true);
+  response = await json('DELETE', `/api/media/${white.id}/key`);
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).motion.mime, 'video/mp4');
+  assert.deepEqual([(await motionOf(white.id)).hasBackground, (await motionOf(white.id)).hasOriginal], [true, false]);
+  response = await fetch(`${base}/api/media/${white.id}`);
+  assert.deepEqual([response.status, response.headers.get('content-type')], [200, 'video/mp4']);
+  assert.deepEqual(Buffer.from(await response.arrayBuffer()), fsSync.readFileSync(file('white.mp4')));
+  response = await json('DELETE', `/api/media/${white.id}/key`);
+  assert.deepEqual([response.status, (await response.json()).code], [404, 'no_original']);
 });
 
 test('AI step helpers: what it adds to the price and how the request names it', () => {

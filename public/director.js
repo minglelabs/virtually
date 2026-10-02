@@ -19,8 +19,12 @@ const DirectorHelpers = (() => {
     if (!state.motions) return '이 캐릭터에 등록된 동작이 없습니다. 동작 관리에서 동작을 먼저 넣어 주세요.';
     // The price is on the 켜기 button (buttonPrice).
     if (!state.enabled) return '켜면 마이크로 말을 듣고, 말에 어울리는 동작을 캐릭터가 알아서 합니다.';
-    return `${state.stt?.configured
+    // `listening`: a page holds the microphone right now (lib/director micHold).
+    const heard = state.listening
       ? '말을 듣는 중입니다. 동작 버튼은 그대로 직접 누를 수 있습니다.'
+      : '아직 마이크가 연결되지 않아 말을 듣지 않고 있습니다. 브라우저에서 마이크 권한을 허용했는지 확인해 주세요. 아래에 대사를 입력해 시험할 수 있습니다.';
+    return `${state.stt?.configured
+      ? heard
       : '음성 인식 설정(SONIOX_API_KEY)이 없어 마이크는 듣지 않습니다. 아래에 대사를 입력해 시험할 수 있습니다.'} ${priceText(state)}`.trim();
   }
 

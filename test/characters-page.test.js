@@ -280,13 +280,15 @@ test('page wiring: the dashed create row, the empty state and the row / photo te
   assert.match(row, /<input type="file" accept="image\/png,image\/jpeg,image\/webp" multiple hidden data-part="input">/);
   assert.match(row, /data-part="makeBase">기본으로<\/button>/);
   assert.match(row, /class="btn btn-ghost btn-sm btn-danger" data-part="deletePhoto">사진 삭제<\/button>/);
-  assert.match(row, /<a class="add-motion" data-part="addMotion">동작 관리<\/a>/);
+  assert.match(row, /<a class="add-motion" data-part="addMotion">사진, 동작 관리<\/a>/);
   assert.match(row, /동작을 누르면 여기서 재생해 봅니다/);
   // A small photo is one button: select it, see its badges and its motion caption.
   const thumb = html.slice(html.indexOf('<template id="photoTemplate">'));
   assert.match(thumb, /<button type="button" class="thumb">\s*<span class="thumb-img checkerboard">/);
   assert.match(thumb, /data-part="badges"/);
   assert.match(thumb, /<span class="thumb-cap" data-part="cap">/);
+  // The × next to it (not inside: a button cannot hold a button) deletes the photo.
+  assert.match(thumb, /<\/button>\s*<button type="button" class="thumb-remove" data-part="remove" title="사진 삭제">×<\/button>/);
 });
 
 test('page script: the API it calls, textContent only, DOM code behind the document guard', () => {
@@ -309,7 +311,8 @@ test('page script: the API it calls, textContent only, DOM code behind the docum
   assert.match(js, /const src = photo\.displayUrl \|\| photo\.url;/);
   // The big photo is the character's base photo; the strip's small photos select, the detail area acts on the selection.
   assert.match(js, /const base = H\.basePhotoOf\(character\);/);
-  assert.match(js, /node\.addEventListener\('click', \(\) => selectPhoto\(characterId, photoId\)\);/);
+  assert.match(js, /thumb\.pick\.addEventListener\('click', \(\) => selectPhoto\(characterId, photoId\)\);/);
+  assert.match(js, /thumb\.remove\.addEventListener\('click', \(\) => deletePhoto\(characterId, photoId\)\);/);
   assert.match(js, /row\.makeBase\.addEventListener\('click'/);
   assert.match(js, /row\.deletePhoto\.addEventListener\('click'/);
   assert.match(js, /new EventSource\('\/api\/events'\)/);
