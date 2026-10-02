@@ -2336,7 +2336,10 @@ if (typeof document !== 'undefined') (() => {
         title: H.errorText({ code: route.unavailableCode }),
       }));
     }
-    const cost = route.available ? routeCost(route) : '';
+    // '10초 · 약 1,600 크레딧': the length the price is for comes first (not for the free route).
+    const price = route.available ? routeCost(route) : '';
+    const length = H.formatSeconds(selectedDriving()?.duration);
+    const cost = price && length && !H.isFreeRoute(route) ? `${length} · ${price}` : price;
     const label = el('label', { className: 'route-pick' }, [
       el('input', {
         type: 'radio',
