@@ -107,7 +107,34 @@
     return Math.min(safeTotal, target);
   }
 
+  /**
+   * The server's event stream (/api/events) that survives a restart of the server. A
+   * browser retries an EventSource by itself only after a network drop; when the answer
+   * is an error page (a deploy: the proxy says 502 for a few seconds) it gives up for
+   * good, and the page would never hear anything again. Then a new one is opened after
+   * RETRY_MS. handlers: { open(), message(event), error(closed) }.
+   */
+  const RETRY_MS = 3000;
+  function liveEvents(url, handlers = {}) {
+    let source = null;
+    let timer = null;
+    const connect = () => {
+      timer = null;
+      source = new EventSource(url);
+      if (handlers.open) source.addEventListener('open', () => handlers.open());
+      if (handlers.message) source.addEventListener('message', event => handlers.message(event));
+      source.addEventListener('error', () => {
+        const closed = source.readyState === EventSource.CLOSED;
+        if (handlers.error) handlers.error(closed);
+        if (closed && !timer) timer = setTimeout(connect, RETRY_MS);
+      });
+    };
+    connect();
+    return { close() { clearTimeout(timer); if (source) source.close(); } };
+  }
+
   const api = Object.freeze({
+    liveEvents,
     PRESET_MOTIONS,
     IDLE_MOTION_NAME,
     normalizeName,

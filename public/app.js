@@ -370,17 +370,14 @@ if (typeof document !== 'undefined') (() => {
 
   // The server sends the library and the OBS source size on connect and after every
   // change; EventSource reconnects itself.
-  const events = new EventSource('/api/events');
-  events.addEventListener('open', () => {
+  window.VirtuallyMotions.liveEvents('/api/events', { open: () => {
     if (motionStatus.dataset.kind === 'connection') setStatus('');
-  });
-  events.addEventListener('error', () => {
+  }, error: (closed) => {
     setStatus('서버 연결이 끊겼습니다. 다시 연결하는 중입니다.', 'connection');
-    // A refused stream (for example after the login ended) is not retried by the
-    // browser: ask the server once, so auth.js can send the browser to /login.
-    if (events.readyState === EventSource.CLOSED) fetch('/api/auth/me', { cache: 'no-store' }).catch(() => {});
-  });
-  events.addEventListener('message', (event) => {
+    // A refused stream (the login ended, or the server is restarting) is opened again by
+    // liveEvents; ask the server once too, so auth.js can send the browser to /login.
+    if (closed) fetch('/api/auth/me', { cache: 'no-store' }).catch(() => {});
+  }, message: (event) => {
     let data;
     try {
       data = JSON.parse(event.data);
@@ -395,5 +392,5 @@ if (typeof document !== 'undefined') (() => {
     } else if (data?.type === 'obs-source') {
       setCanvasSize(data);
     }
-  });
+  } });
 })();

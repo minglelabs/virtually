@@ -285,16 +285,14 @@ if (typeof document !== 'undefined') (() => {
   clearBtn.addEventListener('click', () => act('DELETE', '/api/director/queue'));
 
   // Live state: the 'director' message on /api/events, and once at load (and on reconnect).
-  const events = new EventSource('/api/events');
   const load = () => call('GET', '/api/director').then(apply).catch(() => {});
-  events.addEventListener('open', load);
-  events.addEventListener('message', (event) => {
+  window.VirtuallyMotions.liveEvents('/api/events', { open: load, message: (event) => {
     let data;
     try { data = JSON.parse(event.data); } catch { return; }
     if (data?.type === 'director') apply(data.state);
     // The character on air (and so the motions) changed: the hint depends on it.
     else if (data?.type === 'library') load();
-  });
+  } });
   window.addEventListener('pagehide', stopMic);
   load();
 })();
