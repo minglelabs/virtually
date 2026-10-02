@@ -770,6 +770,11 @@ const AnimateHelpers = (() => {
     return out;
   }
 
+  /** The motions of one photo of the character ({ motion, photo, index }, as characterMotions). */
+  function photoMotions(character, photoId) {
+    return characterMotions(character).filter(item => item.photo.id === photoId);
+  }
+
   /** The photo a job was made with (older jobs name it in characterId); null for none. */
   function jobPhotoId(job) {
     return (job && (job.photoId || job.characterId)) || null;
@@ -942,6 +947,7 @@ const AnimateHelpers = (() => {
     findCharacter,
     characterPhotoId,
     characterMotions,
+    photoMotions,
     characterChipText,
     jobsOfCharacter,
     jobPhotoId,
@@ -1681,7 +1687,8 @@ if (typeof document !== 'undefined') (() => {
     const { character, photo, index } = entry;
     const several = (Array.isArray(character.photos) ? character.photos.length : 0) > 1;
     idleSummary.textContent = H.idleSummary(photo, several ? H.photoLabel(character, index) : '');
-    const items = H.characterMotions(character);
+    // A motion belongs to the photo it was made from: only the chosen photo's are listed.
+    const items = H.photoMotions(character, photo.id);
     motionsEmpty.hidden = items.length > 0;
     renderDefaultIdle(character, photo);
     const seen = new Set();
@@ -1694,7 +1701,7 @@ if (typeof document !== 'undefined') (() => {
         tile = createMotionTile(motion);
         motionNodes.set(motion.id, tile);
       }
-      updateMotionTile(tile, character, item, several);
+      updateMotionTile(tile, character, item, false);
       if (motionTiles.children[at] !== tile.node) motionTiles.insertBefore(tile.node, motionTiles.children[at] || null);
     });
     for (const [id, tile] of motionNodes) {
