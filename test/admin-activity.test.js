@@ -182,8 +182,8 @@ test('page wiring: admin-only page, three tabs, text via textContent only', () =
   assert.match(readPublic('admin.html'), /<a href="\/admin\/activity" class="back-link">활동 · 자료<\/a>/);
 });
 
-test('welcome credits: a new sign-up gets 100 once; a returning user, a free account and 0 get none', async t => {
-  const ctx = await H.startApp(t, { billing: { adminEmails: [H.ADMIN.email], freeEmails: [H.BOB.email], welcomeCredits: 100 } });
+test('welcome credits: a new sign-up gets 100 once; a returning user and 0 get none', async t => {
+  const ctx = await H.startApp(t, { billing: { adminEmails: [H.ADMIN.email], welcomeCredits: 100 } });
   const alice = await H.signIn(ctx, H.ALICE);
   let billing = (await H.billingOf(ctx, alice));
   assert.equal(billing.balance, 100);
@@ -192,9 +192,6 @@ test('welcome credits: a new sign-up gets 100 once; a returning user, a free acc
   await H.billingOf(ctx, alice);
   const again = await H.signIn(ctx, H.ALICE);
   assert.equal((await H.billingOf(ctx, again)).balance, 100);
-  // Free accounts are never charged and get no welcome credits.
-  const bob = await H.signIn(ctx, H.BOB);
-  assert.equal((await H.billingOf(ctx, bob)).balance, 0);
 
   // The default is 100 without the key; 0 turns it off; garbage is a config problem.
   await H.setBillingConfig(ctx, { adminEmails: [H.ADMIN.email], welcomeCredits: undefined });

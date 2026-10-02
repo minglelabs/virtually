@@ -1062,13 +1062,9 @@ test('animate: a job is made from one photo; its motion goes to that photo, 409 
     assert.equal(response.status, 201);
     assert.equal((await response.json()).motion.photoId, p1);
     response = await send(base, 'POST', `/api/animate/jobs/${legacyIdleJob.id}/motion`, {});
-    assert.equal(response.status, 201);
-    const noPhoto = (await response.json()).motion;
-    assert.equal(noPhoto.photoId, null);
-    // p1 is on air, so the no-photo motion is not in the view (and cannot be triggered).
-    const view = await library(base);
-    assert.ok(!view.motions.some(item => item.id === noPhoto.id));
-    assert.equal((await send(base, 'POST', '/api/trigger', { id: noPhoto.id })).status, 404);
+    // A motion always belongs to one photo: a job without one cannot become a motion.
+    assert.equal(response.status, 409);
+    assert.equal((await response.json()).code, 'photo_missing');
   } finally {
     await stop(again.server);
   }

@@ -21,14 +21,13 @@ const problemOf = raw => validateBillingConfig(raw).problem;
 test('problem codes are checked in the v2 order', () => {
   assert.deepEqual(PROBLEMS, [
     'invalid_json', 'bad_admin_emails', 'bad_server', 'missing_token', 'bad_webhook_secret', 'bad_api_version',
-    'bad_credits_per_usd', 'bad_free_emails', 'bad_welcome_credits', 'bad_transfer_note', 'login_required',
+    'bad_credits_per_usd', 'bad_welcome_credits', 'bad_transfer_note', 'login_required',
   ]);
   // Everything wrong at once, then fixed one field at a time: each step reports the next code.
   const raw = {
     adminEmails: ['@example.com'],
     polar: { server: 'staging', accessToken: '  ', webhookSecret: 'secret', apiVersion: 'v1' },
     creditsPerUsd: 0,
-    freeEmails: [''],
     transferNote: 'x'.repeat(1001),
   };
   const steps = [
@@ -38,7 +37,6 @@ test('problem codes are checked in the v2 order', () => {
     ['bad_webhook_secret', () => { raw.polar.webhookSecret = WEBHOOK_SECRET; }],
     ['bad_api_version', () => { raw.polar.apiVersion = '2026-10'; }],
     ['bad_credits_per_usd', () => { raw.creditsPerUsd = 1500; }],
-    ['bad_free_emails', () => { raw.freeEmails = ['@example.com']; }],
     ['bad_transfer_note', () => { raw.transferNote = 'x'.repeat(1000); }],
   ];
   for (const [problem, fix] of steps) {
@@ -96,11 +94,10 @@ test('polar is optional; present means validated as before', () => {
   assert.equal(parseBillingConfig('nope').polar, null, 'unparseable: unknown whether Polar is on');
 });
 
-test('creditsPerUsd, freeEmails and transferNote', () => {
+test('creditsPerUsd and transferNote', () => {
   const base = { adminEmails: ['owner@example.com'] };
   const defaults = validateBillingConfig(base);
   assert.equal(defaults.config.creditsPerUsd, 2000);
-  assert.deepEqual(defaults.config.freeEmails, []);
   assert.equal(defaults.config.transferNote, null);
   for (const creditsPerUsd of [0, -1, 1.5, '2000', 100001]) {
     const state = validateBillingConfig({ ...base, creditsPerUsd });
@@ -110,10 +107,9 @@ test('creditsPerUsd, freeEmails and transferNote', () => {
   assert.equal(validateBillingConfig({ ...base, creditsPerUsd: 100000 }).config.creditsPerUsd, 100000);
   // An invalid file still reports its own usable rate.
   assert.equal(validateBillingConfig({ adminEmails: [], creditsPerUsd: 1234 }).creditsPerUsd, 1234);
-  for (const freeEmails of ['a@example.com', [''], [' '], [1]]) {
-    assert.equal(problemOf({ ...base, freeEmails }), 'bad_free_emails', JSON.stringify(freeEmails));
-  }
-  assert.deepEqual(validateBillingConfig({ ...base, freeEmails: [' VIP@Example.com', '@Free.org'] }).config.freeEmails, ['vip@example.com', '@free.org']);
+  // Free accounts are gone: an old freeEmails key is ignored.
+  assert.equal(problemOf({ ...base, freeEmails: ['a@example.com'] }), null);
+  assert.equal('freeEmails' in validateBillingConfig({ ...base, freeEmails: ['a@example.com'] }).config, false);
   for (const transferNote of ['', '   ', 7, ['note'], 'x'.repeat(1001), `  ${'y'.repeat(1001)}  `]) {
     assert.equal(problemOf({ ...base, transferNote }), 'bad_transfer_note', JSON.stringify(transferNote).slice(0, 30));
   }
@@ -167,17 +163,15 @@ test('disabled: no config.json means no billing and the app as it was', async t 
 
 test('enabled without polar: credits, admin flag and transfer note; Polar routes answer 409 polar_disabled', async t => {
   const transferNote = '입금 계좌: OO은행 000-000000-00 (예금주)\n입금 후 로그인 이메일을 알려 주세요.';
-  const ctx = await H.startApp(t, { billing: H.billingConfig({ freeEmails: [H.BOB.email], transferNote }) });
+  const ctx = await H.startApp(t, { billing: H.billingConfig({ transferNote }) });
   const alice = await H.signIn(ctx, H.ALICE);
   const admin = await H.signIn(ctx, H.ADMIN);
-  const bob = await H.signIn(ctx, H.BOB);
   const expected = {
-    enabled: true, mode: 'enabled', problem: null, server: null, creditsPerUsd: 2000, free: false, isAdmin: false,
+    enabled: true, mode: 'enabled', problem: null, server: null, creditsPerUsd: 2000, isAdmin: false,
     polar: false, transferNote, balance: 0, products: [], productsError: null, history: [], canManage: false,
   };
   assert.deepEqual(await H.billingOf(ctx, alice), expected);
   assert.deepEqual(await H.billingOf(ctx, admin), { ...expected, isAdmin: true });
-  assert.deepEqual(await H.billingOf(ctx, bob), { ...expected, free: true });
   await assertCode(H.post(ctx, '/api/billing/checkout', { productId: 'prod_1' }, alice), 409, 'polar_disabled');
   await assertCode(H.post(ctx, '/api/billing/sync', {}, alice), 409, 'polar_disabled');
   await assertCode(H.post(ctx, '/api/billing/portal', {}, alice), 409, 'polar_disabled');
@@ -234,7 +228,6 @@ test('invalid: every problem code over HTTP as config.json is edited, fail close
     adminEmails: ['@example.com'],
     polar: { server: 'staging', accessToken: '', webhookSecret: 'secret', apiVersion: 'v1' },
     creditsPerUsd: 0,
-    freeEmails: [3],
     transferNote: '',
   };
   const steps = [
@@ -244,7 +237,6 @@ test('invalid: every problem code over HTTP as config.json is edited, fail close
     ['bad_webhook_secret', () => { raw.polar.webhookSecret = WEBHOOK_SECRET; }],
     ['bad_api_version', () => { raw.polar.apiVersion = '2026-10'; }],
     ['bad_credits_per_usd', () => { raw.creditsPerUsd = 1500; }],
-    ['bad_free_emails', () => { raw.freeEmails = []; }],
     ['bad_transfer_note', () => { raw.transferNote = '계좌 안내'; delete raw.polar; }],
   ];
   for (const [problem, fix] of steps) {

@@ -145,8 +145,8 @@ test('route view: free only for the local demo route; mock-provider custom route
   assert.equal(routes.some(route => route.free === true), false);
 });
 
-test('charges: debit + view.billing, 402 with needed/balance, price_unknown, free accounts, two parallel creates', { skip }, async t => {
-  const ctx = await H.startApp(t, { billing: H.billingConfig({ freeEmails: [H.BOB.email] }), animate: { concurrency: 1 } });
+test('charges: debit + view.billing, 402 with needed/balance, price_unknown, two parallel creates', { skip }, async t => {
+  const ctx = await H.startApp(t, { billing: H.billingConfig(), animate: { concurrency: 1 } });
   const admin = await H.signIn(ctx, H.ADMIN);
   const alice = await H.signIn(ctx, H.ALICE);
   const bob = await H.signIn(ctx, H.BOB);
@@ -155,7 +155,7 @@ test('charges: debit + view.billing, 402 with needed/balance, price_unknown, fre
   assert.equal(await topUp(ctx, admin, H.ALICE.email, 1000), 1000);
 
   const first = await created(ctx, alice, driving.id, { options: H.LONG });
-  assert.deepEqual(first.billing, { credits: H.JOB_CREDITS, free: false, refunded: false, cancelRefund: true, refetchCredits: 0 });
+  assert.deepEqual(first.billing, { credits: H.JOB_CREDITS, refunded: false, cancelRefund: true, refetchCredits: 0 });
   let billing = await H.billingOf(ctx, alice);
   assert.equal(billing.balance, 400);
   assert.deepEqual(billing.history[0], {
@@ -164,7 +164,7 @@ test('charges: debit + view.billing, 402 with needed/balance, price_unknown, fre
   assert.ok(ctx.logs.includes(`[billing] charge job ${first.id} -${H.JOB_CREDITS} ${H.ALICE.email}`));
   // The stored record names the account and the charge; the view never does.
   const stored = JSON.parse(await fs.readFile(jobFile(ctx, first.id), 'utf8')).billing;
-  assert.deepEqual(Object.keys(stored).sort(), ['chargeId', 'credits', 'email', 'free', 'refunded', 'sub']);
+  assert.deepEqual(Object.keys(stored).sort(), ['chargeId', 'credits', 'email', 'refunded', 'sub']);
   assert.equal(stored.sub, H.ALICE.sub);
   assert.equal(stored.email, H.ALICE.email);
   assert.match(stored.chargeId, /^[0-9a-f-]{36}$/);
@@ -178,12 +178,10 @@ test('charges: debit + view.billing, 402 with needed/balance, price_unknown, fre
   assert.equal(response.json.code, 'price_unknown');
   assert.equal((await H.billingOf(ctx, alice)).balance, 400, 'refusals cost nothing');
 
-  // A free account: no debit, even with no credits at all, and on an unpriced route.
+  // Every account pays: one without credits is refused.
   const bobDriving = await H.prepareInputs(ctx, bob);
-  const free = await created(ctx, bob, bobDriving.id, { options: H.LONG });
-  assert.deepEqual(free.billing, { credits: H.JOB_CREDITS, free: true, refunded: false, cancelRefund: false, refetchCredits: 0 });
-  const freeUnpriced = await created(ctx, bob, bobDriving.id, { routeId: H.UNPRICED_ROUTE.id, options: H.LONG });
-  assert.deepEqual(freeUnpriced.billing, { credits: null, free: true, refunded: false, cancelRefund: false, refetchCredits: 0 });
+  response = await H.createJob(ctx, bob, bobDriving.id, { options: H.LONG });
+  assert.equal(response.status, 402, response.text);
   billing = await H.billingOf(ctx, bob);
   assert.equal(billing.balance, 0);
   assert.deepEqual(billing.history, []);
@@ -197,9 +195,9 @@ test('charges: debit + view.billing, 402 with needed/balance, price_unknown, fre
   assert.equal((await H.billingOf(ctx, alice)).balance, 0);
   const charges = (await H.readLedger(ctx)).entries.filter(entry => entry.sub === H.ALICE.sub && entry.kind === 'charge');
   assert.equal(charges.length, 2);
-  // Each account lists its own jobs only: Alice's two, Bob's two.
+  // Each account lists its own jobs only: Alice's two, none for Bob.
   assert.equal((await H.get(ctx, '/api/animate/jobs', alice)).json.jobs.length, 2);
-  assert.equal((await H.get(ctx, '/api/animate/jobs', bob)).json.jobs.length, 2);
+  assert.equal((await H.get(ctx, '/api/animate/jobs', bob)).json.jobs.length, 0);
   await settleJobs(ctx, alice);
   await settleJobs(ctx, bob);
 });
@@ -239,7 +237,7 @@ test('refunds: canceled before a provider task -> refund; canceled with a task -
   // A holds the only slot until canceled; B and C wait behind it (no provider task yet).
   const a = await created(ctx, alice, driving.id, { options: H.LONG });
   const running = await H.waitForJob(ctx, alice, a.id, job => job.state === 'running');
-  assert.deepEqual(running.billing, { credits: H.JOB_CREDITS, free: false, refunded: false, cancelRefund: false, refetchCredits: 0 }, 'a provider task exists');
+  assert.deepEqual(running.billing, { credits: H.JOB_CREDITS, refunded: false, cancelRefund: false, refetchCredits: 0 }, 'a provider task exists');
   const b = await created(ctx, alice, driving.id, { options: H.LONG });
   const c = await created(ctx, alice, driving.id, { options: H.LONG });
   assert.equal((await view(ctx, alice, b.id)).state, 'queued');
@@ -249,7 +247,7 @@ test('refunds: canceled before a provider task -> refund; canceled with a task -
   // B: canceled while queued -> refunded once, with the charge's label.
   assert.equal((await cancel(ctx, alice, b.id)).state, 'canceled');
   const refundedB = await H.waitForJob(ctx, alice, b.id, job => job.billing.refunded);
-  assert.deepEqual(refundedB.billing, { credits: H.JOB_CREDITS, free: false, refunded: true, cancelRefund: false, refetchCredits: 0 });
+  assert.deepEqual(refundedB.billing, { credits: H.JOB_CREDITS, refunded: true, cancelRefund: false, refetchCredits: 0 });
   assert.deepEqual(await entriesFor(ctx, b.id), ['charge', 'refund']);
   const ledger = await H.readLedger(ctx);
   const [chargeB, refundB] = ledger.entries.filter(entry => entry.jobId === b.id);
@@ -269,14 +267,14 @@ test('refunds: canceled before a provider task -> refund; canceled with a task -
   assert.deepEqual(await entriesFor(ctx, c.id), ['charge', 'refund']);
   const canceledA = await view(ctx, alice, a.id);
   assert.equal(canceledA.state, 'canceled');
-  assert.deepEqual(canceledA.billing, { credits: H.JOB_CREDITS, free: false, refunded: false, cancelRefund: false, refetchCredits: 0 });
+  assert.deepEqual(canceledA.billing, { credits: H.JOB_CREDITS, refunded: false, cancelRefund: false, refetchCredits: 0 });
   assert.deepEqual(await entriesFor(ctx, a.id), ['charge']);
 
   // D succeeds: charged, never refunded.
   const d = await created(ctx, alice, driving.id);
   const succeeded = await H.waitForJob(ctx, alice, d.id, job => TERMINAL.has(job.state));
   assert.equal(succeeded.state, 'succeeded', JSON.stringify(succeeded.error));
-  assert.deepEqual(succeeded.billing, { credits: H.JOB_CREDITS, free: false, refunded: false, cancelRefund: false, refetchCredits: 0 });
+  assert.deepEqual(succeeded.billing, { credits: H.JOB_CREDITS, refunded: false, cancelRefund: false, refetchCredits: 0 });
   assert.deepEqual(await entriesFor(ctx, d.id), ['charge']);
   // 4 charged, B and C refunded.
   assert.equal((await H.billingOf(ctx, alice)).balance, 2 * H.JOB_CREDITS);
@@ -345,7 +343,7 @@ test('view.billing.cancelRefund: only a charged, unrefunded job without a provid
   const ctx = await H.startApp(t, { animate: { concurrency: 1 } });
   const { pipeline } = ctx.server.animate;
   const base = { id: '00000000-0000-4000-8000-000000000000', state: 'queued', task: null };
-  const charged = { credits: 600, free: false, chargeId: 'charge-1', refunded: false, sub: 's', email: 'e@example.com' };
+  const charged = { credits: 600, chargeId: 'charge-1', refunded: false, sub: 's', email: 'e@example.com' };
   const cases = [
     [{ billing: charged }, true],
     [{ state: 'preparing', billing: charged }, true],
@@ -353,13 +351,12 @@ test('view.billing.cancelRefund: only a charged, unrefunded job without a provid
     [{ state: 'submitting', submitStartedAt: '2026-09-30T00:00:00.000Z', billing: charged }, false],
     [{ state: 'running', task: { id: 't' }, billing: charged }, false],
     [{ billing: { ...charged, refunded: true } }, false],
-    [{ billing: { ...charged, free: true, chargeId: null } }, false],
     [{ billing: { ...charged, credits: 0, chargeId: null } }, false],
   ];
   for (const [fields, expected] of cases) {
     const shown = pipeline.view({ ...base, ...fields }).billing;
     assert.equal(shown.cancelRefund, expected, JSON.stringify(fields));
-    assert.deepEqual(Object.keys(shown).sort(), ['cancelRefund', 'credits', 'free', 'refetchCredits', 'refunded']);
+    assert.deepEqual(Object.keys(shown).sort(), ['cancelRefund', 'credits', 'refetchCredits', 'refunded']);
   }
   assert.equal('billing' in pipeline.view(base), false);
 });
@@ -432,7 +429,7 @@ test('a cancel the provider reported gives the credits back; the user\'s own can
   restore();
   assert.deepEqual(ended.error, { code: 'canceled', message: 'Canceled.' });
   assert.equal(ended.canRefetch, false, 'the provider\'s own verdict');
-  assert.deepEqual(ended.billing, { credits: H.JOB_CREDITS, free: false, refunded: true, cancelRefund: false, refetchCredits: 0 });
+  assert.deepEqual(ended.billing, { credits: H.JOB_CREDITS, refunded: true, cancelRefund: false, refetchCredits: 0 });
   const stored = JSON.parse(await fs.readFile(jobFile(ctx, byProvider.id), 'utf8'));
   assert.equal(stored.error.provider, true);
   assert.ok(stored.task, 'its provider task existed');
@@ -462,7 +459,7 @@ test('다시 받기 of a refunded failed job charges it again once: short balanc
   await topUp(ctx, admin, H.ALICE.email, 1000);
   const failed = await refundedFailedJob(ctx, alice, driving.id);
   const { id } = failed;
-  assert.deepEqual(failed.billing, { credits: H.JOB_CREDITS, free: false, refunded: true, cancelRefund: false, refetchCredits: H.JOB_CREDITS });
+  assert.deepEqual(failed.billing, { credits: H.JOB_CREDITS, refunded: true, cancelRefund: false, refetchCredits: H.JOB_CREDITS });
   assert.equal(await balanceOf(ctx, alice), 1000);
   const firstCharge = JSON.parse(await fs.readFile(jobFile(ctx, id), 'utf8')).billing.chargeId;
 
@@ -485,7 +482,7 @@ test('다시 받기 of a refunded failed job charges it again once: short balanc
   response = await refetch(ctx, alice, id);
   assert.equal(response.status, 200, response.text);
   assert.equal(response.json.state, 'running');
-  assert.deepEqual(response.json.billing, { credits: H.JOB_CREDITS, free: false, refunded: false, cancelRefund: false, refetchCredits: 0 });
+  assert.deepEqual(response.json.billing, { credits: H.JOB_CREDITS, refunded: false, cancelRefund: false, refetchCredits: 0 });
   assert.equal(await balanceOf(ctx, alice), 1200 - H.JOB_CREDITS);
   const again = await H.waitForJob(ctx, alice, id, job => job.state === 'failed' && job.billing.refunded);
   restore();
@@ -511,7 +508,7 @@ test('다시 받기 of a refunded failed job charges it again once: short balanc
   assert.equal(response.status, 200, response.text);
   const done = await H.waitForJob(ctx, alice, id, job => TERMINAL.has(job.state));
   assert.equal(done.state, 'succeeded', JSON.stringify(done.error));
-  assert.deepEqual(done.billing, { credits: H.JOB_CREDITS, free: false, refunded: false, cancelRefund: false, refetchCredits: 0 });
+  assert.deepEqual(done.billing, { credits: H.JOB_CREDITS, refunded: false, cancelRefund: false, refetchCredits: 0 });
   assert.equal(await balanceOf(ctx, alice), 1200 - H.JOB_CREDITS);
   assert.deepEqual((await jobEntries(ctx, id)).map(entry => entry.kind), ['charge', 'refund', 'charge', 'refund', 'charge']);
   // A restart settles nothing more: no refund for the delivered result, none twice for the others.
@@ -525,8 +522,8 @@ const finishAtOnce = ctx => patchMock(ctx, {
   poll: async (runCtx, route, task) => ({ state: 'succeeded', outputUrl: `mock://${task.id}`, providerStatus: 'succeeded' }),
 });
 
-test('다시 받기 takes nothing for a charge that was kept, a free account or a free job', { skip }, async t => {
-  const ctx = await H.startApp(t, { billing: H.billingConfig({ freeEmails: [H.BOB.email] }), animate: { concurrency: 1 } });
+test('다시 받기 takes nothing for a charge that was kept; another account cannot fetch it', { skip }, async t => {
+  const ctx = await H.startApp(t, { billing: H.billingConfig(), animate: { concurrency: 1 } });
   const admin = await H.signIn(ctx, H.ADMIN);
   const alice = await H.signIn(ctx, H.ALICE);
   const bob = await H.signIn(ctx, H.BOB);
@@ -541,7 +538,7 @@ test('다시 받기 takes nothing for a charge that was kept, a free account or 
   await unwound(ctx, kept.id);
   const keptView = await view(ctx, alice, kept.id);
   assert.equal(keptView.canRefetch, true, 'the mock, like WaveSpeed, has no remote cancel');
-  assert.deepEqual(keptView.billing, { credits: H.JOB_CREDITS, free: false, refunded: false, cancelRefund: false, refetchCredits: 0 });
+  assert.deepEqual(keptView.billing, { credits: H.JOB_CREDITS, refunded: false, cancelRefund: false, refetchCredits: 0 });
   let restore = finishAtOnce(ctx);
   let response = await refetch(ctx, alice, kept.id);
   assert.equal(response.status, 200, response.text);
@@ -551,7 +548,7 @@ test('다시 받기 takes nothing for a charge that was kept, a free account or 
   assert.deepEqual((await jobEntries(ctx, kept.id)).map(entry => entry.kind), ['charge']);
   assert.equal(await balanceOf(ctx, alice), 2 * H.JOB_CREDITS);
 
-  // Alice's refunded job is hers alone: Bob (a free account) cannot fetch it again, see it
+  // Alice's refunded job is hers alone: Bob cannot fetch it again, see it
   // or move her credits; the view tells Alice what the re-fetch would take.
   const refunded = await refundedFailedJob(ctx, alice, driving.id);
   assert.equal(refunded.billing.refetchCredits, H.JOB_CREDITS);
@@ -563,20 +560,10 @@ test('다시 받기 takes nothing for a charge that was kept, a free account or 
   assert.equal(await balanceOf(ctx, alice), 2 * H.JOB_CREDITS);
   assert.deepEqual((await H.billingOf(ctx, bob)).history, []);
 
-  // A job Bob made for free has nothing to take again.
-  const bobDriving = await H.prepareInputs(ctx, bob);
-  const freeJob = await refundedFailedJobOf(ctx, bob, bobDriving.id);
-  assert.deepEqual(freeJob.billing, { credits: H.JOB_CREDITS, free: true, refunded: false, cancelRefund: false, refetchCredits: 0 });
-  response = await refetch(ctx, bob, freeJob.id);
-  assert.equal(response.status, 200, response.text);
-  done = await H.waitForJob(ctx, bob, freeJob.id, job => TERMINAL.has(job.state));
-  assert.equal(done.state, 'succeeded', JSON.stringify(done.error));
-  assert.deepEqual(await jobEntries(ctx, freeJob.id), []);
-  assert.deepEqual((await H.billingOf(ctx, bob)).history, []);
   assert.equal(await balanceOf(ctx, alice), 2 * H.JOB_CREDITS);
 });
 
-// A job that failed on the download hiccup, for any account (free ones have no refund to wait for).
+// A job that failed on the download hiccup, for any account.
 async function refundedFailedJobOf(ctx, cookie, drivingId) {
   const restore = downloadHiccup(ctx);
   try {

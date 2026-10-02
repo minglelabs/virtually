@@ -397,7 +397,7 @@ const signedIn = () => jsonResponse(200, {
 });
 
 const adminBilling = (over = {}) => ({
-  enabled: true, mode: 'enabled', problem: null, server: null, creditsPerUsd: 2000, free: true, balance: 0,
+  enabled: true, mode: 'enabled', problem: null, server: null, creditsPerUsd: 2000, balance: 0,
   products: [], productsError: null, history: [], canManage: false, isAdmin: true, polar: false, transferNote: null, ...over,
 });
 
@@ -530,7 +530,7 @@ test('admin page glue: an admin sees the rate, the form and every account; user 
   // The header chip: credits plus 관리, the current page.
   await page.window.VirtuallyBilling.ready;
   const links = page.el('authSlot').children[0].children;
-  assert.deepEqual(links.map(link => [link.textContent, link.getAttribute('aria-current')]), [['크레딧 무료', null], ['관리', 'page']]);
+  assert.deepEqual(links.map(link => [link.textContent, link.getAttribute('aria-current')]), [['크레딧 0', null], ['관리', 'page']]);
 });
 
 test('admin page glue: not an admin, billing off or misconfigured, or no server leaves only the message', async () => {

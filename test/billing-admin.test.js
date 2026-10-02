@@ -422,7 +422,6 @@ test('pending credits are claimed right before a job charge (no billing request 
   assert.equal(response.status, 202, response.text);
   const { job } = response.json;
   assert.equal(job.billing.credits, H.JOB_CREDITS);
-  assert.equal(job.billing.free, false);
   assert.ok(ctx.logs.includes(`[billing] 1 pending admin entry claimed by ${dave.email}`), ctx.logs.join('\n'));
   assert.ok(ctx.logs.includes(`[billing] charge job ${job.id} -${H.JOB_CREDITS} ${dave.email}`));
 

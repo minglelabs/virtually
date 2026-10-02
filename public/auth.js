@@ -22,7 +22,6 @@
     noKey: '새 주소를 받지 못했습니다.',
     logoutFailed: '로그아웃하지 못했습니다.',
     credits: '크레딧',
-    creditsFree: '크레딧 무료',
     creditsCheck: '크레딧 설정 확인',
     admin: '관리',
   });
@@ -93,7 +92,6 @@
     if (billing.mode === 'invalid') return { text: TEXT.creditsCheck, href: BILLING_PATH, adminHref: null };
     if (billing.mode !== 'enabled') return null;
     const adminHref = billing.isAdmin === true ? ADMIN_PATH : null;
-    if (billing.free === true) return { text: TEXT.creditsFree, href: BILLING_PATH, adminHref };
     const balance = formatCredits(billing.balance);
     return balance ? { text: `${TEXT.credits} ${balance}`, href: BILLING_PATH, adminHref } : null;
   }

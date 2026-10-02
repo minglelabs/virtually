@@ -12,7 +12,7 @@ const fsSync = require('node:fs');
 const { execFileSync } = require('node:child_process');
 
 const { createDecider, parseDecision } = require('../lib/director/decider');
-const { createDirector, IDLE_LABEL } = require('../lib/director');
+const { createDirector, IDLE_LABEL, MIC_LEASE_MS } = require('../lib/director');
 const { createAppServer } = require('../server');
 const D = require('../public/director.js');
 
@@ -290,47 +290,97 @@ test('routes: switch, speech, the queue and the overlay\'s done; the speech-to-t
   assert.equal((await send('POST', '/api/director/skip', {})).status, 200);
 
   // The browser gets a short-lived Soniox key; the real key stays on the server.
-  response = await send('POST', '/api/director/stt-key', {});
+  response = await send('POST', '/api/director/stt-key', { tab: 'tab-1' });
   assert.deepEqual(await response.json(), { apiKey: 'temp:abc', model: 'stt-rt-v5', url: 'wss://stt-rt.soniox.com/transcribe-websocket' });
-  assert.deepEqual(sonioxCalls, [{
+  assert.equal((await stateNow()).listening, true);
+  // One page listens at a time: a second tab gets no key, the first keeps the microphone.
+  response = await send('POST', '/api/director/stt-key', { tab: 'tab-2' });
+  assert.equal(response.status, 409);
+  assert.equal((await response.json()).code, 'mic_elsewhere');
+  assert.deepEqual(await (await send('POST', '/api/director/mic', { tab: 'tab-2', on: true })).json(), { ok: false });
+  assert.deepEqual(await (await send('POST', '/api/director/mic', { tab: 'tab-1', on: true })).json(), { ok: true });
+  // The first one stops: the second can take over.
+  await send('POST', '/api/director/mic', { tab: 'tab-1', on: false });
+  assert.equal((await stateNow()).listening, false);
+  assert.equal((await send('POST', '/api/director/stt-key', { tab: 'tab-2' })).status, 200);
+  assert.deepEqual(sonioxCalls.slice(0, 1), [{
     url: 'https://api.soniox.com/v1/auth/temporary-api-key', auth: 'Bearer soniox-secret',
     body: { usage_type: 'transcribe_websocket', expires_in_seconds: 300 },
   }]);
 
   state = await (await send('POST', '/api/director', { enabled: false })).json();
   assert.equal(state.enabled, false);
+  // No key (and no speech-to-text charge) while it is off.
+  response = await send('POST', '/api/director/stt-key', { tab: 'tab-1' });
+  assert.equal(response.status, 409);
+  assert.equal((await response.json()).code, 'director_off');
 });
 
-test('director: priced by the hour, a block is charged ahead, and without credits it does not start', async () => {
-  // A real block: 5 minutes of 490 credits an hour is 40.83, charged as 40 (the fraction goes with the next one).
+test('director: the picks are charged a minute ahead, the speech-to-text only for the time a microphone listened', async () => {
   const charges = [];
   let broke = false;
+  let clock = 1000000;
   const director = createDirector({
+    decider: { status: () => ({ configured: true }) }, getView: () => null, play: () => 1, stop: () => {},
+    stt: { configured: true }, now: () => clock, billBlockMs: 40,
+    charge: async (credits, minutes) => {
+      if (broke) throw Object.assign(new Error('Not enough credits.'), { code: 'insufficient_credits' });
+      charges.push(credits);
+    },
+  });
+  // Unit: a "block" of 40 ms is charged as an hour's 1/90000, so move the clock by hours instead.
+  assert.equal(director.micHold('tab-1'), 'off', 'no microphone while it is off');
+  await director.setEnabled(true);
+  assert.deepEqual(charges, [], 'a fraction of a credit waits for a later block');
+  assert.equal(director.micHold('tab-1'), 'ok');
+  assert.equal(director.micHold('tab-2'), 'elsewhere');
+  assert.equal(director.state().listening, true);
+  // 20 seconds of listening, then the page stops: 240 an hour is 1.33 credits.
+  clock += 20000;
+  assert.equal(director.micRelease('tab-2'), false);
+  assert.equal(director.micRelease('tab-1'), true);
+  assert.equal(director.state().listening, false);
+  clock += 3600000; // a long time without a microphone costs no speech-to-text
+  await director.setEnabled(false);
+  assert.deepEqual(charges, [1]);
+  // A page that goes silent loses the microphone after the lease: only the lease is charged.
+  charges.length = 0;
+  await director.setEnabled(true);
+  assert.equal(director.micHold('tab-1'), 'ok');
+  clock += 3600000;
+  assert.equal(director.micHold('tab-2'), 'ok', 'the silent page lost it');
+  director.micRelease('tab-2');
+  await director.setEnabled(false);
+  assert.equal(MIC_LEASE_MS, 30000);
+  assert.deepEqual(charges, [2], '30 seconds of 240 an hour');
+  broke = true;
+  director.close();
+
+  // A real block: one minute of 250 credits an hour is 4.17, charged as 4 when it is switched on.
+  const real = [];
+  const plain = createDirector({
     decider: { status: () => ({ configured: true }) }, getView: () => null, play: () => 1, stop: () => {},
     stt: { configured: true },
     charge: async (credits, minutes) => {
       if (broke) throw Object.assign(new Error('Not enough credits.'), { code: 'insufficient_credits' });
-      charges.push([credits, minutes]);
+      real.push([credits, minutes]);
     },
   });
-  assert.deepEqual(director.state().price, { decisionPerHour: 250, sttPerHour: 240, blockMinutes: 5 });
-  assert.equal(D.priceText(director.state()), '켜 둔 동안 시간당 약 490 크레딧 (판단 250 + 음성 인식 240), 5분 단위로 먼저 차감됩니다.');
-  await director.setEnabled(true);
-  assert.deepEqual(charges, [[40, 5]], 'the first block is charged when it is switched on');
-  await director.setEnabled(false);
+  assert.deepEqual(plain.state().price, { decisionPerHour: 250, sttPerHour: 240, blockMinutes: 1 });
+  assert.equal(D.priceText(plain.state()), '켜 둔 동안 시간당 약 250 크레딧, 마이크로 듣는 동안은 240 크레딧이 더 듭니다. 1분 단위로 차감됩니다.');
+  broke = false;
+  await plain.setEnabled(true);
+  assert.deepEqual(real, [[4, 1]], 'the first block is charged when it is switched on');
+  await plain.setEnabled(false);
   broke = true;
-  await assert.rejects(director.setEnabled(true), { code: 'insufficient_credits' });
-  assert.equal(director.state().enabled, false);
-  director.close();
+  await assert.rejects(plain.setEnabled(true), { code: 'insufficient_credits' });
+  assert.equal(plain.state().enabled, false);
+  plain.close();
 
-  // Without speech-to-text only the picks are charged: 250 an hour, 20 for the first block.
-  const picksOnly = [];
+  // Without speech-to-text the page says only the picks.
   const quiet = createDirector({
     decider: { status: () => ({ configured: true }) }, getView: () => null, play: () => 1, stop: () => {},
-    charge: async credits => { picksOnly.push(credits); },
   });
-  await quiet.setEnabled(true);
-  assert.deepEqual(picksOnly, [20]);
-  assert.equal(D.priceText(quiet.state()), '켜 둔 동안 시간당 약 250 크레딧, 5분 단위로 먼저 차감됩니다.');
+  assert.equal(D.priceText(quiet.state()), '켜 둔 동안 시간당 약 250 크레딧. 1분 단위로 차감됩니다.');
   quiet.close();
 });
