@@ -229,6 +229,37 @@ test('the paid AI removers run only when picked: photo and result, with their co
   assert.equal(calls.video, 3);
   response = await json('POST', `/api/animate/jobs/${job.id}/key`, {});
   assert.equal(calls.video, 3, 'the plain 배경 제거하기 never calls the paid remover');
+
+  // An uploaded video that kept its background: removed later in place, free or by the AI.
+  ffmpeg(['-f', 'lavfi', '-i', 'color=c=white:s=64x96:rate=15,drawbox=x=16:y=24:w=32:h=48:color=red:t=fill', '-t', '1', '-pix_fmt', 'yuv420p', '-c:v', 'libx264', '-preset', 'ultrafast', file('white.mp4')]);
+  const uploadMotion = async (name, source) => {
+    const added = await fetch(`${base}/api/characters/${character.id}/photos/${photoId}/motions?name=${name}&filename=${name}.mp4`,
+      { method: 'POST', headers: { 'Content-Type': 'video/mp4' }, body: fsSync.readFileSync(file(source)) });
+    assert.equal(added.status, 201);
+    return (await added.json()).motion;
+  };
+  const motionOf = async id => (await (await fetch(`${base}/api/characters`)).json()).characters[0].photos[0].motions.find(item => item.id === id);
+  const white = await uploadMotion('white', 'white.mp4');
+  const busyClip = await uploadMotion('busy', 'clip.mp4');
+  assert.deepEqual([white.mime, (await motionOf(white.id)).hasBackground, (await motionOf(busyClip.id)).hasBackground], ['video/mp4', true, true]);
+  // Free: a plain white background goes, a busy one cannot.
+  response = await json('POST', `/api/media/${white.id}/key`, {});
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).motion.mime, 'video/webm');
+  assert.equal((await motionOf(white.id)).hasBackground, false);
+  response = await fetch(`${base}/api/media/${white.id}`);
+  assert.deepEqual([response.status, response.headers.get('content-type')], [200, 'video/webm']);
+  await response.arrayBuffer();
+  response = await json('POST', `/api/media/${white.id}/key`, {});
+  assert.deepEqual([response.status, (await response.json()).code], [409, 'already_transparent']);
+  response = await json('POST', `/api/media/${busyClip.id}/key`, {});
+  assert.deepEqual([response.status, (await response.json()).code], [422, 'key_failed']);
+  assert.equal(calls.video, 3, 'the free button never calls the paid remover');
+  // AI: any background.
+  response = await json('POST', `/api/media/${busyClip.id}/key`, { method: 'ai' });
+  assert.equal(response.status, 200);
+  assert.equal(calls.video, 4);
+  assert.deepEqual([(await motionOf(busyClip.id)).mime, (await motionOf(busyClip.id)).hasBackground], ['video/webm', false]);
 });
 
 test('AI step helpers: what it adds to the price and how the request names it', () => {
