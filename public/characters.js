@@ -328,6 +328,7 @@ if (typeof document !== 'undefined') (() => {
     editing: new Map(), // character id -> rename draft, while its name is being edited
     busy: new Map(), // character id -> the add tile's text while a request of that row runs ('' = no text change)
     rowStatus: new Map(), // character id -> { text, kind }
+    backgroundAi: null, // GET /api/animate/status backgroundAi: whether the paid AI remover is offered
     create: { file: null, previewUrl: null, busy: false, message: null }, // message: { text, kind } from the last try
   };
 
@@ -461,6 +462,16 @@ if (typeof document !== 'undefined') (() => {
     render();
   }
 
+  // Whether the paid AI background remover is offered (asked once).
+  fetch('/api/animate/status', { headers: { Accept: 'application/json' } })
+    .then(response => (response.ok ? response.json() : null))
+    .then((data) => {
+      if (!data || !data.backgroundAi) return;
+      state.backgroundAi = data.backgroundAi;
+      for (const id of rows.keys()) renderRow(id);
+    })
+    .catch(() => {});
+
   async function loadList() {
     const at = ++listClock;
     applyList(await api('GET', '/api/characters'), at);
@@ -542,6 +553,7 @@ if (typeof document !== 'undefined') (() => {
       bgTag: part(node, 'bgTag'),
       makeTransparent: part(node, 'makeTransparent'),
       keepOriginal: part(node, 'keepOriginal'),
+      aiCut: part(node, 'aiCut'),
       count: part(node, 'count'),
       chips: part(node, 'chips'),
       preview: part(node, 'preview'),
@@ -566,6 +578,13 @@ if (typeof document !== 'undefined') (() => {
     row.makeTransparent.addEventListener('click', () => {
       const photoId = selectedIn(characterId);
       if (photoId) setTransparent(characterId, photoId, true);
+    });
+    row.aiCut.addEventListener('click', () => {
+      const photoId = selectedIn(characterId);
+      const price = state.backgroundAi && Number.isFinite(state.backgroundAi.imageUsd) ? `약 $${state.backgroundAi.imageUsd}` : '소액';
+      if (photoId && window.confirm(`AI로 이 사진의 배경을 지웁니다. 단색이 아닌 배경도 지울 수 있습니다.\n비용: 사진 1장당 ${price} (서비스 운영 비용으로 청구됩니다). 진행할까요?`)) {
+        setTransparent(characterId, photoId, true, 'ai');
+      }
     });
     row.keepOriginal.addEventListener('click', () => {
       const photoId = selectedIn(characterId);
@@ -710,6 +729,10 @@ if (typeof document !== 'undefined') (() => {
     row.keepOriginal.hidden = background.state !== 'cut';
     row.keepOriginal.disabled = busy;
     row.keepOriginal.title = '배경을 지우기 전의 사진으로 되돌립니다';
+    // The paid AI remover: only when the server has it, and not for a photo it already did.
+    row.aiCut.hidden = !(state.backgroundAi && state.backgroundAi.available === true) || background.state === 'own' || photo.cutoutMethod === 'ai';
+    row.aiCut.disabled = busy;
+    if (photo.cutoutMethod === 'ai') row.bgTag.textContent = '배경 지움 (AI)';
     row.count.textContent = H.motionCountText(photo);
     row.count.classList.toggle('has-motions', H.motionCount(photo) > 0);
     // Every motion of the photo is a button that plays it below (the idle one loops).
@@ -832,9 +855,9 @@ if (typeof document !== 'undefined') (() => {
   }
 
   // The selected photo's background: cut the plain background out, or go back to the original.
-  function setTransparent(characterId, photoId, on) {
+  function setTransparent(characterId, photoId, on, method = null) {
     return rowAction(characterId, async () => {
-      applyList(await api(on ? 'POST' : 'DELETE', H.transparentPath(characterId, photoId), { json: {} }));
+      applyList(await api(on ? 'POST' : 'DELETE', H.transparentPath(characterId, photoId), { json: method ? { method } : {} }));
       setRowStatus(characterId, on ? '사진의 배경을 지웠습니다.' : '원본 사진으로 되돌렸습니다.', 'success');
     }, { busyText: on ? '배경 지우는 중…' : '' });
   }
