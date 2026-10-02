@@ -1553,8 +1553,9 @@ if (typeof document !== 'undefined') (() => {
     }
   }
   photoBgCut.addEventListener('click', () => changePhotoBg('POST', {}, '배경을 지운 사진을 새로 추가했습니다. 원본 사진은 그대로 있습니다'));
-  photoBgDelete.addEventListener('click', async () => {
-    const entry = chosenPhoto();
+  photoBgDelete.addEventListener('click', () => deletePhoto(chosenPhoto()));
+  // Delete one photo (the button under the strip, or the × on a photo tile): asks first.
+  async function deletePhoto(entry) {
     if (!entry || photoBgBusy) return;
     const label = H.photoLabel(entry.character, entry.index);
     const motions = Number(entry.photo.motionCount) || 0;
@@ -1570,7 +1571,7 @@ if (typeof document !== 'undefined') (() => {
       photoBgBusy = false;
       renderPhotoBg();
     }
-  });
+  }
   photoBgKeep.addEventListener('click', () => changePhotoBg('DELETE', {}, '원본 사진으로 되돌렸습니다'));
   photoBgAi.addEventListener('click', () => {
     const price = H.priceText(state.backgroundAi?.imageUsd, state.billing);
@@ -1923,8 +1924,10 @@ if (typeof document !== 'undefined') (() => {
     ]);
     const check = el('span', { className: 'char-check', 'aria-hidden': 'true', text: '✓' });
     const live = el('span', { className: 'char-tag char-tag-live', text: '방송 중' });
-    const node = el('div', { className: 'char-tile', role: 'listitem', dataset: { id: photoId } }, [pick, check, live]);
-    return { node, pick, img, caption, check, live };
+    // Shown while the pointer or the focus is on the tile.
+    const remove = el('button', { type: 'button', className: 'char-delete', title: '사진 삭제', text: '×', onclick: () => deletePhoto(H.findPhoto(state.list, photoId)) });
+    const node = el('div', { className: 'char-tile', role: 'listitem', dataset: { id: photoId } }, [pick, check, live, remove]);
+    return { node, pick, img, caption, check, live, remove };
   }
 
   function updatePhotoTile(tile, character, photo, index) {
@@ -1938,6 +1941,7 @@ if (typeof document !== 'undefined') (() => {
     tile.caption.title = label;
     tile.check.hidden = !selected;
     tile.live.hidden = !photo.onAir;
+    tile.remove.setAttribute('aria-label', `${label} 삭제`);
     tile.pick.setAttribute('aria-pressed', String(selected));
     const notes = [photo.isBase ? '기본' : '', photo.onAir ? '방송 중' : ''].filter(Boolean).join(', ');
     tile.pick.setAttribute('aria-label', `${label}${notes ? ` (${notes})` : ''}${selected ? ', 선택됨' : ' 선택'}`);
