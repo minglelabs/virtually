@@ -32,6 +32,7 @@ const STATIC_FILES = new Map([
   ['/animate.css', ['animate.css', 'text/css; charset=utf-8']],
   ['/animate.js', ['animate.js', 'text/javascript; charset=utf-8']],
   ['/motions.js', ['motions.js', 'text/javascript; charset=utf-8']],
+  ['/director.js', ['director.js', 'text/javascript; charset=utf-8']],
   ['/overlay.css', ['overlay.css', 'text/css; charset=utf-8']],
   ['/overlay.js', ['overlay.js', 'text/javascript; charset=utf-8']],
   ['/login', ['login.html', 'text/html; charset=utf-8']],
@@ -122,6 +123,8 @@ async function createAppServer({
   // Download the example driving videos that are missing once the server listens
   // (`node server.js` does; tests fetch them through the API).
   fetchExamplesAtStart = false,
+  // Test-only: { env, fetchImpl, tickMs } for the AI director (lib/director).
+  director: directorOptions = {},
 } = {}) {
   await fsp.mkdir(dataDir, { recursive: true });
   const mirror = blobStore ? createMirror({ root: dataDir, store: blobStore, log: message => console.warn(message) }) : null;
@@ -156,6 +159,7 @@ async function createAppServer({
           dataDir: dir, docs, owner: id === '' ? null : await readOwner(dir), ffmpegPath, ffprobePath, animateMock, animatePollIntervalMs,
           animateShared, examplesManifestPath, allowHttpExamples, bundledDrivingsDir, billing, activity,
           sharedExamplesDir: id === '' ? null : sharedExamplesDir,
+          director: directorOptions,
           quotaBytes: id !== '' && accountQuotaBytes > 0 ? accountQuotaBytes : null,
         });
       })();

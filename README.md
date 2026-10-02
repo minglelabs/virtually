@@ -391,6 +391,29 @@ Recommended properties, in OBS order:
 
 Do not add a camera feed to the overlay page. Audio stays with your regular microphone and OBS sources.
 
+## 자동 반응 (AI director)
+
+The 방송 화면 has one switch, **자동 반응**, for the whole broadcast. While it is on, the controller's browser listens to the microphone, turns the speech into text (Soniox, Korean) and sends every finished phrase to the server. Once a second the server asks the AI which motion of the character on air fits the new words, given the last 30 seconds of speech; the usual answer is 기본 대기 동작, which does nothing. A picked motion goes to a queue and plays when the one before it ends; the questions go on while a motion plays. A motion that is playing or waiting is not queued again, and nothing is asked while nothing new was said.
+
+The card shows what was heard, the AI's last pick and the queue: **×** removes one waiting motion, **전체 취소** all of them, **다음으로** stops the playing one and starts the next. The motion buttons keep working by hand. Turning it off stops listening and empties the queue (the motion that plays finishes). A typed line (**대사 직접 입력**) is treated like speech, for trying it without a microphone.
+
+| Variable | |
+|---|---|
+| `OPENAI_API_KEY` | Required. The AI is OpenAI's Decisions API (`POST /v1/decisions`, GPT-6 Luna). That API is a limited preview without a published reference, so the request body is inferred (`lib/director/decider.js`); when the API refuses the request, the same key is used with Chat Completions and a JSON-schema enum instead, and the card says so. |
+| `SONIOX_API_KEY` | Speech-to-text. The browser streams to Soniox directly with a 5-minute key from `POST /api/director/stt-key`; the real key stays on the server. Without it only typed lines work. |
+| `DIRECTOR_DRIVER`, `DIRECTOR_MODEL` | Optional: `auto` (default) \| `decisions` \| `chat`, and the model (default `gpt-6-luna`). |
+
+| Request | |
+|---|---|
+| `GET /api/director` | `{ enabled, ai, stt, onAir, motions, lines, queue, current, last, asked, error }`; also sent as `{ "type": "director", "state" }` on `/api/events` |
+| `POST /api/director` | `{ "enabled": true \| false }` |
+| `POST /api/director/speech` | `{ "text" }`: a phrase that was just said |
+| `POST /api/director/skip` | Stop the playing motion and start the next |
+| `DELETE /api/director/queue`, `DELETE /api/director/queue/<id>` | Empty the queue, or drop one waiting motion |
+| `POST /api/director/done` | `{ "seq" }`: the overlay played the motion of that `play` message to its end (allowed with the overlay key) |
+
+Nothing is stored: a restart turns it off.
+
 ## Manage motions (동작 관리)
 
 Open **동작 관리** on a photo card of the character list or on the 방송 화면; it opens `http://127.0.0.1:8787/animate?photo=<photoId>`. The header links back to **캐릭터 목록** (`/`) and **방송 화면** (`/broadcast`).

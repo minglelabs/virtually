@@ -348,6 +348,17 @@ if (typeof document !== 'undefined') (() => {
     demoAvatar.classList.remove('reacting');
   }
 
+  // Tell the server that the motion of the 'play' message `seq` ended: the AI
+  // director's queue (lib/director) then starts the next one.
+  function reportMotionDone(seq) {
+    if (!Number.isInteger(seq)) return;
+    fetch('/api/director/done', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ seq })
+    }).catch(() => {});
+  }
+
   // Trigger Demo Reaction
   function playDemoReaction(token) {
     isReacting = true;
@@ -423,7 +434,10 @@ if (typeof document !== 'undefined') (() => {
         if (activeTriggerToken === token) returnToIdle();
       };
 
+      // Only a motion that played to its end is reported: a page that could not play it
+      // (a hidden controller tab) must not cut short what the overlay in OBS still plays.
       const onEnded = () => {
+        if (activeTriggerToken === token) reportMotionDone(seq);
         finish();
       };
 
@@ -484,6 +498,7 @@ if (typeof document !== 'undefined') (() => {
 
       activeReactionTimer = setTimeout(() => {
         if (activeTriggerToken === token) {
+          reportMotionDone(seq);
           returnToIdle();
         }
       }, IMAGE_REACTION_DURATION_MS);
