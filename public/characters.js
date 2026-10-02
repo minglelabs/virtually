@@ -521,6 +521,9 @@ if (typeof document !== 'undefined') (() => {
       deletePhoto: part(node, 'deletePhoto'),
       count: part(node, 'count'),
       chips: part(node, 'chips'),
+      preview: part(node, 'preview'),
+      previewVideo: part(node, 'previewVideo'),
+      playingId: null, // the motion playing in the preview
       addMotion: part(node, 'addMotion'),
       chipsKey: null,
       thumbs: new Map(), // photo id -> small photo (createThumb)
@@ -668,19 +671,57 @@ if (typeof document !== 'undefined') (() => {
     row.deletePhoto.setAttribute('aria-label', `${label} 삭제`);
     row.count.textContent = H.motionCountText(photo);
     row.count.classList.toggle('has-motions', H.motionCount(photo) > 0);
-    const chips = H.motionChips(photo, 24);
-    const chipsKey = JSON.stringify(chips);
+    // Every motion of the photo is a button that plays it below (the idle one loops).
+    const motions = (Array.isArray(photo.motions) ? photo.motions : []).filter(motion => motion && typeof motion.id === 'string');
+    if (row.playingId && !motions.some(motion => motion.id === row.playingId)) stopPreview(row);
+    const chipsKey = JSON.stringify([motions.map(motion => [motion.id, motion.name, motion.isIdle === true]), row.playingId]);
     if (chipsKey !== row.chipsKey) {
       row.chipsKey = chipsKey;
-      row.chips.replaceChildren(...(chips.names.length || chips.more
-        ? [
-          ...chips.names.map(name => el('span', { className: 'chip', text: name, title: name })),
-          chips.more ? el('span', { className: 'chip chip-more', text: `+${chips.more}` }) : null,
-        ].filter(Boolean)
+      row.chips.replaceChildren(...(motions.length
+        ? motions.map(motion => {
+          const idle = motion.isIdle === true;
+          const playing = motion.id === row.playingId;
+          const chip = el('button', {
+            type: 'button',
+            className: `chip${idle ? ' chip-idle' : ''}${playing ? ' is-playing' : ''}`,
+            text: idle ? `${motion.name} · 대기` : motion.name,
+            title: playing ? '멈추기' : idle ? '대기 동작 재생해 보기 (방송에서는 계속 반복됩니다)' : '재생해 보기',
+            'aria-pressed': String(playing),
+          });
+          chip.addEventListener('click', () => {
+            if (playing) stopPreview(row);
+            else playPreview(row, motion);
+            renderRow(character.id);
+          });
+          return chip;
+        })
         : [el('p', { className: 'empty', text: '아직 동작이 없습니다' })]));
     }
     row.addMotion.setAttribute('href', H.animateHref(photo.id));
     row.addMotion.setAttribute('aria-label', `${label}의 동작 관리`);
+  }
+
+  // Play a motion of the selected photo under its buttons: once, the idle in a loop.
+  function playPreview(row, motion) {
+    const video = row.previewVideo;
+    row.playingId = motion.id;
+    video.loop = motion.isIdle === true;
+    video.src = `/api/media/${encodeURIComponent(motion.id)}`;
+    video.onended = () => {
+      const characterId = row.node.dataset.id;
+      stopPreview(row);
+      if (characterId) renderRow(characterId);
+    };
+    row.preview.hidden = false;
+    video.play().catch(() => { /* not playable here */ });
+  }
+
+  function stopPreview(row) {
+    row.playingId = null;
+    row.previewVideo.pause();
+    row.previewVideo.removeAttribute('src');
+    row.previewVideo.load();
+    row.preview.hidden = true;
   }
 
   // Scroll a photo's strip (never the page) so the small photo is not past an edge.
@@ -714,6 +755,8 @@ if (typeof document !== 'undefined') (() => {
     const character = findCharacter(characterId);
     if (!character || !H.photosOf(character).some(photo => photo.id === photoId)) return;
     state.picked.set(characterId, photoId);
+    const row = rows.get(characterId);
+    if (row && row.playingId) stopPreview(row);
     setRowStatus(characterId, '');
     renderRow(characterId);
   }

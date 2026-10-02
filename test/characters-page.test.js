@@ -281,7 +281,7 @@ test('page wiring: the dashed create row, the empty state and the row / photo te
   assert.match(row, /data-part="makeBase">기본으로<\/button>/);
   assert.match(row, /class="btn btn-ghost btn-sm btn-danger" data-part="deletePhoto">사진 삭제<\/button>/);
   assert.match(row, /<a class="add-motion" data-part="addMotion">동작 관리<\/a>/);
-  assert.match(row, /이 캐릭터의 동작을 만들고, 올리고, 대기 동작을 고릅니다/);
+  assert.match(row, /동작을 누르면 여기서 재생해 봅니다/);
   // A small photo is one button: select it, see its badges and its motion caption.
   const thumb = html.slice(html.indexOf('<template id="photoTemplate">'));
   assert.match(thumb, /<button type="button" class="thumb">\s*<span class="thumb-img checkerboard">/);
