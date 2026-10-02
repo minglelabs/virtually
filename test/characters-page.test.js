@@ -246,7 +246,7 @@ test('page wiring: own CSS, auth chip, header links, no other page script', () =
   // animate.js and app.js run their page code whenever a document exists.
   assert.doesNotMatch(html, /animate\.js|app\.js|app\.css|animate\.css|motions\.js|<script>/);
   assert.equal((html.match(/id="authSlot"/g) || []).length, 1);
-  assert.match(html, /<div class="brand-row">\s*<h1 class="brand"><a href="\/" class="brand-link">Virtually<\/a><\/h1>\s*<nav class="page-links" aria-label="다른 화면">\s*<a href="\/broadcast" class="nav-link">방송 화면<\/a>\s*<a href="\/animate" class="nav-link">동작 관리<\/a>\s*<\/nav>\s*<div id="authSlot" class="auth-slot" hidden><\/div>/);
+  assert.match(html, /<header class="topbar">\s*<a href="\/" class="brand-link brand-mark">Virtually<\/a>\s*<nav class="topnav" aria-label="화면">\s*<a href="\/" class="topnav-tab" aria-current="page">캐릭터<\/a>\s*<a href="\/broadcast" class="topnav-tab">방송 화면<\/a>\s*<a href="\/animate" class="topnav-tab">동작 관리<\/a>\s*<a href="\/billing" class="topnav-tab">크레딧<\/a>\s*<\/nav>\s*<div id="authSlot" class="auth-slot" hidden><\/div>\s*<\/header>/);
   assert.match(html, /<h2 class="page-title">캐릭터<\/h2>/);
   assert.match(html, /사진을 고르고 '이 캐릭터로 방송하기'를 누르면 그 사진이 방송에 나갑니다\. 동작은 사진마다 따로 만듭니다\./);
   assert.match(html, /<a id="onAirPill" class="onair" href="\/broadcast"[^>]*hidden>/);

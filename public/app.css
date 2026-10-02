@@ -9,7 +9,7 @@
   /* Layout rhythm shared by both panes so their titles line up. */
   --pane-pad: 20px;
   --pane-gap: 16px;
-  --brand-row-h: 30px;
+  --topbar-h: 53px;
   --pane-title-h: 28px;
   color-scheme: dark;
 }
@@ -28,7 +28,7 @@ body {
   grid-template-columns: minmax(300px, 380px) 1fr;
   /* Pin the row to the viewport so the control pane is the only scroll container. */
   grid-template-rows: minmax(0, 1fr);
-  height: 100vh;
+  height: calc(100vh - var(--topbar-h));
 }
 
 .pane { min-width: 0; padding: var(--pane-pad); }
@@ -39,17 +39,12 @@ body {
   flex-direction: column;
   gap: var(--pane-gap);
 }
-/* No brand row here: the same top spacing puts 캔버스 level with 컨트롤러. */
 .pane-preview {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding-top: calc(var(--pane-pad) + var(--brand-row-h) + var(--pane-gap));
 }
 
-/* "Virtually" brand row above the 컨트롤러 title (the signed-in chip sits on its right). */
-.brand-row { flex: none; display: flex; align-items: center; gap: 12px; height: var(--brand-row-h); }
-.brand { margin: 0; font-size: 20px; line-height: var(--brand-row-h); }
 /* The two pane titles, 컨트롤러 and 캔버스. */
 .pane-title {
   flex: none;
@@ -380,8 +375,6 @@ a.btn { display: inline-block; text-align: center; text-decoration: none; }
 @media (max-width: 800px) {
   .layout { grid-template-columns: 1fr; grid-template-rows: auto; height: auto; }
   .pane-control { border-right: 0; border-bottom: 1px solid var(--border); overflow-y: visible; }
-  /* Stacked panes: nothing to line up with, so drop the brand-row spacing. */
-  .pane-preview { padding-top: var(--pane-pad); }
   .pane-control .motion-header { top: 0; }
   .pane-control .motion-footer { bottom: 0; }
   /* The page scrolls here, so the stage has no fixed height to fit into. */

@@ -2874,8 +2874,8 @@ if (typeof document !== 'undefined') (() => {
     if (!H.isJobOfPhoto(job, state.photoId)) {
       const own = H.findPhoto(state.list, H.jobPhotoId(job));
       return [
-        el('span', { className: 'job-added', text: added ? '추가됨 · 다른 사진의 동작입니다' : own ? '다른 사진으로 만든 결과입니다. 그 사진을 고르면 동작으로 추가할 수 있습니다.' : '사진이 지워진 결과라 동작으로 추가할 수 없습니다.' }),
-        own ? el('button', { type: 'button', className: 'btn btn-ghost btn-sm', text: '그 사진 고르기', onclick: () => selectPhoto(own.photo.id, { byUser: true }) }) : null,
+        el('span', { className: 'job-added', text: added ? '추가됨 · 다른 사진의 동작입니다' : own ? '다른 사진으로 만든 결과입니다. 해당 사진으로 변경하면 동작으로 추가할 수 있습니다.' : '사진이 지워진 결과라 동작으로 추가할 수 없습니다.' }),
+        own ? el('button', { type: 'button', className: 'btn btn-ghost btn-sm', text: '해당 사진으로 변경', onclick: () => selectPhoto(own.photo.id, { byUser: true }) }) : null,
       ];
     }
     const keyBusyNow = keyBusy.has(job.id);

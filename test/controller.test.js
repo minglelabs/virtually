@@ -333,7 +333,7 @@ test('controller previews a true-scale canvas at the reported OBS source size', 
   const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
   // Both pane titles are h2 with one shared class, and each section is labelled by its h2.
   // The brand row also holds the signed-in chip slot (auth.js fills it when login is on).
-  assert.match(html, /<section class="pane pane-control" aria-labelledby="controlTitle">\s*<div class="brand-row">\s*<h1 class="brand"><a href="\/" class="brand-link">Virtually<\/a><\/h1>\s*<div id="authSlot" class="auth-slot" hidden><\/div>\s*<\/div>\s*<h2 id="controlTitle" class="pane-title">컨트롤러<\/h2>/);
+  assert.match(html, /<header class="topbar">\s*<a href="\/" class="brand-link brand-mark">Virtually<\/a>\s*<nav class="topnav" aria-label="화면">\s*<a href="\/" class="topnav-tab">캐릭터<\/a>\s*<a href="\/broadcast" class="topnav-tab" aria-current="page">방송 화면<\/a>\s*<a href="\/animate" class="topnav-tab">동작 관리<\/a>\s*<a href="\/billing" class="topnav-tab">크레딧<\/a>\s*<\/nav>\s*<div id="authSlot" class="auth-slot" hidden><\/div>\s*<\/header>\s*<main class="layout">\s*<!--[^>]*-->\s*<section class="pane pane-control" aria-labelledby="controlTitle">\s*<h2 id="controlTitle" class="pane-title">컨트롤러<\/h2>/);
   assert.match(html, /<section class="pane pane-preview" aria-labelledby="previewTitle">/);
   assert.match(html, /<div class="pane-title-row">\s*<h2 id="previewTitle" class="pane-title">캔버스<\/h2>\s*<button type="button" id="refreshOverlayBtn"/);
   assert.equal((html.match(/<h2 [^>]*class="pane-title"/g) || []).length, 2);
@@ -352,10 +352,9 @@ test('controller previews a true-scale canvas at the reported OBS source size', 
   assert.match(title[1], /font-size:\s*18px;/);
   assert.match(title[1], /font-weight:\s*700;/);
   assert.match(title[1], /color:\s*var\(--text\);/);
-  // One brand-row height drives the left brand row and the right pane's top spacing.
-  assert.match(css, /--brand-row-h:\s*\d+px;/);
-  assert.match(css, /\.brand-row \{[^}]*height:\s*var\(--brand-row-h\);/);
-  assert.match(css, /\.pane-preview \{[^}]*padding-top:\s*calc\(var\(--pane-pad\) \+ var\(--brand-row-h\) \+ var\(--pane-gap\)\);/);
+  // The top tabs sit above both panes, and the panes fill what is left of the window.
+  assert.match(css, /--topbar-h:\s*\d+px;/);
+  assert.match(css, /\.layout \{[^}]*height:\s*calc\(100vh - var\(--topbar-h\)\);/);
 
   const box = css.match(/\.canvas \{([^}]*)\}/);
   assert.ok(box, 'app.css has a .canvas rule');

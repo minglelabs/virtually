@@ -87,3 +87,31 @@
 }
 .autohide-header.is-hidden { transform: translateY(-115%); opacity: 0; pointer-events: none; }
 @media (prefers-reduced-motion: reduce) { .autohide-header { transition: none; } }
+
+/* The top tabs, one bar above every screen (방송 화면 splits into its two panes below it). */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 20px;
+  min-height: 52px;
+  padding: 8px 24px;
+  background: var(--panel, #171a21);
+  border-bottom: 1px solid var(--border, #2a2f3a);
+}
+.topnav { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.topnav-tab {
+  padding: 6px 12px;
+  border-radius: 8px;
+  color: var(--muted, #9aa3b2);
+  font-size: 14px;
+  text-decoration: none;
+}
+.topnav-tab:hover { color: var(--text, #e6e8ee); }
+.topnav-tab[aria-current="page"] { background: rgba(108, 140, 255, 0.16); color: var(--text, #e6e8ee); font-weight: 600; }
+.topnav-tab:focus-visible { outline: 2px solid var(--accent, #6c8cff); outline-offset: 2px; }
+.page-h1 { margin: 0; font-size: 20px; }
+@media (max-width: 800px) { .topbar { padding: 8px 12px; } }

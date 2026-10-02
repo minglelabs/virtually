@@ -253,10 +253,9 @@ test('controller and animate pages hold #authSlot and load auth.css and auth.js 
     assert.ok(authJs > 0 && own > authJs, `${page} loads auth.js before ${script}`);
     assert.ok(motionsJs > 0 && own > motionsJs, `${page} loads motions.js before ${script}`);
   }
-  assert.match(readPublic('index.html'),
-    /<div class="brand-row">\s*<h1 class="brand"><a href="\/" class="brand-link">Virtually<\/a><\/h1>\s*<div id="authSlot" class="auth-slot" hidden><\/div>\s*<\/div>/);
-  assert.match(readPublic('animate.html'),
-    /<header class="page-header">\s*<a href="\/" class="brand-link brand-mark">Virtually<\/a>\s*<nav class="page-links" aria-label="다른 화면">\s*<a href="\/" class="back-link">← 캐릭터 목록<\/a>\s*<a href="\/broadcast" class="back-link">방송 화면<\/a>\s*<\/nav>\s*<h1>동작 관리<\/h1>\s*<div id="authSlot" class="auth-slot" hidden><\/div>\s*<\/header>/);
+  for (const [page, cur] of [['index.html', 'broadcast'], ['animate.html', 'animate']]) {
+    assert.match(readPublic(page), new RegExp('<header class="topbar">[\\s\\S]*?<a href="/' + cur + '" class="topnav-tab" aria-current="page">[\\s\\S]*?<div id="authSlot" class="auth-slot" hidden></div>\\s*</header>'));
+  }
   // A plain [hidden] must win over the chip's display: flex (app.css has no [hidden] rule).
   assert.match(readPublic('auth.css'), /\.auth-slot\[hidden\] \{ display: none; \}/);
 });

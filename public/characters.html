@@ -9,16 +9,17 @@
   <link rel="stylesheet" href="./auth.css">
 </head>
 <body>
+  <header class="topbar">
+    <a href="/" class="brand-link brand-mark">Virtually</a>
+    <nav class="topnav" aria-label="화면">
+      <a href="/" class="topnav-tab" aria-current="page">캐릭터</a>
+      <a href="/broadcast" class="topnav-tab">방송 화면</a>
+      <a href="/animate" class="topnav-tab">동작 관리</a>
+      <a href="/billing" class="topnav-tab">크레딧</a>
+    </nav>
+    <div id="authSlot" class="auth-slot" hidden></div>
+  </header>
   <main class="page">
-    <div class="brand-row">
-      <h1 class="brand"><a href="/" class="brand-link">Virtually</a></h1>
-      <nav class="page-links" aria-label="다른 화면">
-        <a href="/broadcast" class="nav-link">방송 화면</a>
-        <a href="/animate" class="nav-link">동작 관리</a>
-      </nav>
-      <div id="authSlot" class="auth-slot" hidden></div>
-    </div>
-
     <div class="page-head">
       <div class="page-head-text">
         <h2 class="page-title">캐릭터</h2>
