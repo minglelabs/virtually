@@ -23,13 +23,12 @@ const DirectorHelpers = (() => {
       : '음성 인식 설정(SONIOX_API_KEY)이 없어 마이크는 듣지 않습니다. 아래에 대사를 입력해 시험할 수 있습니다.'} ${priceText(state)}`.trim();
   }
 
-  /** '켜 둔 동안 시간당 약 250 크레딧, 마이크로 듣는 동안은 240 크레딧이 더 듭니다. 1분 단위로 차감됩니다.'; '' without prices. */
+  /** '켜 둔 동안 1분에 8 크레딧(음성 인식 포함)이 1분 단위로 차감됩니다.'; '' without a price. */
   function priceText(state) {
     const price = state && state.price;
-    if (!price || !Number.isFinite(price.decisionPerHour)) return '';
-    const stt = Number(price.sttPerHour) || 0;
-    const mic = stt ? `, 마이크로 듣는 동안은 ${stt.toLocaleString('ko-KR')} 크레딧이 더 듭니다` : '';
-    return `켜 둔 동안 시간당 약 ${price.decisionPerHour.toLocaleString('ko-KR')} 크레딧${mic}. ${price.blockMinutes}분 단위로 차감됩니다.`;
+    if (!price || !Number.isFinite(price.perMinute)) return '';
+    const stt = state.stt?.configured ? '(음성 인식 포함)' : '';
+    return `켜 둔 동안 1분에 ${price.perMinute.toLocaleString('ko-KR')} 크레딧${stt}이 ${price.blockMinutes}분 단위로 차감됩니다.`;
   }
 
   /** The line under the queue: the AI's last pick, or its error. */
