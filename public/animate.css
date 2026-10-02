@@ -596,3 +596,13 @@ select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .motion-tile-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; }
 
 .motion-thumb img { display: block; width: 100%; height: 100%; object-fit: contain; }
+
+/* A motion tile's picture is its play button. */
+button.motion-thumb { display: block; width: 100%; padding: 0; border: 0; font: inherit; cursor: pointer; }
+button.motion-thumb:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.motion-play {
+  position: absolute; right: 6px; bottom: 6px; display: flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border-radius: 50%; background: rgba(0, 0, 0, 0.65); color: #fff; font-size: 12px;
+}
+button.motion-thumb:hover .motion-play { background: var(--accent); }
+.motion-tile.is-playing .motion-play { background: var(--accent); }

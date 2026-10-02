@@ -1533,28 +1533,49 @@ if (typeof document !== 'undefined') (() => {
     const sub = el('span', { className: 'motion-tile-sub' });
     const idleBtn = el('button', { type: 'button', className: 'btn btn-ghost btn-sm' });
     const removeBtn = el('button', { type: 'button', className: 'btn btn-ghost btn-sm', text: '삭제' });
+    // The picture is the play button: a click plays the clip once from the start
+    // (the idle motion loops, as on air), another click stops it.
+    const mark = el('span', { className: 'motion-play', 'aria-hidden': 'true', text: '▶' });
+    const thumb = el('button', { type: 'button', className: 'motion-thumb checkerboard' }, [video, badge, mark]);
     const node = el('div', { className: 'motion-tile', role: 'listitem', dataset: { id: motion.id } }, [
-      el('div', { className: 'motion-thumb checkerboard' }, [video, badge]),
+      thumb,
       name,
       sub,
       el('div', { className: 'motion-tile-actions' }, [idleBtn, removeBtn]),
     ]);
-    // The clip plays while the pointer or the focus is on its tile.
-    const play = () => video.play().catch(() => { /* not playable here */ });
-    const pause = () => video.pause();
-    node.addEventListener('mouseenter', play);
-    node.addEventListener('mouseleave', pause);
-    node.addEventListener('focusin', play);
-    node.addEventListener('focusout', pause);
-    return { node, video, badge, name, sub, idleBtn, removeBtn };
+    const tile = { node, video, thumb, badge, name, sub, idleBtn, removeBtn, isIdle: false };
+    const setPlaying = (playing) => {
+      node.classList.toggle('is-playing', playing);
+      mark.textContent = playing ? '■' : '▶';
+      thumb.setAttribute('aria-pressed', String(playing));
+    };
+    const stop = () => {
+      video.pause();
+      video.currentTime = 0;
+      setPlaying(false);
+    };
+    thumb.addEventListener('click', () => {
+      if (!video.paused) return stop();
+      // One clip at a time.
+      for (const other of motionNodes.values()) if (other !== tile && !other.video.paused) other.thumb.click();
+      video.loop = tile.isIdle;
+      video.currentTime = 0;
+      setPlaying(true);
+      video.play().catch(() => setPlaying(false));
+    });
+    video.addEventListener('ended', stop);
+    return tile;
   }
 
   function updateMotionTile(tile, character, { motion, photo, index }, several) {
     const isIdle = motion.isIdle === true;
     // Unsetting only makes sense for a choice: the default idle is not a setting.
     const chosen = isIdle && photo.idleBy === 'choice';
+    tile.isIdle = isIdle;
     tile.node.classList.toggle('is-idle', isIdle);
     tile.badge.hidden = !isIdle;
+    tile.thumb.setAttribute('aria-label', `${motion.name} 재생해 보기`);
+    tile.thumb.title = '눌러서 재생해 보기';
     tile.name.textContent = motion.name;
     tile.name.title = motion.name;
     tile.sub.textContent = several ? H.photoLabel(character, index) : '';
