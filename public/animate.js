@@ -1520,6 +1520,8 @@ if (typeof document !== 'undefined') (() => {
     photoBgCut.disabled = photoBgBusy || !background.canCut;
     photoBgAi.hidden = background.own || entry.photo.cutoutMethod === 'ai' || state.backgroundAi?.available !== true;
     photoBgAi.disabled = photoBgBusy;
+    // The price is on the button, not only in the question it asks.
+    photoBgAi.textContent = `AI로 배경 지우기 (${H.priceText(state.backgroundAi?.imageUsd, state.billing)})`;
     photoBgKeep.hidden = !background.cut;
     photoBgKeep.disabled = photoBgBusy;
   }
@@ -1755,6 +1757,7 @@ if (typeof document !== 'undefined') (() => {
     tile.keyBtn.onclick = () => keyMotion(motion, null);
     tile.aiKeyBtn.hidden = !background || state.backgroundAi?.available !== true;
     tile.aiKeyBtn.disabled = motionBusy;
+    if (state.backgroundAi) tile.aiKeyBtn.textContent = `AI로 배경 제거 (1초당 ${H.priceText(state.backgroundAi.videoUsdPerSecond, state.billing)})`;
     tile.aiKeyBtn.title = 'AI가 영상에서 배경을 알아보고 지웁니다. 단색이 아닌 배경도 됩니다';
     tile.aiKeyBtn.onclick = () => {
       const ai = state.backgroundAi;
@@ -2438,6 +2441,11 @@ if (typeof document !== 'undefined') (() => {
     stepCut.disabled = !cut.needed;
     stepCut.checked = cut.needed && state.steps.cut;
     stepCutMethod.hidden = !aiAvailable() || photo?.transparent === 'own';
+    if (aiAvailable()) {
+      stepCutMethod.options[1].textContent = `AI · 어떤 배경이든 (${photo?.cutoutMethod === 'ai' ? '추가 비용 없음' : H.priceText(ai.imageUsd, state.billing)})`;
+      const keyUsd = H.aiVideoUsd(selectedDriving()?.duration, ai);
+      stepKeyMethod.options[1].textContent = `AI · 배경 인식 (${keyUsd == null ? `1초당 ${H.priceText(ai.videoUsdPerSecond, state.billing)}` : H.priceText(keyUsd, state.billing)})`;
+    }
     stepCutMethod.value = cutAi() ? 'ai' : 'free';
     const cutCost = cutAi() && cut.needed && state.steps.cut && photo?.cutoutMethod !== 'ai' ? ` 추가 비용: ${H.priceText(ai.imageUsd, state.billing)}.` : '';
     stepCutNote.textContent = cut.note + cutCost;
@@ -2712,7 +2720,7 @@ if (typeof document !== 'undefined') (() => {
 
     const added = H.isAdded(job, state.libraryIds);
     const actionsKey = JSON.stringify([job.state, added, addBusy.has(job.id), addErrors.get(job.id) || null,
-      keyBusy.has(job.id), keyErrors.get(job.id) || null, aiAvailable(), H.offersRefetch(job) ? H.refetchTitle(job, state.billing) : null,
+      keyBusy.has(job.id), keyErrors.get(job.id) || null, aiAvailable(), state.billing?.creditsPerUsd ?? null, H.offersRefetch(job) ? H.refetchTitle(job, state.billing) : null,
       job.canRefetch === true, refetchBusy.has(job.id), refetchErrors.get(job.id) || null]);
     if (actionsKey !== row.actionsKey) {
       row.actionsKey = actionsKey;
@@ -2782,7 +2790,7 @@ if (typeof document !== 'undefined') (() => {
       type: 'button',
       className: 'btn btn-ghost btn-sm',
       disabled: keyBusyNow,
-      text: 'AI로 배경 제거 (유료)',
+      text: `AI로 배경 제거 (${H.priceText(aiUsd, state.billing)})`,
       title: 'AI가 영상에서 배경을 알아보고 지웁니다. 배경이 단색으로 나오지 않은 결과에 씁니다.',
       onclick: () => {
         if (window.confirm(`AI로 이 영상의 배경을 지웁니다. 비용: ${H.priceText(aiUsd, state.billing)} (서비스 운영 비용으로 청구됩니다). 진행할까요?`)) rekey(job, 'ai');
