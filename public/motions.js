@@ -113,8 +113,21 @@
    * is an error page (a deploy: the proxy says 502 for a few seconds) it gives up for
    * good, and the page would never hear anything again. Then a new one is opened after
    * RETRY_MS. handlers: { open(), message(event), error(closed) }.
+   *
+   * The stream starts with { type: 'build', id } (the deployment). A reconnect that hears
+   * another id reached a newly deployed server: the page reloads to run its new code.
    */
   const RETRY_MS = 3000;
+  let seenBuild = null;
+  function noteBuild(event, reload) {
+    if (typeof event?.data !== 'string' || !event.data.includes('"build"')) return false;
+    let data;
+    try { data = JSON.parse(event.data); } catch { return false; }
+    if (data?.type !== 'build' || typeof data.id !== 'string' || !data.id) return false;
+    if (seenBuild === null) seenBuild = data.id;
+    else if (seenBuild !== data.id) { seenBuild = data.id; reload(); }
+    return true;
+  }
   function liveEvents(url, handlers = {}) {
     let source = null;
     let timer = null;
@@ -122,7 +135,10 @@
       timer = null;
       source = new EventSource(url);
       if (handlers.open) source.addEventListener('open', () => handlers.open());
-      if (handlers.message) source.addEventListener('message', event => handlers.message(event));
+      source.addEventListener('message', (event) => {
+        if (noteBuild(event, () => root && root.location.reload())) return;
+        if (handlers.message) handlers.message(event);
+      });
       source.addEventListener('error', () => {
         const closed = source.readyState === EventSource.CLOSED;
         if (handlers.error) handlers.error(closed);
@@ -135,6 +151,7 @@
 
   const api = Object.freeze({
     liveEvents,
+    noteBuild,
     PRESET_MOTIONS,
     IDLE_MOTION_NAME,
     normalizeName,

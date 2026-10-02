@@ -190,6 +190,9 @@ test('controller helpers: the hint, the last pick, the queue rows and Soniox tok
   assert.match(D.noteText({ ...base, onAir: false }), /방송할 캐릭터를 먼저/);
   assert.match(D.noteText({ ...base, motions: 0 }), /등록된 동작이 없습니다/);
   assert.match(D.noteText(base), /^켜면 마이크로/);
+  assert.doesNotMatch(D.noteText(base), /크레딧/, 'the price is on the button');
+  assert.equal(D.buttonPrice({ price: { perMinute: 8, blockMinutes: 1 } }), '1분 8크레딧');
+  assert.equal(D.buttonPrice({}), '');
   assert.match(D.noteText({ ...base, enabled: true, stt: { configured: false } }), /SONIOX_API_KEY/);
   assert.equal(D.lastText({ ...base, enabled: true, asked: 3, last: { label: IDLE_LABEL, driver: 'decisions', ms: 140 } }), '방금 판단: 동작 없음(대기) · 140ms · Decisions API · 누적 3회');
   assert.match(D.lastText({ ...base, ai: { configured: true, decisionsNote: '403' }, asked: 1, last: { label: '원영턴', driver: 'chat', ms: 900 } }), /'원영턴' · 900ms · 일반 호출 \(Decisions API 사용 불가\)/);
@@ -361,4 +364,17 @@ test('director: one price for the picks and the speech-to-text, 8 credits a minu
   });
   assert.equal(D.priceText(quiet.state()), '켜 둔 동안 1분에 8 크레딧이 1분 단위로 차감됩니다.');
   quiet.close();
+});
+
+test('live events: a reconnect that hears another deployment reloads the page once', () => {
+  const M = require('../public/motions.js');
+  let reloads = 0;
+  const reload = () => { reloads += 1; };
+  const build = id => ({ data: JSON.stringify({ type: 'build', id }) });
+  assert.equal(M.noteBuild({ data: '{"type":"library"}' }, reload), false, 'other messages pass through');
+  assert.equal(M.noteBuild(build('deploy-1'), reload), true);
+  assert.equal(M.noteBuild(build('deploy-1'), reload), true);
+  assert.equal(reloads, 0, 'the same deployment after a drop');
+  M.noteBuild(build('deploy-2'), reload);
+  assert.equal(reloads, 1);
 });

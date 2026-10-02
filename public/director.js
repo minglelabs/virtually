@@ -17,7 +17,8 @@ const DirectorHelpers = (() => {
     if (!state.ai?.configured) return 'AI 설정(OPENAI_API_KEY)이 서버에 없어 켤 수 없습니다.';
     if (!state.onAir) return '방송할 캐릭터를 먼저 골라 주세요. 자동 반응은 방송 중인 캐릭터의 동작으로 움직입니다.';
     if (!state.motions) return '이 캐릭터에 등록된 동작이 없습니다. 동작 관리에서 동작을 먼저 넣어 주세요.';
-    if (!state.enabled) return `켜면 마이크로 말을 듣고, 말에 어울리는 동작을 캐릭터가 알아서 합니다. ${priceText(state)}`.trim();
+    // The price is on the 켜기 button (buttonPrice).
+    if (!state.enabled) return '켜면 마이크로 말을 듣고, 말에 어울리는 동작을 캐릭터가 알아서 합니다.';
     return `${state.stt?.configured
       ? '말을 듣는 중입니다. 동작 버튼은 그대로 직접 누를 수 있습니다.'
       : '음성 인식 설정(SONIOX_API_KEY)이 없어 마이크는 듣지 않습니다. 아래에 대사를 입력해 시험할 수 있습니다.'} ${priceText(state)}`.trim();
@@ -29,6 +30,12 @@ const DirectorHelpers = (() => {
     if (!price || !Number.isFinite(price.perMinute)) return '';
     const stt = state.stt?.configured ? '(음성 인식 포함)' : '';
     return `켜 둔 동안 1분에 ${price.perMinute.toLocaleString('ko-KR')} 크레딧${stt}이 ${price.blockMinutes}분 단위로 차감됩니다.`;
+  }
+
+  /** '1분 8크레딧' on the 켜기 button; '' without a price. */
+  function buttonPrice(state) {
+    const price = state && state.price;
+    return price && Number.isFinite(price.perMinute) ? `1분 ${price.perMinute.toLocaleString('ko-KR')}크레딧` : '';
   }
 
   /** The line under the queue: the AI's last pick, or its error. */
@@ -67,7 +74,7 @@ const DirectorHelpers = (() => {
     return { final, interim, ended };
   }
 
-  return { IDLE_LABEL, noteText, priceText, lastText, queueRows, readTokens };
+  return { IDLE_LABEL, noteText, priceText, buttonPrice, lastText, queueRows, readTokens };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = DirectorHelpers;
@@ -238,7 +245,14 @@ if (typeof document !== 'undefined') (() => {
     const on = Boolean(state?.enabled);
     const ready = Boolean(state?.ai?.configured);
     card.classList.toggle('is-on', on);
-    toggle.textContent = on ? '끄기' : '켜기';
+    const price = on ? '' : H.buttonPrice(state);
+    toggle.replaceChildren(document.createTextNode(on ? '끄기' : '켜기'));
+    if (price) {
+      const tag = document.createElement('span');
+      tag.className = 'director-price';
+      tag.textContent = price;
+      toggle.append(tag);
+    }
     toggle.setAttribute('aria-pressed', String(on));
     toggle.disabled = busy || !state || (!on && !ready);
     note.textContent = H.noteText(state);
