@@ -30,7 +30,7 @@
     noUsers: '아직 사용자가 없습니다.',
     noMatches: '찾는 사용자가 없습니다.',
     noHistory: '아직 내역이 없습니다.',
-    badEmail: '이메일 주소를 확인해 주세요.',
+    badEmail: '위 목록에서 사용자를 선택해 주세요.',
     badCredits: '크레딧은 1부터 100,000,000까지의 정수로 적어 주세요.',
     badMemo: '메모는 200자까지 쓸 수 있습니다.',
     badRequest: '입력한 내용을 확인해 주세요.',
@@ -200,6 +200,16 @@
     return parts.join(' · ');
   }
 
+  /**
+   * The address typed in the filter box, when it is a whole address that is not one of
+   * the listed rows: it can be picked as it is (credits wait for its first login). Else ''.
+   */
+  function typedPick(query, rows) {
+    const email = normalizeEmail(query);
+    if (!isValidEmail(email) || !/\.[^.@\s]+$/.test(email)) return '';
+    return (Array.isArray(rows) ? rows : []).some(row => row && row.email === email) ? '' : email;
+  }
+
   /** One users-table row, or null for an entry without an email. */
   function userRow(user) {
     if (!user || typeof user !== 'object' || typeof user.email !== 'string' || !user.email) return null;
@@ -267,6 +277,7 @@
     usersPath,
     historyPath,
     userStatusText,
+    typedPick,
     userRow,
     usersView,
     historyView,
@@ -294,6 +305,7 @@
   const usersTable = $('usersTable');
   const usersBody = $('usersBody');
   const usersEmpty = $('usersEmpty');
+  const pickTypedBtn = $('pickTypedBtn');
   const historyCard = $('historyCard');
   const historySummary = $('historySummary');
   const historyStatus = $('historyStatus');
@@ -388,6 +400,13 @@
     usersTable.hidden = view.rows.length === 0;
     usersEmpty.textContent = view.empty || '';
     usersEmpty.hidden = !view.empty;
+    // A whole address that is not in the list: offered as it is (someone who has not signed in yet).
+    if (pickTypedBtn) {
+      const typed = typedPick(searchInput.value, view.rows);
+      pickTypedBtn.hidden = !typed;
+      pickTypedBtn.textContent = typed ? `목록에 없는 '${typed}' 선택 (아직 로그인 전인 이메일)` : '';
+      pickTypedBtn.dataset.email = typed;
+    }
   }
 
   async function loadUsers() {
@@ -503,6 +522,7 @@
   deductBtn.addEventListener('click', () => submit('deduct'));
   // Both buttons are type="button": Enter in a field never adjusts anything.
   adjustForm.addEventListener('submit', event => event.preventDefault());
+  if (pickTypedBtn) pickTypedBtn.addEventListener('click', () => { if (pickTypedBtn.dataset.email) selectUser(pickTypedBtn.dataset.email); });
   searchInput.addEventListener('input', () => {
     root.clearTimeout(searchTimer);
     searchTimer = root.setTimeout(loadUsers, SEARCH_DELAY_MS);

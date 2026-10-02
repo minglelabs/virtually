@@ -27,13 +27,34 @@
     <div id="adminMessage" class="messages" role="alert"></div>
     <p id="rateText" class="muted rate-line" hidden></p>
 
+    <!-- Pick the account here: every account with a ledger record, and emails waiting for their
+         first login. The box filters the list; a full address that is not in it can be picked too. -->
+    <section id="usersCard" class="card" aria-labelledby="usersTitle" hidden>
+      <div class="card-head">
+        <h2 id="usersTitle">1. 사용자 선택</h2>
+        <label for="searchInput" class="visually-hidden">이메일 또는 이름으로 찾기</label>
+        <input type="search" id="searchInput" class="search" autocomplete="off" spellcheck="false" maxlength="100" placeholder="이메일 또는 이름으로 찾기">
+      </div>
+      <p id="usersStatus" class="status" aria-live="polite"></p>
+      <div class="table-wrap">
+        <table id="usersTable" class="users-table" hidden>
+          <thead>
+            <tr><th scope="col">이메일</th><th scope="col">이름</th><th scope="col" class="num">잔액</th><th scope="col">최근 활동</th><th scope="col">상태</th></tr>
+          </thead>
+          <tbody id="usersBody"></tbody>
+        </table>
+      </div>
+      <p id="usersEmpty" class="muted" hidden></p>
+      <button type="button" id="pickTypedBtn" class="btn btn-ghost pick-typed" hidden></button>
+    </section>
+
     <!-- Add or take off credits (bank transfer: amount in KRW = credits) -->
     <section id="adjustCard" class="card" aria-labelledby="adjustTitle" hidden>
-      <h2 id="adjustTitle">충전 · 차감</h2>
+      <h2 id="adjustTitle">2. 충전 · 차감</h2>
       <form id="adjustForm" class="adjust-form" novalidate>
         <div class="field">
-          <label for="emailInput">이메일</label>
-          <input type="email" id="emailInput" autocomplete="off" spellcheck="false" maxlength="254">
+          <label for="emailInput">선택한 사용자</label>
+          <input type="email" id="emailInput" readonly autocomplete="off" spellcheck="false" maxlength="254" placeholder="위 목록에서 사용자를 선택하세요">
         </div>
         <div class="field">
           <label for="creditsInput">크레딧</label>
@@ -51,25 +72,6 @@
         </div>
       </form>
       <div id="adjustResult" class="messages adjust-result" role="status" aria-live="polite"></div>
-    </section>
-
-    <!-- Every account with a ledger record, and emails waiting for their first login -->
-    <section id="usersCard" class="card" aria-labelledby="usersTitle" hidden>
-      <div class="card-head">
-        <h2 id="usersTitle">사용자</h2>
-        <label for="searchInput" class="visually-hidden">이메일 또는 이름으로 찾기</label>
-        <input type="search" id="searchInput" class="search" autocomplete="off" spellcheck="false" maxlength="100" placeholder="이메일 또는 이름으로 찾기">
-      </div>
-      <p id="usersStatus" class="status" aria-live="polite"></p>
-      <div class="table-wrap">
-        <table id="usersTable" class="users-table" hidden>
-          <thead>
-            <tr><th scope="col">이메일</th><th scope="col">이름</th><th scope="col" class="num">잔액</th><th scope="col">최근 활동</th><th scope="col">상태</th></tr>
-          </thead>
-          <tbody id="usersBody"></tbody>
-        </table>
-      </div>
-      <p id="usersEmpty" class="muted" hidden></p>
     </section>
 
     <!-- The picked account's credit history, newest first -->

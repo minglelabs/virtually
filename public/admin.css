@@ -82,3 +82,10 @@ input::placeholder { color: #6b7385; }
   .adjust-form { grid-template-columns: minmax(0, 1fr); }
   .search { max-width: none; }
 }
+
+/* The user list is the picker: it scrolls inside its card, the header row stays. */
+#usersCard .table-wrap { max-height: 340px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; }
+#usersCard .users-table thead th { position: sticky; top: 0; background: var(--panel); z-index: 1; }
+#usersCard .users-table tbody tr { cursor: pointer; }
+.pick-typed { margin-top: 8px; }
+#emailInput[readonly] { background: transparent; cursor: default; }

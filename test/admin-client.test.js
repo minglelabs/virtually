@@ -68,7 +68,7 @@ test('adjustRequest: the signed body for 충전 / 차감, the confirmation, and 
   // No memo: no memo field at all.
   assert.deepEqual(A.adjustRequest({ ...fields, memo: '   ' }, 'topup').body, { email: 'customer@gmail.com', credits: 50000 });
   assert.deepEqual(A.adjustRequest({ ...fields, email: 'nope' }, 'topup'),
-    { ok: false, field: 'email', text: '이메일 주소를 확인해 주세요.' });
+    { ok: false, field: 'email', text: '위 목록에서 사용자를 선택해 주세요.' });
   assert.deepEqual(A.adjustRequest({ ...fields, email: 'nope', credits: '' }, 'topup').field, 'email');
   assert.deepEqual(A.adjustRequest({ ...fields, credits: '0' }, 'deduct'),
     { ok: false, field: 'credits', text: '크레딧은 1부터 100,000,000까지의 정수로 적어 주세요.' });
@@ -132,7 +132,7 @@ test('adjustMessages: the new balance, then why the customer may not see it yet'
 
 test('adminErrorText: bad_request names its field; other codes use the billing page texts', () => {
   const failure = (code, detail = null, status = 400) => ({ ok: false, status, code, error: 'English text', detail });
-  assert.equal(A.adminErrorText(failure('bad_request', { field: 'email' })), '이메일 주소를 확인해 주세요.');
+  assert.equal(A.adminErrorText(failure('bad_request', { field: 'email' })), '위 목록에서 사용자를 선택해 주세요.');
   assert.equal(A.adminErrorText(failure('bad_request', { field: 'credits' })), '크레딧은 1부터 100,000,000까지의 정수로 적어 주세요.');
   assert.equal(A.adminErrorText(failure('bad_request', { field: 'memo' })), '메모는 200자까지 쓸 수 있습니다.');
   assert.equal(A.adminErrorText(failure('bad_request', { field: 'requestId' })), '입력한 내용을 확인해 주세요.');
@@ -239,7 +239,10 @@ test('admin page: header like /billing, billing.css + admin.css, auth.js then bi
   assert.match(html,
     /<header class="page-header">\s*<a href="\/" class="brand-link brand-mark">Virtually<\/a>\s*<nav class="page-links" aria-label="[^"]+">\s*<a href="\/" class="back-link">컨트롤러<\/a>\s*<a href="\/animate" class="back-link">동작 관리<\/a>\s*<a href="\/billing" class="back-link">크레딧<\/a>\s*<a href="\/admin\/activity" class="back-link">활동 · 자료<\/a>\s*<\/nav>\s*<h1>크레딧 관리<\/h1>\s*<div id="authSlot" class="auth-slot" hidden><\/div>\s*<\/header>/);
   // The form: labels, hints and the placeholder from the spec.
-  assert.match(html, /<label for="emailInput">이메일<\/label>/);
+  // The account is picked in the list above the form: the field only shows the pick, the box filters.
+  assert.match(html, /<label for="emailInput">선택한 사용자<\/label>\s*<input type="email" id="emailInput" readonly /);
+  assert.ok(html.indexOf('id="usersCard"') < html.indexOf('id="adjustCard"'), 'the list comes first');
+  assert.match(html, /<button type="button" id="pickTypedBtn" class="btn btn-ghost pick-typed" hidden><\/button>/);
   assert.match(html, /<label for="creditsInput">크레딧<\/label>/);
   assert.match(html, /<p id="creditsHint" class="hint">입금액\(원\) = 크레딧<\/p>/);
   assert.match(html, /<label for="memoInput">메모<\/label>/);
@@ -711,7 +714,7 @@ test('admin page glue: a bad field is named before anything is asked; declining 
   }), confirmAnswer: text => !text.startsWith('decline') && !text.includes('9,999') });
   await waitFor(() => page.el('usersCard').hidden === false, 'the users');
   const cases = [
-    [{ email: 'not-an-email' }, 'emailInput', '이메일 주소를 확인해 주세요.'],
+    [{ email: 'not-an-email' }, 'emailInput', '위 목록에서 사용자를 선택해 주세요.'],
     [{ credits: '0' }, 'creditsInput', '크레딧은 1부터 100,000,000까지의 정수로 적어 주세요.'],
     [{ credits: '1.5' }, 'creditsInput', '크레딧은 1부터 100,000,000까지의 정수로 적어 주세요.'],
     [{ memo: 'x'.repeat(201) }, 'memoInput', '메모는 200자까지 쓸 수 있습니다.'],
@@ -733,7 +736,7 @@ test('admin page glue: a bad field is named before anything is asked; declining 
   fill(page, { credits: '10' });
   await page.el('topupBtn').click();
   assert.equal(page.posts().length, 1);
-  assert.deepEqual(messageOf(page.el('adjustResult')), [['error', '이메일 주소를 확인해 주세요.']]);
+  assert.deepEqual(messageOf(page.el('adjustResult')), [['error', '위 목록에서 사용자를 선택해 주세요.']]);
   // Enter in a field submits nothing (both buttons are type="button"; the form's submit is stopped).
   let prevented = false;
   await page.el('adjustForm').dispatch('submit', { preventDefault() { prevented = true; } });
@@ -779,4 +782,13 @@ test('admin page glue: after a network error the same submit reuses its requestI
   await page.el('topupBtn').click();
   assert.deepEqual(page.posts().slice(4).map(p => [p.body.memo, p.body.requestId]), [['first', 'uuid-00000003'], ['second', 'uuid-00000004']]);
   assert.deepEqual(messageOf(page.el('adjustResult')), [['success', 'a@b.com 잔액 101,334 크레딧']]);
+});
+
+test('typedPick: a whole address in the filter box that is not listed can be picked as it is', () => {
+  const rows = [{ email: 'a@example.com' }];
+  assert.equal(A.typedPick(' New@Example.com ', rows), 'new@example.com');
+  assert.equal(A.typedPick('a@example.com', rows), '', 'listed: pick its row');
+  assert.equal(A.typedPick('a@exam', rows), '', 'still typing');
+  assert.equal(A.typedPick('kim', rows), '');
+  assert.equal(A.typedPick('', rows), '');
 });
