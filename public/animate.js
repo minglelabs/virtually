@@ -498,6 +498,11 @@ const AnimateHelpers = (() => {
     else if (state === 'succeeded') key = job.result?.keyedUrl ? [job.result.keyMethod === 'ai' ? '완료 (AI)' : '완료', 'done'] : ['지우지 못함', 'warn'];
     else if (state === 'failed' || state === 'canceled') key = ['하지 않음', 'muted'];
     else key = ['대기', 'muted'];
+    // Step 3 by the AI remover is its own charge: what it took, or that it came back.
+    const taken = job?.keyCharge;
+    if (taken && Number.isFinite(taken.credits) && taken.credits > 0) {
+      key = [`${key[0]} · ${formatCredits(taken.credits)} 크레딧${taken.refunded ? ' 돌려받음' : ''}`, key[1]];
+    }
     return [
       { label: '① 사진 투명배경화', text: cut[0], kind: cut[1] },
       { label: '② AI 동작 생성', text: make[0], kind: make[1] },
