@@ -410,7 +410,7 @@ The card shows what was heard, the AI's last pick and the queue: **×** removes 
 | `DELETE /api/director/queue`, `DELETE /api/director/queue/<id>` | Empty the queue, or drop one waiting motion |
 | `POST /api/director/done` | `{ "seq" }`: the overlay played the motion of that `play` message to its end (allowed with the overlay key) |
 
-It costs credits by the hour: 250 for the AI's picks while it is on, charged ahead in 1-minute blocks, and 240 for the speech-to-text only while a microphone is really connected (the listened time is charged with the next block), to the account that switched it on (billing off: nothing). One page listens at a time: a second tab or window of the 방송 화면 does not open its microphone (it would send every phrase twice), and takes over when the first one stops. The listening page reports itself with `POST /api/director/mic` (`{ tab, on }`) every 10 seconds; a page that goes silent for 30 seconds loses the microphone and its charge stops. Without enough credits it does not start, and it switches itself off when a block cannot be paid.
+It costs 8 credits a minute while it is on, the AI's picks and the speech-to-text together, charged ahead in 1-minute blocks to the account that switched it on (billing off: nothing). One page listens at a time: a second tab or window of the 방송 화면 does not open its microphone (it would send every phrase twice), and takes over when the first one stops. The listening page reports itself with `POST /api/director/mic` (`{ tab, on }`) every 10 seconds; a page that goes silent for 30 seconds loses the microphone. Without enough credits it does not start, and it switches itself off when a block cannot be paid.
 
 Nothing is stored: a restart turns it off.
 
