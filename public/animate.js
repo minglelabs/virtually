@@ -1470,8 +1470,10 @@ if (typeof document !== 'undefined') (() => {
     idleSummary.textContent = H.idleSummary(photo, several ? H.photoLabel(character, index) : '');
     const items = H.characterMotions(character);
     motionsEmpty.hidden = items.length > 0;
+    renderDefaultIdle(character, photo);
     const seen = new Set();
     items.forEach((item, at) => {
+      at += defaultIdleTile.node.isConnected ? 1 : 0;
       const { motion } = item;
       seen.add(motion.id);
       let tile = motionNodes.get(motion.id);
@@ -1487,6 +1489,41 @@ if (typeof document !== 'undefined') (() => {
       tile.node.remove();
       motionNodes.delete(id);
     }
+  }
+
+  // The default idle while the photo has no idle video: the still photo, as the first
+  // tile, so it can be seen and picked again after another motion was chosen.
+  const defaultIdleTile = (() => {
+    const img = el('img', { alt: '', decoding: 'async', draggable: false });
+    const badge = el('span', { className: 'badge badge-ok', text: '대기 동작' });
+    const button = el('button', { type: 'button', className: 'btn btn-ghost btn-sm', text: '대기 동작으로' });
+    const node = el('div', { className: 'motion-tile', role: 'listitem' }, [
+      el('div', { className: 'motion-thumb checkerboard' }, [img, badge]),
+      el('span', { className: 'motion-tile-name', text: '기본 대기 동작' }),
+      el('span', { className: 'motion-tile-sub', text: '사진 그대로 · 대기 영상을 만들면 바뀝니다' }),
+      el('div', { className: 'motion-tile-actions' }, [button]),
+    ]);
+    return { node, img, badge, button };
+  })();
+
+  function renderDefaultIdle(character, photo) {
+    const tile = defaultIdleTile;
+    // Only while the default is the photo itself (no idle video, no uploaded idle).
+    const shown = (photo.idleDefault ?? 'photo') === 'photo' && !photo.defaultIdleMotionId;
+    if (!shown) {
+      tile.node.remove();
+      return;
+    }
+    const src = photo.displayUrl || photo.url;
+    if (tile.img.getAttribute('src') !== src) tile.img.src = src;
+    const isIdle = photo.idle === 'photo';
+    tile.node.classList.toggle('is-idle', isIdle);
+    tile.badge.hidden = !isIdle;
+    tile.button.hidden = isIdle;
+    tile.button.disabled = motionBusy;
+    tile.button.onclick = () => setIdleMotion(character, photo, null);
+    if (motionTiles.firstElementChild !== tile.node) motionTiles.insertBefore(tile.node, motionTiles.firstElementChild);
+    motionsEmpty.hidden = true;
   }
 
   function createMotionTile(motion) {
@@ -1540,7 +1577,7 @@ if (typeof document !== 'undefined') (() => {
     try {
       const path = `/api/characters/${encodeURIComponent(character.id)}/photos/${encodeURIComponent(photo.id)}/idle`;
       applyList(await api('PUT', path, { json: { motionId: motion ? motion.id : null }, errorText: H.serverErrorText }));
-      setStatus(motionsStatus, motion ? `'${motion.name}'을(를) 대기 동작으로 정했습니다` : '대기 동작 선택을 해제했습니다', 'success');
+      setStatus(motionsStatus, motion ? `'${motion.name}'을(를) 대기 동작으로 정했습니다` : '기본 대기 동작으로 돌아갔습니다', 'success');
     } catch (error) {
       setStatus(motionsStatus, `대기 동작 바꾸기 실패: ${error.message}`, 'error');
     } finally {

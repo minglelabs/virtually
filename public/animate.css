@@ -594,3 +594,5 @@ select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .motion-tile-sub { padding: 0 2px; font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .motion-tile-sub:empty { display: none; }
 .motion-tile-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: auto; }
+
+.motion-thumb img { display: block; width: 100%; height: 100%; object-fit: contain; }
