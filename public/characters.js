@@ -704,19 +704,21 @@ if (typeof document !== 'undefined') (() => {
 
   function createThumb(characterId, photoId) {
     const node = photoTemplate.content.firstElementChild.cloneNode(true);
-    const thumb = { node, img: part(node, 'img'), badges: part(node, 'badges'), cap: part(node, 'cap') };
+    const thumb = { node, pick: node.querySelector('.thumb'), remove: part(node, 'remove'), img: part(node, 'img'), badges: part(node, 'badges'), cap: part(node, 'cap') };
     node.dataset.id = photoId;
-    node.addEventListener('click', () => selectPhoto(characterId, photoId));
+    thumb.pick.addEventListener('click', () => selectPhoto(characterId, photoId));
+    thumb.remove.addEventListener('click', () => deletePhoto(characterId, photoId));
     return thumb;
   }
 
   function updateThumb(thumb, character, photo, selectedId) {
     const selected = photo.id === selectedId;
     const label = H.photoLabel(character, photo.id);
-    thumb.node.classList.toggle('is-selected', selected);
-    thumb.node.setAttribute('aria-pressed', String(selected));
+    thumb.pick.classList.toggle('is-selected', selected);
+    thumb.pick.setAttribute('aria-pressed', String(selected));
+    thumb.remove.setAttribute('aria-label', `${label} 삭제`);
     const notes = H.photoBadges(photo).map(badge => badge.text).join(', ');
-    thumb.node.setAttribute('aria-label', `${label}${notes ? ` (${notes})` : ''}, ${H.motionCaption(photo)}${selected ? ', 선택됨' : ''}`);
+    thumb.pick.setAttribute('aria-label', `${label}${notes ? ` (${notes})` : ''}, ${H.motionCaption(photo)}${selected ? ', 선택됨' : ''}`);
     // What OBS shows for the photo: its cutout when the plain background was cut out.
     const src = photo.displayUrl || photo.url;
     if (thumb.img.getAttribute('src') !== src) thumb.img.src = src;
@@ -780,7 +782,7 @@ if (typeof document !== 'undefined') (() => {
         : [el('p', { className: 'empty', text: '아직 동작이 없습니다' })]));
     }
     row.addMotion.setAttribute('href', H.animateHref(photo.id));
-    row.addMotion.setAttribute('aria-label', `${label}의 동작 관리`);
+    row.addMotion.setAttribute('aria-label', `${label}의 사진, 동작 관리`);
   }
 
   // Play a motion of the selected photo under its buttons: once, the idle in a loop.

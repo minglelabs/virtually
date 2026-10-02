@@ -1768,6 +1768,8 @@ if (typeof document !== 'undefined') (() => {
     // Only for a clip that still has its background (an uploaded video, a result added as it was).
     const keyBtn = el('button', { type: 'button', className: 'btn btn-ghost btn-sm', text: '배경 제거' });
     const aiKeyBtn = el('button', { type: 'button', className: 'btn btn-ghost btn-sm', text: 'AI로 배경 제거 (유료)' });
+    // Only for a clip whose background was removed here: the clip as it was is kept.
+    const restoreBtn = el('button', { type: 'button', className: 'btn btn-ghost btn-sm', text: '원본 영상으로' });
     // The picture is the play button: a click plays the clip once from the start
     // (the idle motion loops, as on air), another click stops it.
     const mark = el('span', { className: 'motion-play', 'aria-hidden': 'true', text: '▶' });
@@ -1776,9 +1778,9 @@ if (typeof document !== 'undefined') (() => {
       thumb,
       name,
       sub,
-      el('div', { className: 'motion-tile-actions' }, [idleBtn, keyBtn, aiKeyBtn, downloadBtn, removeBtn]),
+      el('div', { className: 'motion-tile-actions' }, [idleBtn, keyBtn, aiKeyBtn, restoreBtn, downloadBtn, removeBtn]),
     ]);
-    const tile = { node, video, thumb, badge, name, sub, idleBtn, removeBtn, keyBtn, aiKeyBtn, downloadBtn, isIdle: false, mime: motion.mime };
+    const tile = { node, video, thumb, badge, name, sub, idleBtn, removeBtn, keyBtn, aiKeyBtn, restoreBtn, downloadBtn, isIdle: false, mime: motion.mime };
     const setPlaying = (playing) => {
       node.classList.toggle('is-playing', playing);
       mark.textContent = playing ? '■' : '▶';
@@ -1835,7 +1837,11 @@ if (typeof document !== 'undefined') (() => {
       const price = `1초당 ${H.priceText(ai.videoUsdPerSecond, state.billing)}, 최소 ${ai.videoMinSeconds}초`;
       if (window.confirm(`AI로 '${motion.name}' 영상의 배경을 지웁니다. 비용: ${price}. 진행할까요?`)) keyMotion(motion, 'ai');
     };
-    // The file changed (its background is gone): load it again.
+    tile.restoreBtn.hidden = motion.hasOriginal !== true;
+    tile.restoreBtn.disabled = motionBusy;
+    tile.restoreBtn.title = '배경을 지우기 전의 영상으로 되돌립니다';
+    tile.restoreBtn.onclick = () => restoreMotion(motion);
+    // The file changed (its background is gone, or it is back): load it again.
     if (tile.mime !== motion.mime || tile.hadBackground !== background) {
       if (tile.hadBackground !== undefined) tile.video.src = `/api/media/${encodeURIComponent(motion.id)}?v=${Date.now()}`;
       tile.mime = motion.mime;
@@ -1872,9 +1878,26 @@ if (typeof document !== 'undefined') (() => {
     setStatus(motionsStatus, method === 'ai' ? `AI로 '${motion.name}'의 배경을 지우는 중… (영상 길이에 따라 1~2분 걸릴 수 있습니다)` : `'${motion.name}'의 배경을 지우는 중…`);
     try {
       applyList(await api('POST', `/api/media/${encodeURIComponent(motion.id)}/key`, { json: method ? { method } : {} }));
-      setStatus(motionsStatus, `'${motion.name}'의 배경을 지웠습니다`, 'success');
+      setStatus(motionsStatus, `'${motion.name}'의 배경을 지웠습니다. 원본 영상은 보관되어 '원본 영상으로'로 되돌릴 수 있습니다`, 'success');
     } catch (error) {
       setStatus(motionsStatus, `배경 제거 실패: ${error.message}`, 'error');
+    } finally {
+      motionBusy = false;
+      renderMotions();
+    }
+  }
+
+  // Back to the clip as it was before its background was removed.
+  async function restoreMotion(motion) {
+    if (motionBusy || !window.confirm(`'${motion.name}'을(를) 배경을 지우기 전의 원본 영상으로 되돌릴까요? 배경을 지운 영상은 사라지고, AI로 다시 지우면 비용이 다시 듭니다.`)) return;
+    motionBusy = true;
+    renderMotions();
+    setStatus(motionsStatus, '');
+    try {
+      applyList(await api('DELETE', `/api/media/${encodeURIComponent(motion.id)}/key`));
+      setStatus(motionsStatus, `'${motion.name}'을(를) 원본 영상으로 되돌렸습니다`, 'success');
+    } catch (error) {
+      setStatus(motionsStatus, `원본으로 되돌리기 실패: ${error.message}`, 'error');
     } finally {
       motionBusy = false;
       renderMotions();

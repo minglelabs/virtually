@@ -133,7 +133,7 @@
             <video muted playsinline data-part="previewVideo"></video>
           </div>
           <div class="detail-foot">
-            <a class="add-motion" data-part="addMotion">동작 관리</a>
+            <a class="add-motion" data-part="addMotion">사진, 동작 관리</a>
             <span class="foot-hint">동작을 누르면 여기서 재생해 봅니다 · 만들기, 올리기, 대기 동작 고르기는 동작 관리에서</span>
           </div>
         </div>
@@ -142,15 +142,19 @@
     </section>
   </template>
 
-  <!-- One small photo: a click selects it; the row button puts the selected photo on air. -->
+  <!-- One small photo: a click selects it; the row button puts the selected photo on air.
+       The × (shown on hover or focus) deletes the photo, like 사진 삭제 below. -->
   <template id="photoTemplate">
-    <button type="button" class="thumb">
-      <span class="thumb-img checkerboard">
-        <img alt="" loading="lazy" decoding="async" draggable="false" data-part="img">
-        <span class="thumb-badges" data-part="badges"></span>
-      </span>
-      <span class="thumb-cap" data-part="cap"></span>
-    </button>
+    <div class="thumb-wrap">
+      <button type="button" class="thumb">
+        <span class="thumb-img checkerboard">
+          <img alt="" loading="lazy" decoding="async" draggable="false" data-part="img">
+          <span class="thumb-badges" data-part="badges"></span>
+        </span>
+        <span class="thumb-cap" data-part="cap"></span>
+      </button>
+      <button type="button" class="thumb-remove" data-part="remove" title="사진 삭제">×</button>
+    </div>
   </template>
 
   <script src="./auth.js"></script>

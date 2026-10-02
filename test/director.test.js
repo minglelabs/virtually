@@ -194,6 +194,9 @@ test('controller helpers: the hint, the last pick, the queue rows and Soniox tok
   assert.equal(D.buttonPrice({ price: { perMinute: 8, blockMinutes: 1 } }), '1분 8크레딧');
   assert.equal(D.buttonPrice({}), '');
   assert.match(D.noteText({ ...base, enabled: true, stt: { configured: false } }), /SONIOX_API_KEY/);
+  // On, but no page holds the microphone (permission refused, or not connected yet).
+  assert.match(D.noteText({ ...base, enabled: true, listening: true }), /^말을 듣는 중입니다/);
+  assert.match(D.noteText({ ...base, enabled: true, listening: false }), /^아직 마이크가 연결되지 않아/);
   assert.equal(D.lastText({ ...base, enabled: true, asked: 3, last: { label: IDLE_LABEL, driver: 'decisions', ms: 140 } }), '방금 판단: 동작 없음(대기) · 140ms · Decisions API · 누적 3회');
   assert.match(D.lastText({ ...base, ai: { configured: true, decisionsNote: '403' }, asked: 1, last: { label: '원영턴', driver: 'chat', ms: 900 } }), /'원영턴' · 900ms · 일반 호출 \(Decisions API 사용 불가\)/);
   assert.equal(D.lastText({ ...base, error: '401: bad key' }), 'AI 오류: 401: bad key');
