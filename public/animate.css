@@ -646,3 +646,6 @@ button.motion-thumb:hover .motion-play { background: var(--accent); }
 .seg button[aria-pressed="true"] { background: var(--accent); color: #fff; font-weight: 600; }
 .seg button:disabled { color: var(--muted); opacity: 0.55; cursor: not-allowed; text-decoration: line-through; }
 .seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* Under a job's clip: 원본/배경 지운 영상 toggle and 다운로드. */
+.job-media-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
