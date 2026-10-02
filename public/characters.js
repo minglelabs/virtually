@@ -462,6 +462,21 @@ if (typeof document !== 'undefined') (() => {
     render();
   }
 
+  // The AI remover's price for one photo in credits ('약 20 크레딧'), at the account's rate
+  // (GET /api/billing through auth.js; credits.js's default of 2000 per dollar until it answers).
+  let creditsPerUsd = 2000;
+  const sharedBilling = window.VirtuallyBilling || null;
+  if (sharedBilling && sharedBilling.ready && typeof sharedBilling.ready.then === 'function') {
+    sharedBilling.ready.then((billing) => {
+      if (billing && Number.isFinite(billing.creditsPerUsd) && billing.creditsPerUsd > 0) creditsPerUsd = billing.creditsPerUsd;
+      for (const id of rows.keys()) renderRow(id);
+    }).catch(() => {});
+  }
+  function aiCutPrice() {
+    const usd = Number(state.backgroundAi?.imageUsd);
+    return Number.isFinite(usd) ? `약 ${Math.ceil(usd * creditsPerUsd - 1e-9).toLocaleString('ko-KR')} 크레딧` : '유료';
+  }
+
   // Whether the paid AI background remover is offered (asked once).
   fetch('/api/animate/status', { headers: { Accept: 'application/json' } })
     .then(response => (response.ok ? response.json() : null))
@@ -581,7 +596,7 @@ if (typeof document !== 'undefined') (() => {
     });
     row.aiCut.addEventListener('click', () => {
       const photoId = selectedIn(characterId);
-      const price = state.backgroundAi && Number.isFinite(state.backgroundAi.imageUsd) ? `약 $${state.backgroundAi.imageUsd}` : '소액';
+      const price = aiCutPrice();
       if (photoId && window.confirm(`AI로 이 사진의 배경을 지웁니다. 단색이 아닌 배경도 지울 수 있습니다.\n비용: 사진 1장당 ${price} (서비스 운영 비용으로 청구됩니다). 진행할까요?`)) {
         setTransparent(characterId, photoId, true, 'ai');
       }
@@ -732,6 +747,7 @@ if (typeof document !== 'undefined') (() => {
     // The paid AI remover: only when the server has it, and not for a photo it already did.
     row.aiCut.hidden = !(state.backgroundAi && state.backgroundAi.available === true) || background.state === 'own' || photo.cutoutMethod === 'ai';
     row.aiCut.disabled = busy;
+    row.aiCut.textContent = `AI로 배경 지우기 (${aiCutPrice()})`;
     if (photo.cutoutMethod === 'ai') row.bgTag.textContent = '배경 지움 (AI)';
     row.count.textContent = H.motionCountText(photo);
     row.count.classList.toggle('has-motions', H.motionCount(photo) > 0);
