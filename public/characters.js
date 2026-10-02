@@ -371,7 +371,10 @@ if (typeof document !== 'undefined') (() => {
     }
     let data = null;
     try { data = await response.json(); } catch { /* empty or not JSON */ }
-    if (!response.ok) throw Object.assign(new Error(H.errorText(data, response.status)), { status: response.status, code: data?.code || null });
+    // Not enough credits (the paid AI remover) reads the same on every page.
+    const lack = data && data.code === 'insufficient_credits' && data.detail
+      ? `크레딧이 부족합니다 (필요 ${Number(data.detail.needed).toLocaleString('ko-KR')}, 보유 ${Number(data.detail.balance).toLocaleString('ko-KR')})` : '';
+    if (!response.ok) throw Object.assign(new Error(lack || H.errorText(data, response.status)), { status: response.status, code: data?.code || null });
     return data;
   }
 
@@ -597,7 +600,7 @@ if (typeof document !== 'undefined') (() => {
     row.aiCut.addEventListener('click', () => {
       const photoId = selectedIn(characterId);
       const price = aiCutPrice();
-      if (photoId && window.confirm(`AI로 이 사진의 배경을 지워 새 사진으로 추가합니다. 단색이 아닌 배경도 지울 수 있습니다.\n비용: 사진 1장당 ${price} (서비스 운영 비용으로 청구됩니다). 진행할까요?`)) {
+      if (photoId && window.confirm(`AI로 이 사진의 배경을 지워 새 사진으로 추가합니다. 단색이 아닌 배경도 지울 수 있습니다.\n비용: 사진 1장당 ${price}. 진행할까요?`)) {
         setTransparent(characterId, photoId, true, 'ai');
       }
     });

@@ -113,7 +113,7 @@ function fakeDirector({ answers, motions = [{ id: 'm-turn', name: '원영턴' },
 test('director: asks only about new words, queues the picks, plays them one after another', async () => {
   const { director, asked, played, tick, seq } = fakeDirector({ answers: [IDLE_LABEL, '원영턴', '인사', '원영턴'] });
   assert.equal(director.speech('꺼져 있을 때 한 말'), false, 'off: nothing is heard');
-  director.setEnabled(true);
+  await director.setEnabled(true);
   await tick();
   assert.equal(asked.length, 0, 'nothing said: nothing asked');
 
@@ -153,7 +153,7 @@ test('director: asks only about new words, queues the picks, plays them one afte
 test('director: remove one, clear all, skip to the next, and off empties the queue', async () => {
   const motions = ['a', 'b', 'c', 'd'].map(name => ({ id: `m-${name}`, name }));
   const { director, played, log, tick } = fakeDirector({ answers: ['a', 'b', 'c', 'd', 'b'], motions });
-  director.setEnabled(true);
+  await director.setEnabled(true);
   for (const word of ['1', '2', '3', '4']) {
     director.speech(word);
     await tick();
@@ -178,7 +178,7 @@ test('director: remove one, clear all, skip to the next, and off empties the que
   director.speech('5');
   await tick();
   assert.equal(director.state().current.name, 'b');
-  director.setEnabled(false);
+  await director.setEnabled(false);
   assert.deepEqual([director.state().enabled, director.state().queue.length, director.state().lines.length], [false, 0, 0]);
   assert.equal(director.state().current.name, 'b', 'the motion that plays is left to finish');
   director.close();
@@ -299,4 +299,38 @@ test('routes: switch, speech, the queue and the overlay\'s done; the speech-to-t
 
   state = await (await send('POST', '/api/director', { enabled: false })).json();
   assert.equal(state.enabled, false);
+});
+
+test('director: priced by the hour, a block is charged ahead, and without credits it does not start', async () => {
+  // A real block: 5 minutes of 490 credits an hour is 40.83, charged as 40 (the fraction goes with the next one).
+  const charges = [];
+  let broke = false;
+  const director = createDirector({
+    decider: { status: () => ({ configured: true }) }, getView: () => null, play: () => 1, stop: () => {},
+    stt: { configured: true },
+    charge: async (credits, minutes) => {
+      if (broke) throw Object.assign(new Error('Not enough credits.'), { code: 'insufficient_credits' });
+      charges.push([credits, minutes]);
+    },
+  });
+  assert.deepEqual(director.state().price, { decisionPerHour: 250, sttPerHour: 240, blockMinutes: 5 });
+  assert.equal(D.priceText(director.state()), '켜 둔 동안 시간당 약 490 크레딧 (판단 250 + 음성 인식 240), 5분 단위로 먼저 차감됩니다.');
+  await director.setEnabled(true);
+  assert.deepEqual(charges, [[40, 5]], 'the first block is charged when it is switched on');
+  await director.setEnabled(false);
+  broke = true;
+  await assert.rejects(director.setEnabled(true), { code: 'insufficient_credits' });
+  assert.equal(director.state().enabled, false);
+  director.close();
+
+  // Without speech-to-text only the picks are charged: 250 an hour, 20 for the first block.
+  const picksOnly = [];
+  const quiet = createDirector({
+    decider: { status: () => ({ configured: true }) }, getView: () => null, play: () => 1, stop: () => {},
+    charge: async credits => { picksOnly.push(credits); },
+  });
+  await quiet.setEnabled(true);
+  assert.deepEqual(picksOnly, [20]);
+  assert.equal(D.priceText(quiet.state()), '켜 둔 동안 시간당 약 250 크레딧, 5분 단위로 먼저 차감됩니다.');
+  quiet.close();
 });
