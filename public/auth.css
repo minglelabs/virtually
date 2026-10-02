@@ -71,3 +71,19 @@
 .brand-link:hover { opacity: 0.85; }
 .brand-link:focus-visible { outline: 2px solid #6c8cff; outline-offset: 2px; border-radius: 4px; }
 .brand-mark { font-size: 20px; font-weight: 700; line-height: 30px; }
+
+/* The top bar of a scrolling page (auth.js): sticks to the top, slides away on scroll down, back on scroll up. */
+.autohide-header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  margin: -10px -12px 0;
+  padding: 10px 12px;
+  background: rgba(15, 17, 21, 0.92);
+  backdrop-filter: blur(8px);
+  border-radius: 0 0 10px 10px;
+  transition: transform 0.28s ease, opacity 0.28s ease;
+  will-change: transform;
+}
+.autohide-header.is-hidden { transform: translateY(-115%); opacity: 0; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) { .autohide-header { transition: none; } }
