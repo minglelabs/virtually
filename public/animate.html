@@ -42,6 +42,14 @@
       </div>
       <div id="characterRows" class="char-rows"></div>
       <p id="characterMeta" class="muted character-meta"></p>
+      <!-- The chosen photo's background: cut it out (free, or the paid AI remover) or go back to the original -->
+      <div id="photoBg" class="photo-bg" hidden>
+        <span id="photoBgTag" class="badge"></span>
+        <button type="button" id="photoBgCut" class="btn btn-ghost btn-sm">투명 배경으로 만들기</button>
+        <button type="button" id="photoBgAi" class="btn btn-ghost btn-sm">AI로 배경 지우기 (유료)</button>
+        <button type="button" id="photoBgKeep" class="btn btn-ghost btn-sm">원본 사진으로</button>
+        <span id="photoBgNote" class="step-note"></span>
+      </div>
       <input type="file" id="characterInput" accept="image/png,image/jpeg,image/webp" multiple hidden>
       <p id="characterStatus" class="status" aria-live="polite"></p>
     </section>

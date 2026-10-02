@@ -796,6 +796,24 @@ const AnimateHelpers = (() => {
     return `${lead}: 사진. '기본 대기 동작' 영상을 만들면 사진 대신 그 영상이 반복 재생됩니다.`;
   }
 
+  /**
+   * The chosen photo's background (PhotoView.transparent / cutoutReason / cutoutMethod):
+   * { tag, note, canCut, cut, own }. Only a plain one-colour background can be cut for free.
+   */
+  function photoBackground(photo) {
+    if (!photo) return null;
+    if (photo.transparent === 'own') return { tag: '투명 배경', note: '처음부터 배경이 투명한 사진입니다.', canCut: false, cut: false, own: true };
+    if (photo.transparent === 'cut') {
+      return { tag: photo.cutoutMethod === 'ai' ? '배경 지움 (AI)' : '배경 지움', note: '배경을 지운 사진을 보여 주고, 동작을 만들 때도 이 사진을 씁니다.', canCut: false, cut: true, own: false };
+    }
+    const plain = !(photo.cutoutReason === 'not_uniform' || photo.cutoutReason === 'no_subject');
+    return {
+      tag: '배경 있음',
+      note: plain ? '단색 배경이면 무료로 지울 수 있습니다.' : '배경이 한 가지 색이 아니라서 무료 방식으로는 지울 수 없습니다.',
+      canCut: plain, cut: false, own: false,
+    };
+  }
+
   /** `search` with ?photo= set to `photoId` (removed for none), other parameters kept: '' or '?...'. */
   function searchWithPhoto(search, photoId) {
     const params = new URLSearchParams(typeof search === 'string' ? search : '');
@@ -903,6 +921,7 @@ const AnimateHelpers = (() => {
     characterChipText,
     jobsOfCharacter,
     idleSummary,
+    photoBackground,
     searchWithPhoto,
     MOTION_MAX_BYTES,
     MOTION_MAX_SECONDS,
@@ -997,6 +1016,12 @@ if (typeof document !== 'undefined') (() => {
   const characterEmpty = $('characterEmpty');
   const characterRows = $('characterRows');
   const characterMeta = $('characterMeta');
+  const photoBg = $('photoBg');
+  const photoBgTag = $('photoBgTag');
+  const photoBgCut = $('photoBgCut');
+  const photoBgAi = $('photoBgAi');
+  const photoBgKeep = $('photoBgKeep');
+  const photoBgNote = $('photoBgNote');
   const characterInput = $('characterInput');
   const characterStatus = $('characterStatus');
   const photoDropTemplate = $('photoDropTemplate');
@@ -1479,7 +1504,51 @@ if (typeof document !== 'undefined') (() => {
       charRows.delete(id);
     }
     characterMeta.textContent = state.list == null ? '캐릭터를 불러오는 중…' : H.photoSummary(chosenPhoto());
+    renderPhotoBg();
   }
+
+  // The chosen photo's background, on its own (no motion needs to be made for it).
+  let photoBgBusy = false;
+  function renderPhotoBg() {
+    const entry = chosenPhoto();
+    const background = H.photoBackground(entry?.photo);
+    photoBg.hidden = !background;
+    if (!background) return;
+    photoBgTag.textContent = background.tag;
+    photoBgNote.textContent = background.note;
+    photoBgCut.hidden = background.own || background.cut;
+    photoBgCut.disabled = photoBgBusy || !background.canCut;
+    photoBgAi.hidden = background.own || entry.photo.cutoutMethod === 'ai' || state.backgroundAi?.available !== true;
+    photoBgAi.disabled = photoBgBusy;
+    photoBgKeep.hidden = !background.cut;
+    photoBgKeep.disabled = photoBgBusy;
+  }
+
+  async function changePhotoBg(method, body, doneText) {
+    const entry = chosenPhoto();
+    if (!entry || photoBgBusy) return;
+    photoBgBusy = true;
+    renderPhotoBg();
+    setStatus(characterStatus, method === 'POST' ? '배경을 지우는 중…' : '');
+    try {
+      const path = `/api/characters/${encodeURIComponent(entry.character.id)}/photos/${encodeURIComponent(entry.photo.id)}/transparent`;
+      applyList(await api(method, path, { json: body, errorText: H.serverErrorText }));
+      setStatus(characterStatus, doneText, 'success');
+    } catch (error) {
+      setStatus(characterStatus, error.message, 'error');
+    } finally {
+      photoBgBusy = false;
+      renderPhotoBg();
+    }
+  }
+  photoBgCut.addEventListener('click', () => changePhotoBg('POST', {}, '사진의 배경을 지웠습니다'));
+  photoBgKeep.addEventListener('click', () => changePhotoBg('DELETE', {}, '원본 사진으로 되돌렸습니다'));
+  photoBgAi.addEventListener('click', () => {
+    const price = H.priceText(state.backgroundAi?.imageUsd, state.billing);
+    if (window.confirm(`AI로 이 사진의 배경을 지웁니다. 단색이 아닌 배경도 지울 수 있습니다.\n비용: 사진 1장당 ${price} (서비스 운영 비용으로 청구됩니다). 진행할까요?`)) {
+      changePhotoBg('POST', { method: 'ai' }, 'AI로 사진의 배경을 지웠습니다');
+    }
+  });
 
   // ---- Character switcher (top) ----
   // One chip per character (server order), keyed by id and patched in place.
@@ -2320,7 +2389,11 @@ if (typeof document !== 'undefined') (() => {
       state.margins = H.marginOptions(data);
       renderJobs(); // job cards show margin labels from the payload
     }
-    if (data.backgroundAi && typeof data.backgroundAi === 'object') state.backgroundAi = data.backgroundAi;
+    if (data.backgroundAi && typeof data.backgroundAi === 'object') {
+      state.backgroundAi = data.backgroundAi;
+      renderPhotoBg();
+      renderMotions();
+    }
     if ('ffmpeg' in data) {
       state.ffmpeg = data.ffmpeg;
       const ok = data.ffmpeg?.available !== false;
