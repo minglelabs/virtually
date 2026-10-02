@@ -330,7 +330,7 @@ test('full flow: fetch examples -> character -> mock job -> result -> add as mot
     assert.equal(done.result.width, 64);
     assert.equal(done.result.height, 96);
     assert.ok(done.result.duration > 2.5 && done.result.duration < 3.5, `result duration ${done.result.duration}`);
-    assert.deepEqual(Object.keys(done).sort(), ['canRefetch', 'characterCutout', 'characterId', 'characterLabel', 'createdAt', 'drivingId', 'drivingLabel', 'error', 'estimate', 'familyLabel', 'finishedAt', 'id', 'idle', 'keyColor', 'margin', 'motionId',
+    assert.deepEqual(Object.keys(done).sort(), ['canRefetch', 'characterCutout', 'characterId', 'characterLabel', 'createdAt', 'drivingId', 'drivingLabel', 'error', 'estimate', 'familyLabel', 'finishedAt', 'id', 'idle', 'keyCharge', 'keyColor', 'margin', 'motionId',
       'motionName', 'photoId', 'presetKey', 'progress', 'providerLabel', 'providerStatus', 'result', 'routeId', 'routeLabel', 'state', 'steps', 'updatedAt']);
     assert.equal(done.canRefetch, false, 'a succeeded job offers no 다시 받기');
     // finishedAt = the first arrival in a terminal state, never before creation.

@@ -696,3 +696,54 @@ test('ledger: each job charge is refunded once on its own; an older refund witho
   assert.deepEqual(ledgers.refundCharge(ledger, { chargeId: 'nope', nowIso: at }), { refunded: false });
   assert.equal(ledgers.balanceOf(ledger, 's1'), 0);
 });
+
+test('each step is its own charge: the AI removal of step 3 is given back when it fails, kept when it works', { skip }, async t => {
+  const ctx = await H.startApp(t, { animate: { concurrency: 1 } });
+  // A fake AI remover: its video answer is a ready transparent clip, or a failure.
+  const alpha = path.join(ctx.root, 'alpha.webm');
+  require('node:child_process').execFileSync(process.env.FFMPEG_PATH || 'ffmpeg', ['-hide_banner', '-loglevel', 'error', '-nostdin', '-y',
+    '-f', 'lavfi', '-i', 'color=c=red@1.0:s=64x96:rate=15,format=rgba', '-t', '1', '-c:v', 'libvpx-vp9', '-pix_fmt', 'yuva420p', alpha], { stdio: 'ignore' });
+  let videoFails = false;
+  const backgroundAi = {
+    available: () => true,
+    image: async () => { throw new Error('not used'); },
+    video: async (src, dest) => { if (videoFails) throw new Error('no luck'); await fs.copyFile(alpha, dest); },
+    videoUsd: seconds => Math.max(3, Math.ceil(seconds)) * 0.01,
+    view: () => ({ available: true, imageUsd: 0.004, videoUsdPerSecond: 0.01, videoMinSeconds: 3 }),
+  };
+  await H.restartApp(ctx, { animate: { customRoutes: [H.PRICED_ROUTE], config: { concurrency: 1 }, backgroundAi } });
+  const admin = await H.signIn(ctx, H.ADMIN);
+  const alice = await H.signIn(ctx, H.ALICE);
+  const driving = await H.prepareInputs(ctx, alice);
+  const balance = async () => (await H.billingOf(ctx, alice)).balance;
+  const create = (extra = {}) => H.post(ctx, '/api/animate/jobs', {
+    drivingId: driving.id, photoId: ctx.photoId, routeId: H.PRICED_ROUTE.id, options: {}, confirmed: true, ...extra,
+  }, alice);
+  const KEY = 60; // 3 s (the minimum) at $0.01 a second, 2000 credits per USD
+
+  // Enough for the generation but not for step 3: nothing is taken, nothing starts.
+  await topUp(ctx, admin, H.ALICE.email, H.JOB_CREDITS + KEY - 1);
+  let response = await create({ keyResult: 'ai' });
+  assert.equal(response.status, 402, response.text);
+  assert.equal(await balance(), H.JOB_CREDITS + KEY - 1, 'the generation\'s credits came straight back');
+
+  // Both charged, each on its own line; the AI removal works: both kept.
+  await topUp(ctx, admin, H.ALICE.email, 2 * (H.JOB_CREDITS + KEY));
+  const start = await balance();
+  response = await create({ keyResult: 'ai' });
+  assert.equal(response.status, 202, response.text);
+  let job = await H.waitForJob(ctx, alice, response.json.job.id, current => TERMINAL.has(current.state));
+  assert.equal(job.state, 'succeeded', JSON.stringify(job.error));
+  assert.deepEqual([job.billing.credits, job.keyCharge], [H.JOB_CREDITS, { credits: KEY, refunded: false }]);
+  assert.equal(job.result.keyMethod, 'ai');
+  assert.equal(await balance(), start - H.JOB_CREDITS - KEY);
+
+  // The AI removal fails (the free key runs instead): only its credits come back.
+  videoFails = true;
+  response = await create({ keyResult: 'ai' });
+  assert.equal(response.status, 202, response.text);
+  job = await H.waitForJob(ctx, alice, response.json.job.id, current => TERMINAL.has(current.state) && current.keyCharge.refunded);
+  assert.equal(job.state, 'succeeded');
+  assert.deepEqual([job.result.keyAiFailed, job.billing.refunded, job.keyCharge], [true, false, { credits: KEY, refunded: true }]);
+  assert.equal(await balance(), start - 2 * H.JOB_CREDITS - KEY, 'the generation is paid, the failed AI removal is not');
+});

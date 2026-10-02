@@ -210,7 +210,8 @@ test('the paid AI removers run only when picked: photo and result, with their co
   assert.deepEqual(job.steps, { cut: 'done', key: true, cutMethod: 'ai', keyMethod: 'ai' });
   assert.deepEqual(calls, { image: 1, video: 1 });
   assert.deepEqual([job.result.keyMethod, job.result.keyAiFailed, Boolean(job.result.keyedUrl)], ['ai', false, true]);
-  assert.equal(Number((job.estimate.usd - plainEstimate).toFixed(4)), 0.04, '$0.01 for the photo + 3 s of video at $0.01');
+  assert.equal((job.estimate.usd || 0), plainEstimate, 'the AI steps are their own charges, not part of the generation\'s price');
+  assert.equal(job.keyCharge, null, 'billing is off here: nothing was taken');
   let photo = (await (await fetch(`${base}/api/characters`)).json()).characters[0].photos[0];
   assert.deepEqual([photo.transparent, photo.aiCutReady], ['no', true], 'the photo itself is not changed; its AI cut is kept for next time');
 
@@ -220,7 +221,7 @@ test('the paid AI removers run only when picked: photo and result, with their co
   assert.deepEqual(calls, { image: 1, video: 2 });
   assert.equal(job.state, 'succeeded');
   assert.equal(job.result.keyAiFailed, true);
-  assert.equal(Number((job.estimate.usd - plainEstimate).toFixed(4)), 0.03, 'the photo was not paid for again');
+  assert.equal((job.estimate.usd || 0), plainEstimate);
   videoFails = false;
 
   // The buttons: the photo again on request, a result by 'AI로 배경 제거'.
