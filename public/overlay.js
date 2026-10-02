@@ -594,6 +594,7 @@ if (typeof document !== 'undefined') (() => {
 
   // Connect SSE
   let eventSource = null;
+  let sseRetryTimer = null;
   function connectSSE() {
     if (eventSource) {
       eventSource.close();
@@ -618,8 +619,14 @@ if (typeof document !== 'undefined') (() => {
     };
 
     eventSource.onerror = (err) => {
-      // EventSource auto-reconnects in browser. onopen will trigger fetchLibrary.
+      // The browser reconnects by itself after a network drop (onopen then fetches the
+      // library), but gives up for good when the answer is an error page (the proxy's 502
+      // while the server restarts): then open a new stream, or OBS would stay deaf.
       console.warn('SSE connection error, will retry...', err);
+      if (eventSource.readyState === EventSource.CLOSED) {
+        clearTimeout(sseRetryTimer);
+        sseRetryTimer = setTimeout(connectSSE, 3000);
+      }
     };
   }
 

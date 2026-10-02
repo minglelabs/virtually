@@ -2999,16 +2999,20 @@ if (typeof document !== 'undefined') (() => {
     state.libraryIds = state.list ? H.knownMotionIds(state.list, state.viewMotions) : null;
   }
 
-  const events = new EventSource('/api/events');
-  events.addEventListener('open', () => {
+  // While a job is working, its state is also asked for every few seconds: a result must
+  // show up even when the live stream is down (a deploy in the middle of a job).
+  setInterval(() => {
+    if (state.jobs.some(job => H.ACTIVE_STATES.has(job.state))) loadJobs().catch(() => {});
+  }, 5000);
+
+  window.VirtuallyMotions.liveEvents('/api/events', { open: () => {
     // After a reconnect, refetch what may have changed while disconnected.
     if (everConnected) {
       loadJobs().catch(() => {});
       scheduleCharacters();
     }
     everConnected = true;
-  });
-  events.addEventListener('message', (event) => {
+  }, message: (event) => {
     let data;
     try { data = JSON.parse(event.data); } catch { return; }
     if (data?.type === 'animate-job-removed' && typeof data.id === 'string') {
@@ -3028,7 +3032,7 @@ if (typeof document !== 'undefined') (() => {
       // The on-air photo, its motions or its character's name changed: refresh the picker.
       if (state.list) scheduleCharacters();
     }
-  });
+  } });
 
   // ---- Boot ----
   renderCharacters();
