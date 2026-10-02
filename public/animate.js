@@ -2544,7 +2544,11 @@ if (typeof document !== 'undefined') (() => {
 
   // 4. 작업 순서: step 1 follows the chosen photo, step 2 the chosen model.
   const aiAvailable = () => state.backgroundAi?.available === true;
-  const cutAi = () => aiAvailable() && state.steps.cutAi;
+  // A photo the free cut cannot do, with an AI cutout kept from before: the checkbox alone
+  // means that cutout (nothing runs, nothing is charged), without picking the AI button first.
+  const keptAiOnly = (photo) => Boolean(photo) && photo.transparent === 'no' && photo.aiCutReady === true
+    && (photo.cutoutReason === 'not_uniform' || photo.cutoutReason === 'no_subject');
+  const cutAi = () => aiAvailable() && (state.steps.cutAi || keptAiOnly(chosenPhoto()?.photo));
   const keyAi = () => aiAvailable() && state.steps.keyAi;
   // The paid AI steps of the request as it stands, in USD.
   function extraUsd() {
