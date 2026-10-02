@@ -2568,7 +2568,10 @@ if (typeof document !== 'undefined') (() => {
     if (aiAvailable()) {
       const keyUsd = H.aiVideoUsd(selectedDriving()?.duration, ai);
       setSeg(stepCutMethod, cutAi() ? 'ai' : 'free', {
-        ai: `유료 · AI로 인식해서 지우기 (${photo?.aiCutReady === true ? '추가 비용 없음' : H.priceText(ai.imageUsd, state.billing)})`,
+        // Already cut out by the AI once: the kept cutout is used, nothing runs and nothing is charged.
+        ai: photo?.aiCutReady === true
+          ? 'AI로 지워 둔 사진 쓰기 (추가 비용 없음)'
+          : `유료 · AI로 인식해서 지우기 (${H.priceText(ai.imageUsd, state.billing)})`,
       }, { free: !freeCut });
       setSeg(stepKeyMethod, keyAi() ? 'ai' : 'free', {
         ai: `유료 · AI로 인식해서 지우기 (${keyUsd == null ? `1초당 ${H.priceText(ai.videoUsdPerSecond, state.billing)}` : H.priceText(keyUsd, state.billing)})`,
