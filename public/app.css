@@ -387,3 +387,28 @@ a.btn { display: inline-block; text-align: center; text-decoration: none; }
   /* The page scrolls here, so the stage has no fixed height to fit into. */
   .stage { container-type: normal; }
 }
+
+/* ---- 자동 반응 (director.js): the switch, what was heard, the motion queue ---- */
+.director { flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; }
+.director-head { display: flex; align-items: center; gap: 8px; }
+.director-head h2 { margin: 0; flex: 1; }
+.director-badge { padding: 1px 8px; border-radius: 999px; background: rgba(255, 138, 138, 0.15); color: var(--danger); font-size: 11px; font-weight: 600; }
+.director.is-on { border-color: var(--accent); }
+.director.is-on #directorToggle { background: transparent; color: var(--text); border: 1px solid var(--border); }
+#directorBody { display: flex; flex-direction: column; gap: 8px; }
+#directorBody[hidden] { display: none; }
+.director-heard { margin: 0; min-height: 20px; font-size: 13px; overflow-wrap: anywhere; }
+.director-heard .interim { color: var(--muted); }
+.director-say { display: flex; gap: 6px; }
+.director-say input { flex: 1; min-width: 0; padding: 4px 8px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; font: inherit; font-size: 13px; }
+.director-queue-head { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.director-queue-head strong { flex: 1; }
+.director-queue { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.director-queue li { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; }
+.director-queue li.is-current { border-color: var(--accent); background: rgba(108, 140, 255, 0.12); }
+.director-queue li.is-empty { border-style: dashed; color: var(--muted); }
+.director-queue .queue-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.director-queue .queue-tag { font-size: 11px; color: var(--muted); }
+.director-queue button { padding: 0 6px; background: transparent; color: var(--muted); border: 0; font: inherit; cursor: pointer; }
+.director-queue button:hover { color: var(--danger); }
+.director-last { margin: 0; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }

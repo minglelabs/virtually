@@ -77,6 +77,32 @@
         </div>
       </details>
 
+      <!-- AI director (director.js): motions picked from what the streamer says, played from a queue. -->
+      <section class="card director" id="directorCard" aria-labelledby="directorTitle">
+        <div class="director-head">
+          <h2 id="directorTitle">자동 반응</h2>
+          <span id="directorBadge" class="director-badge" hidden>듣는 중</span>
+          <button type="button" id="directorToggle" class="btn btn-sm" aria-pressed="false">켜기</button>
+        </div>
+        <p id="directorNote" class="hint">켜면 마이크로 말을 듣고, 말에 어울리는 동작을 캐릭터가 알아서 합니다.</p>
+        <div id="directorBody" hidden>
+          <p id="directorHeard" class="director-heard" aria-live="polite"></p>
+          <form id="directorSay" class="director-say">
+            <label for="directorText" class="visually-hidden">대사 직접 입력</label>
+            <input type="text" id="directorText" maxlength="400" autocomplete="off" placeholder="대사 직접 입력 (마이크 없이 시험)">
+            <button type="submit" class="btn btn-ghost btn-sm">보내기</button>
+          </form>
+          <div class="director-queue-head">
+            <strong>동작 대기열</strong>
+            <button type="button" id="directorSkip" class="btn btn-ghost btn-sm">다음으로</button>
+            <button type="button" id="directorClear" class="btn btn-ghost btn-sm">전체 취소</button>
+          </div>
+          <ol id="directorQueue" class="director-queue"></ol>
+          <p id="directorLast" class="director-last"></p>
+        </div>
+        <p id="directorStatus" class="status" aria-live="polite"></p>
+      </section>
+
       <article class="card motion-card" aria-labelledby="motionsTitle">
         <header class="motion-header">
           <div class="motion-header-row">
@@ -116,5 +142,6 @@
   <script src="./auth.js"></script>
   <script src="./motions.js"></script>
   <script src="./app.js"></script>
+  <script src="./director.js"></script>
 </body>
 </html>
