@@ -46,7 +46,6 @@
     ['bad_webhook_secret', 'polar.webhookSecret은 whsec_로 시작해야 합니다.'],
     ['bad_api_version', 'polar.apiVersion은 2026-10 같은 형식이어야 합니다.'],
     ['bad_credits_per_usd', 'creditsPerUsd는 1 이상의 정수여야 합니다.'],
-    ['bad_free_emails', 'freeEmails는 이메일 목록이어야 합니다.'],
     ['bad_welcome_credits', 'welcomeCredits는 0 이상의 정수여야 합니다.'],
     ['bad_transfer_note', 'transferNote는 1000자 이하의 글이어야 합니다.'],
     ['login_required', '크레딧 결제를 쓰려면 Google 로그인을 먼저 켜야 합니다.'],
@@ -244,7 +243,7 @@
   /**
    * What the page shows for a GET /api/billing payload (null when the request failed):
    * { mode: 'offline'|'disabled'|'invalid'|'enabled', message: { kind, text }|null,
-   *   balance, rate, transfer, polar, sandbox, free, canManage, isAdmin,
+   *   balance, rate, transfer, polar, sandbox, canManage, isAdmin,
    *   products: [productView], productsNote: { kind, text }|null, history: [historyView] }.
    * Without Polar (polar: false) there are no products, no portal and no sync button;
    * a payload without the field (an older server) counts as Polar on.
@@ -258,7 +257,6 @@
       transfer: '',
       polar: false,
       sandbox: false,
-      free: false,
       canManage: false,
       isAdmin: false,
       products: [],
@@ -285,7 +283,6 @@
     view.transfer = transferText(payload.transferNote);
     view.polar = payload.polar !== false;
     view.sandbox = view.polar && payload.server === 'sandbox';
-    view.free = payload.free === true;
     view.canManage = view.polar && payload.canManage === true;
     view.isAdmin = payload.isAdmin === true;
     if (view.polar) {
@@ -394,7 +391,6 @@
   const rateNode = $('rateText');
   const sandboxBadge = $('sandboxBadge');
   const sandboxNote = $('sandboxNote');
-  const freeNote = $('freeNote');
   const summaryActions = $('summaryActions');
   const adminLink = $('adminLink');
   const portalBtn = $('portalBtn');
@@ -490,7 +486,6 @@
       rateNode.hidden = !view.rate;
       sandboxBadge.hidden = !view.sandbox;
       sandboxNote.hidden = !view.sandbox;
-      freeNote.hidden = !view.free;
       adminLink.hidden = !view.isAdmin;
       portalBtn.hidden = !view.canManage;
       syncBtn.hidden = !view.polar;

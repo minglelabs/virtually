@@ -264,7 +264,7 @@ async function createAppServer({
     (async () => {
       const url = new URL(req.url, 'http://localhost');
       const pathname = url.pathname;
-      // Railway's health check (railway.json): the server only listens once the media is back
+      // Railway's health check (in the service's settings): the server only listens once the media is back
       // from the bucket, so a new deploy takes over only when it can serve. No session, no Host check.
       if (pathname === '/healthz' && (req.method === 'GET' || req.method === 'HEAD')) {
         res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Content-Length': 2, 'Cache-Control': 'no-store' });

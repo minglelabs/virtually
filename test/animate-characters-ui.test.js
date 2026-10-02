@@ -211,6 +211,12 @@ test('one character at a time: its first photo, its motions, its jobs and what i
   assert.deepEqual(H.jobsOfCharacter(jobs, alice).map(job => job.id), ['j1', 'j3', 'j4']);
   assert.deepEqual(H.jobsOfCharacter(jobs, bob).map(job => job.id), ['j2']);
   assert.equal(H.jobsOfCharacter(jobs, null), jobs);
+  // A motion belongs to one photo: only the chosen photo's results can be added (older jobs name it in characterId).
+  assert.equal(H.isJobOfPhoto({ photoId: 'p1' }, 'p1'), true);
+  assert.equal(H.isJobOfPhoto({ characterId: 'p1' }, 'p1'), true);
+  assert.equal(H.isJobOfPhoto({ photoId: 'p2' }, 'p1'), false);
+  assert.equal(H.isJobOfPhoto({}, 'p1'), false);
+  assert.equal(H.isJobOfPhoto({ photoId: 'p1' }, null), false);
 
   assert.match(H.idleSummary(alice.photos[0]), /^대기 화면: '기본 대기 동작' 영상이 반복 재생됩니다\./);
   assert.match(H.idleSummary({ ...alice.photos[0], idleBy: 'choice' }, '앨리스 사진 1'), /^앨리스 사진 1의 대기 화면: '기본 대기 동작' 영상이 반복 재생됩니다 \(직접 고름\)/);
@@ -236,4 +242,5 @@ test('동작 관리 page wiring: the character switcher, the motion list and no 
   const js = readPublic('animate.js');
   assert.match(js, /characters\.filter\(character => character\.id === chosenId\)/, 'only the chosen character has a photo row');
   assert.match(js, /H\.jobsOfCharacter\(state\.jobs, character\)/);
+  assert.match(js, /if \(!H\.isJobOfPhoto\(job, state\.photoId\)\) \{/);
 });

@@ -133,10 +133,10 @@ const AnimateHelpers = (() => {
     return typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString('ko-KR') : '';
   }
 
-  /** True when paid jobs take credits from this account: billing on and working, not a free account. */
+  /** True when paid jobs take credits from this account: billing on and working. */
   function billingActive(billing) {
     return Boolean(billing && typeof billing === 'object' && billing.enabled === true
-      && billing.mode === 'enabled' && billing.free !== true);
+      && billing.mode === 'enabled');
   }
 
   /**
@@ -180,10 +180,10 @@ const AnimateHelpers = (() => {
     return `크레딧이 부족합니다 (필요 ${formatCredits(needed)}, 보유 ${formatCredits(balance)})`;
   }
 
-  /** A job row's "40 크레딧" / "40 크레딧 돌려받음": only for a charged job (billing record, not free, known credits). */
+  /** A job row's "40 크레딧" / "40 크레딧 돌려받음": only for a charged job (billing record, known credits). */
   function jobCreditsText(job) {
     const billing = job?.billing;
-    if (!billing || typeof billing !== 'object' || billing.free === true) return '';
+    if (!billing || typeof billing !== 'object') return '';
     if (typeof billing.credits !== 'number' || !Number.isFinite(billing.credits)) return '';
     const text = `${formatCredits(billing.credits)} 크레딧`;
     return billing.refunded === true ? `${text} 돌려받음` : text;
@@ -197,7 +197,7 @@ const AnimateHelpers = (() => {
   /** True for a job that took credits from this account and has not given them back. */
   function jobCharged(job) {
     const billing = job?.billing;
-    return Boolean(billing && typeof billing === 'object' && billing.free !== true && billing.refunded !== true
+    return Boolean(billing && typeof billing === 'object' && billing.refunded !== true
       && typeof billing.credits === 'number' && Number.isFinite(billing.credits) && billing.credits > 0);
   }
 
@@ -214,14 +214,13 @@ const AnimateHelpers = (() => {
 
   /**
    * Credits a 다시 받기 of this job takes from the viewer: billing.refetchCredits (the
-   * job's charge was given back, and a delivered result is paid once), 0 for nothing
-   * or a free account (the server charges it nothing). An unknown account (no GET
+   * job's charge was given back, and a delivered result is paid once), 0 for
+   * nothing. An unknown account (no GET
    * /api/billing answer yet) counts as paying.
    */
   function refetchChargeCredits(job, billing) {
     const needed = job?.billing?.refetchCredits;
     if (typeof needed !== 'number' || !Number.isFinite(needed) || needed <= 0) return 0;
-    if (billing && typeof billing === 'object' && billing.free === true) return 0;
     return needed;
   }
 
@@ -771,6 +770,16 @@ const AnimateHelpers = (() => {
     return out;
   }
 
+  /** The photo a job was made with (older jobs name it in characterId); null for none. */
+  function jobPhotoId(job) {
+    return (job && (job.photoId || job.characterId)) || null;
+  }
+
+  /** A motion belongs to one photo: only the results of the chosen photo can be added or changed. */
+  function isJobOfPhoto(job, photoId) {
+    return Boolean(photoId) && jobPhotoId(job) === photoId;
+  }
+
   /** A switcher chip's second line: '사진 2장 · 동작 3개'. */
   function characterChipText(character) {
     return `사진 ${photosOf(character).length}장 · 동작 ${characterMotions(character).length}개`;
@@ -929,6 +938,8 @@ const AnimateHelpers = (() => {
     characterMotions,
     characterChipText,
     jobsOfCharacter,
+    jobPhotoId,
+    isJobOfPhoto,
     idleSummary,
     photoBackground,
     searchWithPhoto,
@@ -2604,7 +2615,7 @@ if (typeof document !== 'undefined') (() => {
     state.billing = billing;
     // Before the routes arrive there is no price to redraw (their first render reads state.billing).
     if (state.routes.length > 0) renderRoutes();
-    // The 다시 받기 tooltips depend on the account (a free one pays nothing).
+    // The 다시 받기 tooltips depend on the account.
     if (state.jobs.length > 0) renderJobs();
   }
 
@@ -2804,7 +2815,7 @@ if (typeof document !== 'undefined') (() => {
     }
 
     const added = H.isAdded(job, state.libraryIds);
-    const actionsKey = JSON.stringify([job.state, added, addBusy.has(job.id), addErrors.get(job.id) || null,
+    const actionsKey = JSON.stringify([job.state, added, H.isJobOfPhoto(job, state.photoId), addBusy.has(job.id), addErrors.get(job.id) || null,
       keyBusy.has(job.id), keyErrors.get(job.id) || null, aiAvailable(), state.billing?.creditsPerUsd ?? null, H.offersRefetch(job) ? H.refetchTitle(job, state.billing) : null,
       job.canRefetch === true, refetchBusy.has(job.id), refetchErrors.get(job.id) || null]);
     if (actionsKey !== row.actionsKey) {
@@ -2857,6 +2868,14 @@ if (typeof document !== 'undefined') (() => {
           },
         }),
         refetchError ? el('span', { className: 'status', dataset: { kind: 'error' }, text: refetchError }) : null,
+      ];
+    }
+    // A result of another photo of this character is only shown: its motion goes to its own photo.
+    if (!H.isJobOfPhoto(job, state.photoId)) {
+      const own = H.findPhoto(state.list, H.jobPhotoId(job));
+      return [
+        el('span', { className: 'job-added', text: added ? '추가됨 · 다른 사진의 동작입니다' : own ? '다른 사진으로 만든 결과입니다. 그 사진을 고르면 동작으로 추가할 수 있습니다.' : '사진이 지워진 결과라 동작으로 추가할 수 없습니다.' }),
+        own ? el('button', { type: 'button', className: 'btn btn-ghost btn-sm', text: '그 사진 고르기', onclick: () => selectPhoto(own.photo.id, { byUser: true }) }) : null,
       ];
     }
     const keyBusyNow = keyBusy.has(job.id);

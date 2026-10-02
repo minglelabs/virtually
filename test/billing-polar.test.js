@@ -1422,7 +1422,6 @@ test('orders: a full refund of spent credits leaves a negative balance, which bl
   assert.equal(response.status, 202, response.text);
   const job = response.json.job;
   assert.equal(job.billing.credits, 100);
-  assert.equal(job.billing.free, false);
   await waitForJob(ctx, alice, job.id, ['running']);
   assert.equal(await balanceOf(ctx, alice), 50);
 

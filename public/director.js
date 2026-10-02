@@ -23,13 +23,13 @@ const DirectorHelpers = (() => {
       : '음성 인식 설정(SONIOX_API_KEY)이 없어 마이크는 듣지 않습니다. 아래에 대사를 입력해 시험할 수 있습니다.'} ${priceText(state)}`.trim();
   }
 
-  /** '켜 둔 동안 시간당 약 490 크레딧 (판단 250 + 음성 인식 240), 5분 단위로 차감됩니다.'; '' without prices. */
+  /** '켜 둔 동안 시간당 약 250 크레딧, 마이크로 듣는 동안은 240 크레딧이 더 듭니다. 1분 단위로 차감됩니다.'; '' without prices. */
   function priceText(state) {
     const price = state && state.price;
     if (!price || !Number.isFinite(price.decisionPerHour)) return '';
     const stt = Number(price.sttPerHour) || 0;
-    const parts = stt ? ` (판단 ${price.decisionPerHour} + 음성 인식 ${stt})` : '';
-    return `켜 둔 동안 시간당 약 ${(price.decisionPerHour + stt).toLocaleString('ko-KR')} 크레딧${parts}, ${price.blockMinutes}분 단위로 먼저 차감됩니다.`;
+    const mic = stt ? `, 마이크로 듣는 동안은 ${stt.toLocaleString('ko-KR')} 크레딧이 더 듭니다` : '';
+    return `켜 둔 동안 시간당 약 ${price.decisionPerHour.toLocaleString('ko-KR')} 크레딧${mic}. ${price.blockMinutes}분 단위로 차감됩니다.`;
   }
 
   /** The line under the queue: the AI's last pick, or its error. */
@@ -111,12 +111,14 @@ if (typeof document !== 'undefined') (() => {
     // Not enough credits reads the same on every page.
     const lack = data && data.code === 'insufficient_credits' && data.detail
       ? `크레딧이 부족합니다 (필요 ${Number(data.detail.needed).toLocaleString('ko-KR')}, 보유 ${Number(data.detail.balance).toLocaleString('ko-KR')})` : '';
-    if (!response.ok) throw new Error(lack || (data && data.error) || `HTTP ${response.status}`);
+    if (!response.ok) throw Object.assign(new Error(lack || (data && data.error) || `HTTP ${response.status}`), { code: data && data.code });
     return data;
   }
 
   // ---- Microphone -> Soniox -> POST /api/director/speech ----
-  const mic = { stream: null, recorder: null, socket: null, pending: '', interim: '', flushTimer: null, wanted: false, retry: null };
+  const mic = { stream: null, recorder: null, socket: null, pending: '', interim: '', flushTimer: null, beatTimer: null, wanted: false, retry: null };
+  // One page listens at a time (two would send every phrase twice): the server knows this one by `tab`.
+  const tab = (crypto.randomUUID && crypto.randomUUID()) || String(Math.random()).slice(2);
 
   function showHeard() {
     const lines = state && Array.isArray(state.lines) ? state.lines : [];
@@ -140,8 +142,12 @@ if (typeof document !== 'undefined') (() => {
     clearTimeout(mic.retry);
     clearInterval(mic.flushTimer);
     mic.flushTimer = null;
+    clearInterval(mic.beatTimer);
+    mic.beatTimer = null;
     if (mic.recorder && mic.recorder.state !== 'inactive') mic.recorder.stop();
     mic.recorder = null;
+    // The listened time is charged: tell the server this page stopped.
+    if (mic.socket) fetch('/api/director/mic', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tab, on: false }), keepalive: true }).catch(() => {});
     if (mic.socket) { try { mic.socket.close(); } catch { /* closed */ } }
     mic.socket = null;
     if (mic.stream) for (const track of mic.stream.getTracks()) track.stop();
@@ -166,9 +172,16 @@ if (typeof document !== 'undefined') (() => {
     }
     let key;
     try {
-      key = await call('POST', '/api/director/stt-key', {});
+      key = await call('POST', '/api/director/stt-key', { tab });
     } catch (error) {
-      setStatus(`음성 인식 연결 실패: ${error.message}`, 'error');
+      if (error.code === 'mic_elsewhere') {
+        // The other page may close: try again quietly.
+        setStatus('다른 탭(창)에서 이미 말을 듣고 있어 이 탭에서는 듣지 않습니다.');
+        clearTimeout(mic.retry);
+        mic.retry = setTimeout(() => { if (mic.wanted && !mic.socket) startMic(); }, 10000);
+      } else if (error.code !== 'director_off') {
+        setStatus(`음성 인식 연결 실패: ${error.message}`, 'error');
+      }
       return;
     }
     if (!mic.wanted) return stopMic();
@@ -186,6 +199,10 @@ if (typeof document !== 'undefined') (() => {
       recorder.start(250);
       // The AI is asked once a second: hand over what was finished since the last time.
       mic.flushTimer = setInterval(flushSpeech, 1000);
+      // Keep the microphone (and its charge) on this page; losing it stops listening here.
+      mic.beatTimer = setInterval(() => {
+        call('POST', '/api/director/mic', { tab, on: true }).then((data) => { if (data && data.ok === false) socket.close(); }).catch(() => {});
+      }, 10000);
       badge.hidden = false;
       setStatus('');
       showHeard();
@@ -206,10 +223,12 @@ if (typeof document !== 'undefined') (() => {
     socket.addEventListener('close', () => {
       if (mic.socket !== socket) return;
       clearInterval(mic.flushTimer);
+      clearInterval(mic.beatTimer);
       if (mic.recorder && mic.recorder.state !== 'inactive') mic.recorder.stop();
       mic.recorder = null;
       mic.socket = null;
       badge.hidden = true;
+      fetch('/api/director/mic', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tab, on: false }), keepalive: true }).catch(() => {});
       // A dropped or timed-out session is opened again while the switch is on.
       if (mic.wanted) mic.retry = setTimeout(() => { if (mic.wanted) startMic(); }, 2000);
     });
