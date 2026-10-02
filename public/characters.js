@@ -176,6 +176,24 @@ const CharactersHelpers = (() => {
     return number ? `선택한 사진 · ${number}번째` : '선택한 사진';
   }
 
+  /**
+   * A photo's background (PhotoView.transparent / cutoutReason): { state: 'own' | 'cut' | 'no',
+   * tag, title, canCut }. Only a plain one-colour background can be cut out (on the server, no
+   * outside service).
+   */
+  function backgroundState(photo) {
+    if (photo?.transparent === 'own') return { state: 'own', tag: '투명 배경', title: '처음부터 배경이 투명한 사진입니다', canCut: false };
+    if (photo?.transparent === 'cut' || (photo?.transparent == null && photo?.cutout === true)) {
+      return { state: 'cut', tag: '배경 지움', title: '단색 배경을 지워서 투명하게 보여 줍니다', canCut: false };
+    }
+    if (photo?.cutoutReason === 'not_uniform' || photo?.cutoutReason === 'no_subject') {
+      return { state: 'no', tag: '배경 있음', title: '배경이 한 가지 색이 아니라서 지울 수 없습니다. 단색 배경 사진이나 투명 배경 PNG를 올려 주세요', canCut: false };
+    }
+    return { state: 'no', tag: '배경 있음', title: '단색 배경을 지워 투명하게 만듭니다', canCut: true };
+  }
+
+  const transparentPath = (characterId, photoId) => `/api/characters/${enc(characterId)}/photos/${enc(photoId)}/transparent`;
+
   /** The motion name chips of a photo: at most `max` names, and how many more there are. */
   function motionChips(photo, max = 4) {
     const names = (Array.isArray(photo?.motions) ? photo.motions : [])
@@ -261,6 +279,8 @@ const CharactersHelpers = (() => {
     photoCountText,
     photoLabel,
     photoBadges,
+    backgroundState,
+    transparentPath,
     motionCount,
     motionCountText,
     motionCaption,
@@ -519,6 +539,9 @@ if (typeof document !== 'undefined') (() => {
       detailLive: part(node, 'detailLive'),
       makeBase: part(node, 'makeBase'),
       deletePhoto: part(node, 'deletePhoto'),
+      bgTag: part(node, 'bgTag'),
+      makeTransparent: part(node, 'makeTransparent'),
+      keepOriginal: part(node, 'keepOriginal'),
       count: part(node, 'count'),
       chips: part(node, 'chips'),
       preview: part(node, 'preview'),
@@ -540,6 +563,14 @@ if (typeof document !== 'undefined') (() => {
     row.rename.addEventListener('click', () => startRename(characterId));
     row.remove.addEventListener('click', () => deleteCharacter(characterId));
     row.go.addEventListener('click', () => goOnAir(characterId));
+    row.makeTransparent.addEventListener('click', () => {
+      const photoId = selectedIn(characterId);
+      if (photoId) setTransparent(characterId, photoId, true);
+    });
+    row.keepOriginal.addEventListener('click', () => {
+      const photoId = selectedIn(characterId);
+      if (photoId) setTransparent(characterId, photoId, false);
+    });
     row.makeBase.addEventListener('click', () => {
       const photoId = selectedIn(characterId);
       if (photoId) makeBase(characterId, photoId);
@@ -669,6 +700,16 @@ if (typeof document !== 'undefined') (() => {
     row.makeBase.setAttribute('aria-label', `${label}: 기본 사진으로 정하기`);
     row.deletePhoto.disabled = busy;
     row.deletePhoto.setAttribute('aria-label', `${label} 삭제`);
+    // The photo's background: transparent already, cut out, or still there.
+    const background = H.backgroundState(photo);
+    row.bgTag.textContent = background.tag;
+    row.bgTag.title = background.title;
+    row.makeTransparent.hidden = background.state !== 'no';
+    row.makeTransparent.disabled = busy || !background.canCut;
+    row.makeTransparent.title = background.title;
+    row.keepOriginal.hidden = background.state !== 'cut';
+    row.keepOriginal.disabled = busy;
+    row.keepOriginal.title = '배경을 지우기 전의 사진으로 되돌립니다';
     row.count.textContent = H.motionCountText(photo);
     row.count.classList.toggle('has-motions', H.motionCount(photo) > 0);
     // Every motion of the photo is a button that plays it below (the idle one loops).
@@ -788,6 +829,14 @@ if (typeof document !== 'undefined') (() => {
       await api('PUT', '/api/active-photo', { json: { photoId } });
       window.location.assign('/broadcast');
     });
+  }
+
+  // The selected photo's background: cut the plain background out, or go back to the original.
+  function setTransparent(characterId, photoId, on) {
+    return rowAction(characterId, async () => {
+      applyList(await api(on ? 'POST' : 'DELETE', H.transparentPath(characterId, photoId), { json: {} }));
+      setRowStatus(characterId, on ? '사진의 배경을 지웠습니다.' : '원본 사진으로 되돌렸습니다.', 'success');
+    }, { busyText: on ? '배경 지우는 중…' : '' });
   }
 
   function makeBase(characterId, photoId) {
