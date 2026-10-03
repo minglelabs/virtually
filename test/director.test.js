@@ -32,7 +32,11 @@ test('decider: the Decisions API body and lenient answers', async () => {
       return jsonResponse(200, { object: 'decision', decision: '원영턴', usage: { input_tokens: 120, output_tokens: 1 } });
     },
   });
-  assert.deepEqual(decider.status(), { configured: true, wanted: 'auto', model: 'gpt-6-luna', reasoning: 'none', driver: null, decisionsNote: null });
+  assert.deepEqual(decider.status(), {
+    configured: true, provider: 'openai',
+    providers: [{ id: 'jev', label: 'Jev', configured: false }, { id: 'openai', label: 'GPT-6 Luna', configured: true }],
+    wanted: 'auto', model: 'gpt-6-luna', reasoning: 'none', driver: null, decisionsNote: null,
+  });
   const answer = await decider.decide({ instructions: 'pick', input: 'hello', options: OPTIONS });
   assert.equal(answer.label, '원영턴');
   assert.equal(answer.driver, 'decisions');
@@ -444,4 +448,38 @@ test('director: several motions said in one breath all queue, in order; words ar
   assert.equal(director.state().last.label, IDLE_LABEL);
   assert.deepEqual(played, ['인사', '박수', '원영턴', '하트']);
   director.close();
+});
+
+test('decider: Jev is the default when it has a key; it is asked again until it picks nothing; the streamer can switch', async () => {
+  const calls = [];
+  const picks = ['o2', 'o1', 'o0'];
+  const decider = createDecider({
+    env: { OPENAI_API_KEY: 'k', TYPESAFE_API_KEY: 'ts-secret-key-1234' },
+    fetchImpl: async (url, init) => {
+      const body = JSON.parse(init.body);
+      calls.push({ url, auth: init.headers.Authorization, body });
+      if (url.includes('typesafe')) return jsonResponse(200, { model: 'jev-1.13.0', answers: { pick: { type: 'choice', choice: picks.shift(), confidence: 0.9 } }, usage: { input_tokens: 200, output_tokens: 0 } });
+      return jsonResponse(200, { label: '인사' });
+    },
+  });
+  assert.equal(decider.status().provider, 'jev');
+  const answer = await decider.decide({ instructions: 'pick', input: '인사하고 돌아', options: OPTIONS, none: IDLE_LABEL });
+  assert.deepEqual([answer.labels, answer.driver, answer.usage.input], [['인사', '원영턴'], 'jev', 400]);
+  assert.equal(calls.length, 2, 'nothing is left to pick: no third call');
+  assert.deepEqual([calls[0].url, calls[0].auth, calls[0].body.model], ['https://api.typesafe.ai/v1/systemone', 'Bearer ts-secret-key-1234', 'jev-latest']);
+  assert.deepEqual(Object.keys(calls[0].body.questions.pick.criteria), ['o0', 'o1', 'o2']);
+  assert.deepEqual(Object.keys(calls[1].body.questions.pick.criteria), ['o0', 'o1'], 'what was picked is not offered again');
+  assert.match(calls[1].body.state, /\[이번에 이미 고른 동작\]\n인사/);
+
+  picks.splice(0, picks.length, 'o1', 'o0');
+  const one = await decider.decide({ instructions: 'pick', input: '돌아', options: OPTIONS, none: IDLE_LABEL });
+  assert.deepEqual([one.labels, calls.length], [['원영턴'], 4], 'it stops when the answer is nothing');
+
+  decider.setProvider('openai');
+  assert.equal((await decider.decide({ instructions: 'pick', input: 'hi', options: OPTIONS, none: IDLE_LABEL })).driver, 'decisions');
+  assert.throws(() => decider.setProvider('other'), { status: 400 });
+  const only = createDecider({ env: { OPENAI_API_KEY: 'k' }, fetchImpl: async () => jsonResponse(500, {}) });
+  assert.throws(() => only.setProvider('jev'), { code: 'not_configured' });
+  const failing = createDecider({ env: { TYPESAFE_API_KEY: 'ts-secret-key-1234' }, fetchImpl: async () => jsonResponse(401, { error: { message: 'bad key ts-secret-key-1234' } }) });
+  await assert.rejects(failing.decide({ instructions: '', input: '', options: OPTIONS }), error => !error.message.includes('secret'));
 });

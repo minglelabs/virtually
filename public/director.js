@@ -14,7 +14,7 @@ const DirectorHelpers = (() => {
   /** The hint under the title: why it cannot work yet, or what it does. */
   function noteText(state) {
     if (!state) return '';
-    if (!state.ai?.configured) return 'AI 설정(OPENAI_API_KEY)이 서버에 없어 켤 수 없습니다.';
+    if (!state.ai?.configured) return 'AI 설정(TYPESAFE_API_KEY 또는 OPENAI_API_KEY)이 서버에 없어 켤 수 없습니다.';
     if (!state.onAir) return '방송할 캐릭터를 먼저 골라 주세요. 자동 반응은 방송 중인 캐릭터의 동작으로 움직입니다.';
     if (!state.motions) return '이 캐릭터에 등록된 동작이 없습니다. 동작 관리에서 동작을 먼저 넣어 주세요.';
     // The price is on the 켜기 button (buttonPrice).
@@ -48,7 +48,7 @@ const DirectorHelpers = (() => {
     if (state.error) return `AI 오류: ${state.error}`;
     const last = state.last;
     if (!last) return state.enabled ? '아직 판단한 적이 없습니다' : '';
-    const how = last.driver === 'decisions' ? 'Decisions API' : `일반 호출${state.ai?.decisionsNote ? ' (Decisions API 사용 불가)' : ''}`;
+    const how = last.driver === 'jev' ? 'Jev' : last.driver === 'decisions' ? 'Decisions API' : `일반 호출${state.ai?.decisionsNote ? ' (Decisions API 사용 불가)' : ''}`;
     const picked = last.label === IDLE_LABEL ? '동작 없음(대기)' : `'${last.label}'`;
     return `방금 판단: ${picked} · ${Number.isFinite(last.ms) ? `${last.ms}ms · ` : ''}${how} · 누적 ${state.asked}회`;
   }
@@ -98,6 +98,7 @@ if (typeof document !== 'undefined') (() => {
   const clearBtn = $('directorClear');
   const queueList = $('directorQueue');
   const lastLine = $('directorLast');
+  const aiPick = $('directorAi');
   const status = $('directorStatus');
 
   let state = null;
@@ -286,6 +287,19 @@ if (typeof document !== 'undefined') (() => {
       return li;
     }) : [Object.assign(document.createElement('li'), { className: 'is-empty', textContent: '대기 중인 동작이 없습니다' })]));
     lastLine.textContent = H.lastText(state);
+    // 판단 AI: one button per AI; the one without a key on the server cannot be picked.
+    const providers = Array.isArray(state?.ai?.providers) ? state.ai.providers : [];
+    aiPick.hidden = providers.length < 2;
+    aiPick.replaceChildren(document.createTextNode('판단 AI'), ...providers.map((entry) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'btn btn-ghost btn-sm';
+      button.textContent = entry.configured ? entry.label : `${entry.label} (키 없음)`;
+      button.disabled = !entry.configured;
+      button.setAttribute('aria-pressed', String(state.ai.provider === entry.id));
+      button.addEventListener('click', () => act('POST', '/api/director', { provider: entry.id }));
+      return button;
+    }));
     showHeard();
   }
 

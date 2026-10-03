@@ -397,7 +397,8 @@ The card shows what was heard, the AI's last pick and the queue: **×** removes 
 
 | Variable | |
 |---|---|
-| `OPENAI_API_KEY` | Required. The AI is OpenAI's Decisions API (`POST /v1/decisions`, GPT-6 Luna). That API is a limited preview without a published reference, so the request body is inferred (`lib/director/decider.js`); when the API refuses the request, the same key is used with Chat Completions and a JSON-schema enum instead, and the card says so. |
+| `TYPESAFE_API_KEY` | The default AI: TypeSafe's Jev (`POST https://api.typesafe.ai/v1/systemone`, one `choice` question; asked again until it picks nothing, so several motions said in one breath all queue). `TYPESAFE_BASE_URL` and `JEV_MODEL` (default `jev-latest`) are optional. The 방송 화면 has a 판단 AI switch between Jev and GPT-6 Luna (per account, until the next restart); with only one key set, that AI is used. |
+| `OPENAI_API_KEY` | The other AI: OpenAI's Decisions API (`POST /v1/decisions`, GPT-6 Luna). That API is a limited preview without a published reference, so the request body is inferred (`lib/director/decider.js`); when the API refuses the request, the same key is used with Chat Completions and a JSON-schema enum instead, and the card says so. |
 | `SONIOX_API_KEY` | Speech-to-text. The browser streams to Soniox directly with a 5-minute key from `POST /api/director/stt-key`; the real key stays on the server. Without it only typed lines work. |
 | `DIRECTOR_DRIVER`, `DIRECTOR_MODEL`, `DIRECTOR_REASONING` | Optional: `auto` (default) \| `decisions` \| `chat`; the model (default `gpt-6-luna`); and the reasoning effort sent with Chat Completions (default `none`, the fastest; `default` sends nothing). A model that refuses the setting is asked without it. |
 
