@@ -296,7 +296,7 @@ if (typeof document !== 'undefined') (() => {
     // 판단 AI: one button per AI; the one without a key on the server cannot be picked.
     const providers = Array.isArray(state?.ai?.providers) ? state.ai.providers : [];
     aiPick.hidden = providers.length < 2;
-    aiPick.replaceChildren(document.createTextNode('판단 AI'), ...providers.map((entry) => {
+    aiPick.replaceChildren(Object.assign(document.createElement('span'), { textContent: '판단 AI' }), ...providers.map((entry) => {
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'btn btn-ghost btn-sm';
