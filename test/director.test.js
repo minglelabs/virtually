@@ -32,7 +32,7 @@ test('decider: the Decisions API body and lenient answers', async () => {
       return jsonResponse(200, { object: 'decision', decision: '원영턴', usage: { input_tokens: 120, output_tokens: 1 } });
     },
   });
-  assert.deepEqual(decider.status(), { configured: true, wanted: 'auto', model: 'gpt-6-luna', driver: null, decisionsNote: null });
+  assert.deepEqual(decider.status(), { configured: true, wanted: 'auto', model: 'gpt-6-luna', reasoning: 'none', driver: null, decisionsNote: null });
   const answer = await decider.decide({ instructions: 'pick', input: 'hello', options: OPTIONS });
   assert.equal(answer.label, '원영턴');
   assert.equal(answer.driver, 'decisions');
@@ -57,7 +57,8 @@ test('decider: a refused Decisions API falls back to Chat Completions and stays 
       urls.push(url.replace('https://api.openai.com', ''));
       if (url.endsWith('/v1/decisions')) return jsonResponse(403, { error: { message: 'Decision API is not enabled for this user.' } });
       const body = JSON.parse(init.body);
-      assert.deepEqual(body.response_format.json_schema.schema.properties.label.enum, [IDLE_LABEL, '원영턴', '인사']);
+      assert.deepEqual(body.response_format.json_schema.schema.properties.labels.items.enum, [IDLE_LABEL, '원영턴', '인사']);
+      assert.equal(body.reasoning_effort, 'none');
       return jsonResponse(200, { choices: [{ message: { content: JSON.stringify({ label: IDLE_LABEL }) } }], usage: { prompt_tokens: 300, completion_tokens: 8 } });
     },
   });
@@ -380,4 +381,67 @@ test('live events: a reconnect that hears another deployment reloads the page on
   assert.equal(reloads, 0, 'the same deployment after a drop');
   M.noteBuild(build('deploy-2'), reload);
   assert.equal(reloads, 1);
+});
+
+test('decider: Chat Completions asks for no reasoning, drops the setting when refused, and returns every pick in order', async () => {
+  const bodies = [];
+  const logs = [];
+  const decider = createDecider({
+    env: { OPENAI_API_KEY: 'k', DIRECTOR_DRIVER: 'chat' },
+    log: line => logs.push(line),
+    fetchImpl: async (url, init) => {
+      const body = JSON.parse(init.body);
+      bodies.push(body);
+      if (body.reasoning_effort) return jsonResponse(400, { error: { message: "Unsupported value: 'reasoning_effort' does not support 'none'." } });
+      return jsonResponse(200, { choices: [{ message: { content: JSON.stringify({ labels: ['인사', '원영턴'] }) } }] });
+    },
+  });
+  let answer = await decider.decide({ instructions: 'pick', input: '인사하고 돌아', options: OPTIONS });
+  assert.deepEqual([answer.labels, answer.label], [['인사', '원영턴'], '인사']);
+  assert.deepEqual(bodies.map(body => body.reasoning_effort), ['none', undefined]);
+  assert.equal(logs.length, 1);
+  answer = await decider.decide({ instructions: 'pick', input: 'again', options: OPTIONS });
+  assert.equal(bodies.length, 3, 'the refused setting is not sent again');
+  assert.equal(decider.status().reasoning, null);
+
+  const nothing = createDecider({
+    env: { OPENAI_API_KEY: 'k', DIRECTOR_DRIVER: 'chat' },
+    fetchImpl: async () => jsonResponse(200, { choices: [{ message: { content: '{"labels":[]}' } }] }),
+  });
+  assert.deepEqual((await nothing.decide({ instructions: '', input: '', options: OPTIONS })).labels, []);
+});
+
+test('director: several motions said in one breath all queue, in order; words are asked about at once', async () => {
+  const motions = [{ id: 'm-a', name: '인사' }, { id: 'm-b', name: '박수' }, { id: 'm-c', name: '원영턴' }, { id: 'm-d', name: '하트' }];
+  const asked = [];
+  const played = [];
+  const answers = [['인사', '박수', IDLE_LABEL, '원영턴', '박수', '하트'], []];
+  let seq = 0;
+  const director = createDirector({
+    decider: {
+      status: () => ({ configured: true }),
+      decide: async (request) => { asked.push(request); const labels = answers.shift() ?? []; return { labels, label: labels[0] ?? null, driver: 'chat', ms: 5 }; },
+    },
+    getView: () => ({ photo: { id: 'ph-1' }, motions }),
+    play: (motion) => { played.push(motion.name); seq += 1; return seq; },
+    stop: () => {},
+    tickMs: 3600 * 1000,
+  });
+  const settle = () => new Promise(resolve => setImmediate(resolve));
+  await director.setEnabled(true);
+  director.speech('인사하고 박수 치고 한 바퀴 돌고 하트');
+  await settle();
+  assert.equal(asked.length, 1, 'no tick was needed');
+  let state = director.state();
+  assert.deepEqual([state.current.name, state.queue.map(item => item.name)], ['인사', ['박수', '원영턴', '하트']]);
+  assert.equal(state.last.label, '인사, 박수, 원영턴, 하트');
+  for (const name of ['박수', '원영턴', '하트']) {
+    director.done(seq);
+    assert.equal(director.state().current.name, name);
+  }
+  director.speech('그냥 하는 말');
+  await settle();
+  assert.equal(director.state().last.label, IDLE_LABEL);
+  assert.deepEqual(played, ['인사', '박수', '원영턴', '하트']);
+  director.close();
 });

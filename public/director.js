@@ -207,7 +207,7 @@ if (typeof document !== 'undefined') (() => {
         if (event.data && event.data.size > 0 && socket.readyState === WebSocket.OPEN) socket.send(event.data);
       });
       recorder.start(250);
-      // The AI is asked once a second: hand over what was finished since the last time.
+      // The AI is asked as soon as a line arrives: hand over what was finished, at the end of a phrase or once a second.
       mic.flushTimer = setInterval(flushSpeech, 1000);
       // Keep the microphone (and its charge) on this page; losing it stops listening here.
       mic.beatTimer = setInterval(() => {
