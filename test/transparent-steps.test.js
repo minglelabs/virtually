@@ -92,18 +92,31 @@ test('a photo\'s background is cut out or kept on request, and a job leaves step
   assert.equal(response.status, 200);
   let photo = (await response.json()).character.photos[0];
   assert.deepEqual([photo.transparent, photo.cutoutReason, photo.displayUrl], ['no', 'kept', `/api/media/${photoId}`]);
-  assert.equal((await fetch(`${base}/api/media/${photoId}?variant=cutout`)).status, 404);
-  // Cutting it now adds the result as a new photo; the original stays as it is.
+  // The cut version stays one of the photo's versions; only the one in use changed.
+  assert.deepEqual([photo.use, photo.versions.map(v => [v.kind, v.used])], ['original', [['original', true], ['plain', false]]]);
+  response = await fetch(`${base}/api/media/${photoId}?variant=cutout`);
+  assert.equal(response.status, 200);
+  await response.arrayBuffer();
+  // Cutting it again puts that version in use: the same photo, no new one.
   response = await json('POST', route, {});
   assert.equal(response.status, 201);
   let answer = await response.json();
-  assert.equal(answer.character.photos.length, 2);
-  assert.deepEqual([answer.character.photos[0].id, answer.character.photos[0].transparent], [photoId, 'no']);
-  assert.notEqual(answer.photo.id, photoId);
-  assert.deepEqual([answer.photo.transparent, answer.photo.hasAlpha], ['own', true]);
-  response = await fetch(`${base}${answer.photo.url}`);
+  assert.equal(answer.character.photos.length, 1);
+  assert.deepEqual([answer.photo.id, answer.photo.transparent, answer.photo.use, answer.photo.hasAlpha], [photoId, 'cut', 'plain', false]);
+  response = await fetch(`${base}${answer.photo.displayUrl}`);
   assert.deepEqual([response.status, response.headers.get('content-type')], [200, 'image/png']);
   await response.arrayBuffer();
+  // PUT .../version picks any version the photo has.
+  const versionRoute = `/api/characters/${white.id}/photos/${photoId}/version`;
+  response = await json('PUT', versionRoute, { version: 'original' });
+  answer = await response.json();
+  assert.deepEqual([response.status, answer.photo.use, answer.photo.transparent, answer.character.photos.length], [200, 'original', 'no', 1]);
+  response = await json('PUT', versionRoute, { version: 'ai' });
+  assert.deepEqual([response.status, (await response.json()).code], [400, 'no_such_version']);
+  response = await json('PUT', versionRoute, { version: 'plain' });
+  assert.equal((await response.json()).photo.use, 'plain');
+  // Back to the original for the jobs below.
+  await (await json('DELETE', route, {})).arrayBuffer();
 
   // What cannot be done says why.
   response = await json('POST', `/api/characters/${alpha.id}/photos/${alpha.basePhotoId}/transparent`, {});
@@ -229,7 +242,12 @@ test('the paid AI removers run only when picked: photo and result, with their co
   assert.equal(response.status, 201);
   const copy = await response.json();
   assert.equal(calls.image, 1, 'the kept AI cut is reused: not paid again');
-  assert.deepEqual([copy.character.photos.length, copy.photo.transparent], [2, 'own'], 'added as a new photo');
+  assert.deepEqual([copy.character.photos.length, copy.photo.id, copy.photo.transparent, copy.photo.use, copy.photo.cutoutMethod], [1, photoId, 'cut', 'ai', 'ai'],
+    'a version of the same photo, in use');
+  assert.deepEqual(copy.photo.versions.map(v => v.kind), ['original', 'ai']);
+  response = await fetch(`${base}/api/media/${photoId}?variant=aicut`);
+  assert.deepEqual([response.status, response.headers.get('content-type')], [200, 'image/png']);
+  await response.arrayBuffer();
   response = await json('POST', `/api/animate/jobs/${job.id}/key`, { method: 'ai' });
   const rekeyed = (await response.json()).job;
   assert.equal(rekeyed.result.keyMethod, 'ai');

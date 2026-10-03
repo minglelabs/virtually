@@ -317,7 +317,9 @@ test('create: name and photo validation, sniffing, views and the files on disk',
   assert.match(photo.id, /^ph-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
   assert.equal(character.basePhotoId, photo.id);
   assert.deepEqual(photo, {
-    id: photo.id, url: `/api/media/${photo.id}`, displayUrl: `/api/media/${photo.id}`, cutout: false, transparent: 'own', cutoutReason: null, cutoutMethod: null, aiCutReady: false,
+    id: photo.id, url: `/api/media/${photo.id}`, displayUrl: `/api/media/${photo.id}`, cutout: false,
+    versions: [{ kind: 'original', url: `/api/media/${photo.id}`, used: true }], use: 'original',
+    transparent: 'own', cutoutReason: null, cutoutMethod: null, aiCutReady: false,
     width: 64, height: 96, hasAlpha: true, createdAt: character.createdAt,
     isBase: true, onAir: false, idle: 'photo', idleMotionId: null, idleBy: null, idleDefault: 'photo', defaultIdleMotionId: null, motionCount: 0, motions: [],
   });
@@ -337,7 +339,7 @@ test('create: name and photo validation, sniffing, views and the files on disk',
 
   // On disk: the index (with each photo's fit) and one file per photo.
   const index = JSON.parse(await fs.readFile(path.join(dataDir, 'characters', 'index.json'), 'utf8'));
-  assert.equal(index.v, 1);
+  assert.equal(index.v, 2);
   assert.equal(index.activePhotoId, null);
   const stored = index.characters[0].photos[0];
   assert.equal(stored.filename, 'looks-like.jpg');
@@ -663,7 +665,7 @@ test('cascade: deleting a photo or a character removes its motions, idles and fi
   assert.deepEqual(await fs.readdir(path.join(dataDir, 'media')), [`${m0.id}.webm`]);
   assert.deepEqual(await photoFiles(dataDir), []);
   const index = JSON.parse(await fs.readFile(path.join(dataDir, 'characters', 'index.json'), 'utf8'));
-  assert.deepEqual(index, { v: 1, activePhotoId: null, characters: [] });
+  assert.deepEqual(index, { v: 2, activePhotoId: null, characters: [], merged: {} });
 });
 
 // A request with a Cookie header (fetch cannot send one) and no body.
@@ -847,7 +849,9 @@ test('migration: every old photo becomes a character with the same id; motions f
     assert.equal(list.activePhotoId, selected, 'the old selection is on air');
     assert.equal(list.activeCharacterId, list.characters[1].id);
     assert.deepEqual(list.characters[0].photos[0], {
-      id: older, url: `/api/media/${older}`, displayUrl: `/api/media/${older}`, cutout: false, transparent: 'no', cutoutReason: 'no_subject', cutoutMethod: null, aiCutReady: false,
+      id: older, url: `/api/media/${older}`, displayUrl: `/api/media/${older}`, cutout: false,
+      versions: [{ kind: 'original', url: `/api/media/${older}`, used: true }], use: 'original',
+      transparent: 'no', cutoutReason: 'no_subject', cutoutMethod: null, aiCutReady: false,
       width: 48, height: 48, hasAlpha: false, createdAt: '2026-09-01T00:00:00.000Z',
       isBase: true, onAir: false, idle: 'photo', idleMotionId: null, idleBy: null, idleDefault: 'photo', defaultIdleMotionId: null, motionCount: 1,
       motions: [{ id: motions[0].id, name: motions[0].name, mime: 'video/webm', createdAt: motions[0].createdAt, isIdle: false, hasBackground: true, hasOriginal: false }],
@@ -968,7 +972,7 @@ test('migration fallbacks: a missing selection puts the oldest photo on air; no 
     assert.deepEqual(await library(app.base), { idle, motions: [motion], character: null, photo: null });
     assert.deepEqual(await fs.readFile(path.join(second, 'library.json')), libraryBytes);
     assert.deepEqual(JSON.parse(await fs.readFile(path.join(second, 'characters', 'index.json'), 'utf8')),
-      { v: 1, activePhotoId: null, characters: [] });
+      { v: 2, activePhotoId: null, characters: [], merged: {} });
   } finally {
     await stop(app.server);
   }
