@@ -34,8 +34,8 @@ test('decider: the Decisions API body and lenient answers', async () => {
   });
   assert.deepEqual(decider.status(), {
     configured: true, provider: 'openai',
-    providers: [{ id: 'jev', label: 'Jev', configured: false }, { id: 'openai', label: 'GPT-6 Luna', configured: true }],
-    wanted: 'auto', model: 'gpt-6-luna', reasoning: 'none', driver: null, decisionsNote: null,
+    providers: [{ id: 'openai', label: 'GPT-6 Luna (fast)', configured: true }, { id: 'clef', label: 'Clef-flash', configured: false }, { id: 'jev', label: 'Jev', configured: false }],
+    wanted: 'auto', model: 'gpt-6-luna', reasoning: 'none', tier: 'priority', driver: null, decisionsNote: null,
   });
   const answer = await decider.decide({ instructions: 'pick', input: 'hello', options: OPTIONS });
   assert.equal(answer.label, '원영턴');
@@ -302,7 +302,7 @@ test('routes: switch, speech, the queue and the overlay\'s done; the speech-to-t
 
   // The browser gets a short-lived Soniox key; the real key stays on the server.
   response = await send('POST', '/api/director/stt-key', { tab: 'tab-1' });
-  assert.deepEqual(await response.json(), { apiKey: 'temp:abc', model: 'stt-rt-v5', url: 'wss://stt-rt.soniox.com/transcribe-websocket' });
+  assert.deepEqual(await response.json(), { apiKey: 'temp:abc', model: 'stt-rt-v5', url: 'wss://stt-rt.soniox.com/transcribe-websocket', terms: ['turn', 'a'] });
   assert.equal((await stateNow()).listening, true);
   // One page listens at a time: a second tab gets no key, the first keeps the microphone.
   response = await send('POST', '/api/director/stt-key', { tab: 'tab-2' });
@@ -450,11 +450,11 @@ test('director: several motions said in one breath all queue, in order; words ar
   director.close();
 });
 
-test('decider: Jev is the default when it has a key; it is asked again until it picks nothing; the streamer can switch', async () => {
+test('decider: Jev is asked again until it picks nothing; the streamer can switch', async () => {
   const calls = [];
   const picks = ['o2', 'o1', 'o0'];
   const decider = createDecider({
-    env: { OPENAI_API_KEY: 'k', TYPESAFE_API_KEY: 'ts-secret-key-1234' },
+    env: { TYPESAFE_API_KEY: 'ts-secret-key-1234' },
     fetchImpl: async (url, init) => {
       const body = JSON.parse(init.body);
       calls.push({ url, auth: init.headers.Authorization, body });
@@ -475,11 +475,45 @@ test('decider: Jev is the default when it has a key; it is asked again until it 
   const one = await decider.decide({ instructions: 'pick', input: '돌아', options: OPTIONS, none: IDLE_LABEL });
   assert.deepEqual([one.labels, calls.length], [['원영턴'], 4], 'it stops when the answer is nothing');
 
-  decider.setProvider('openai');
-  assert.equal((await decider.decide({ instructions: 'pick', input: 'hi', options: OPTIONS, none: IDLE_LABEL })).driver, 'decisions');
+  assert.throws(() => decider.setProvider('openai'), { code: 'not_configured' });
   assert.throws(() => decider.setProvider('other'), { status: 400 });
   const only = createDecider({ env: { OPENAI_API_KEY: 'k' }, fetchImpl: async () => jsonResponse(500, {}) });
   assert.throws(() => only.setProvider('jev'), { code: 'not_configured' });
   const failing = createDecider({ env: { TYPESAFE_API_KEY: 'ts-secret-key-1234' }, fetchImpl: async () => jsonResponse(401, { error: { message: 'bad key ts-secret-key-1234' } }) });
   await assert.rejects(failing.decide({ instructions: '', input: '', options: OPTIONS }), error => !error.message.includes('secret'));
+});
+
+test('decider: GPT-6 Luna is the default and asks in fast mode; Clef-flash goes to Workers AI; a likely motion beats a winning nothing', async () => {
+  const calls = [];
+  const logs = [];
+  const decider = createDecider({
+    env: { OPENAI_API_KEY: 'k', DIRECTOR_DRIVER: 'chat', TYPESAFE_API_KEY: 't', CLOUDFLARE_ACCOUNT_ID: 'acc1', CLOUDFLARE_API_TOKEN: 'cf-token' },
+    log: line => logs.push(line),
+    fetchImpl: async (url, init) => {
+      const body = JSON.parse(init.body);
+      calls.push({ url, auth: init.headers.Authorization, body });
+      if (url.includes('openai')) {
+        if (body.service_tier) return jsonResponse(400, { error: { message: "Invalid service_tier 'priority' for this project." } });
+        return jsonResponse(200, { service_tier: 'default', choices: [{ message: { content: '{"labels":["인사"]}' } }] });
+      }
+      // 대기 wins with 0.5, but 원영턴 has 0.4 (>= 0.3): the motion is taken; the next call says nothing.
+      const first = calls.filter(call => call.url.includes('cloudflare')).length === 1;
+      return jsonResponse(200, { success: true, result: { answers: { pick: { type: 'choice', choice: 'o0', probabilities: first ? { o0: 0.5, o1: 0.4, o2: 0.1 } : { o0: 0.95, o2: 0.05 } } }, usage: { input_tokens: 100 } } });
+    },
+  });
+  assert.deepEqual([decider.status().provider, decider.status().tier], ['openai', 'priority']);
+  let answer = await decider.decide({ instructions: 'pick', input: '안녕', options: OPTIONS, none: IDLE_LABEL });
+  assert.deepEqual([answer.labels, answer.driver, answer.tier], [['인사'], 'chat', 'default']);
+  assert.deepEqual(calls.map(call => [call.body.service_tier, call.body.reasoning_effort]), [['priority', 'none'], [undefined, 'none']]);
+  assert.equal(decider.status().tier, null);
+  assert.equal(logs.length, 1);
+
+  decider.setProvider('clef');
+  calls.length = 0;
+  answer = await decider.decide({ instructions: 'pick', input: '돌아 볼까', options: OPTIONS, none: IDLE_LABEL });
+  assert.deepEqual([answer.labels, answer.driver, answer.probabilities], [['원영턴'], 'clef', { [IDLE_LABEL]: 0.5, 원영턴: 0.4, 인사: 0.1 }]);
+  assert.deepEqual([calls[0].url, calls[0].auth, calls[0].body.model], ['https://api.cloudflare.com/client/v4/accounts/acc1/ai/run/@cf/cloudflare/clef-flash', 'Bearer cf-token', 'clef-flash']);
+  assert.equal(calls.length, 2);
+  const noAccount = createDecider({ env: { CLOUDFLARE_API_TOKEN: 'x' }, fetchImpl: async () => jsonResponse(500, {}) });
+  assert.equal(noAccount.status().providers.find(entry => entry.id === 'clef').configured, false);
 });
