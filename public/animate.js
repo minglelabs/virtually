@@ -1454,6 +1454,17 @@ if (typeof document !== 'undefined') (() => {
         ? el('a', { className: 'driving-credit', href, target: '_blank', rel: 'noopener noreferrer', text })
         : el('span', { className: 'driving-credit', text }));
     }
+    // An uploaded video can be renamed (examples keep their names).
+    if (driving.kind === 'upload') {
+      card.append(el('button', {
+        type: 'button',
+        className: 'driving-delete driving-rename',
+        'aria-label': `${driving.label} 이름 바꾸기`,
+        title: '이름 바꾸기',
+        text: '✎',
+        onclick: () => renameDriving(driving),
+      }));
+    }
     // Uploads are deleted; examples are hidden (restorable from the strip).
     card.append(el('button', {
       type: 'button',
@@ -1577,6 +1588,17 @@ if (typeof document !== 'undefined') (() => {
     uploadDrivings(files);
   });
   acceptDrops(drivingDrop, drivingDrop, uploadDrivings);
+
+  async function renameDriving(driving) {
+    const label = window.prompt('레퍼런스 영상의 새 이름', driving.label);
+    if (label === null || !label.trim() || label.trim() === driving.label) return;
+    try {
+      await api('PATCH', '/api/animate/drivings/' + encodeURIComponent(driving.id), { json: { label: label.trim() } });
+      await loadDrivings();
+    } catch (error) {
+      setStatus(drivingStatus, `이름 바꾸기 실패: ${error.message}`, 'error');
+    }
+  }
 
   async function deleteDriving(driving) {
     if (!window.confirm(`'${driving.label}' 영상을 지울까요?`)) return;
@@ -1878,6 +1900,7 @@ if (typeof document !== 'undefined') (() => {
     const sub = el('span', { className: 'motion-tile-sub' });
     const idleBtn = el('button', { type: 'button', className: 'btn btn-ghost btn-sm' });
     const removeBtn = el('button', { type: 'button', className: 'btn btn-ghost btn-sm', text: '삭제' });
+    const renameBtn = el('button', { type: 'button', className: 'btn btn-ghost btn-sm', text: '이름 바꾸기' });
     const downloadBtn = el('a', {
       className: 'btn btn-ghost btn-sm', href: H.downloadUrl(`/api/media/${encodeURIComponent(motion.id)}`), download: '',
       text: motion.mime === 'video/webm' ? '다운로드 (MOV)' : '다운로드 (MP4)',
@@ -1896,9 +1919,9 @@ if (typeof document !== 'undefined') (() => {
       thumb,
       name,
       sub,
-      el('div', { className: 'motion-tile-actions' }, [idleBtn, keyBtn, aiKeyBtn, restoreBtn, downloadBtn, removeBtn]),
+      el('div', { className: 'motion-tile-actions' }, [idleBtn, renameBtn, keyBtn, aiKeyBtn, restoreBtn, downloadBtn, removeBtn]),
     ]);
-    const tile = { node, video, thumb, badge, name, sub, idleBtn, removeBtn, keyBtn, aiKeyBtn, restoreBtn, downloadBtn, isIdle: false, mime: motion.mime };
+    const tile = { node, video, thumb, badge, name, sub, idleBtn, renameBtn, removeBtn, keyBtn, aiKeyBtn, restoreBtn, downloadBtn, isIdle: false, mime: motion.mime };
     const setPlaying = (playing) => {
       node.classList.toggle('is-playing', playing);
       mark.textContent = playing ? '■' : '▶';
@@ -1941,6 +1964,7 @@ if (typeof document !== 'undefined') (() => {
       : '방송 중 다른 동작이 재생되지 않을 때 이 영상을 반복 재생합니다';
     tile.idleBtn.disabled = motionBusy;
     tile.removeBtn.disabled = motionBusy;
+    tile.renameBtn.disabled = motionBusy;
     const background = motion.hasBackground === true;
     tile.keyBtn.hidden = !background;
     tile.keyBtn.disabled = motionBusy;
@@ -1969,6 +1993,7 @@ if (typeof document !== 'undefined') (() => {
     }
     tile.idleBtn.onclick = () => setIdleMotion(character, photo, chosen ? null : motion);
     tile.removeBtn.onclick = () => deleteMotion(motion);
+    tile.renameBtn.onclick = () => renameMotion(motion);
   }
 
   async function setIdleMotion(character, photo, motion) {
@@ -2019,6 +2044,19 @@ if (typeof document !== 'undefined') (() => {
     } finally {
       motionBusy = false;
       renderMotions();
+    }
+  }
+
+  async function renameMotion(motion) {
+    if (motionBusy) return;
+    const name = window.prompt('동작의 새 이름 (자동 반응은 이 이름으로 동작을 고릅니다)', motion.name);
+    if (name === null || !name.trim() || name.trim() === motion.name) return;
+    setStatus(motionsStatus, '');
+    try {
+      await api('PATCH', `/api/media/${encodeURIComponent(motion.id)}`, { json: { name: name.trim() } });
+      await loadCharacters();
+    } catch (error) {
+      setStatus(motionsStatus, `이름 바꾸기 실패: ${error.message}`, 'error');
     }
   }
 
