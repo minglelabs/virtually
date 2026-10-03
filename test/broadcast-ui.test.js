@@ -56,3 +56,15 @@ test('broadcast page wiring: the on-air strip and its links', () => {
   assert.match(css, /\.on-air\[hidden\], \.on-air \[hidden\] \{ display: none; \}/);
   assert.match(css, /a\.btn \{[^}]*text-decoration: none;/);
 });
+
+test('the idle is the first motion button, named like the idle it is', () => {
+  const B = require('../public/app.js');
+  assert.deepEqual(B.idleItem(null), { key: 'idle', label: '기본 대기', sub: '대기', idle: true });
+  assert.deepEqual(B.idleItem({ photo: { id: 'ph-1' }, idle: { mime: 'image/png', name: '캐릭터', source: { photoId: 'ph-1' } } }),
+    { key: 'idle', label: '기본 대기 (사진)', sub: '대기', idle: true });
+  assert.deepEqual(B.idleItem({ photo: { id: 'ph-1' }, idle: { mime: 'video/webm', name: '기본 대기 동작', kind: 'idle' } }),
+    { key: 'idle', label: '기본 대기 동작', sub: '대기 · 반복 재생', idle: true });
+  assert.equal(B.idleItem({ photo: { id: 'ph-1' }, idle: { mime: 'video/webm', name: '원영턴' } }).label, '원영턴', 'a motion chosen as the idle keeps its name');
+  const html = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'public', 'index.html'), 'utf8');
+  assert.doesNotMatch(html, /대기로 돌아가기|id="idleBtn"/);
+});

@@ -37,7 +37,21 @@ const BroadcastHelpers = (() => {
     };
   }
 
-  return { animateHref, onAirView };
+  /**
+   * The idle as the first motion button: { key: 'idle', label, sub, idle: true }. It is a
+   * button like the others (pressing it goes back to the idle). The label is the idle
+   * motion's name when the idle is a clip ('기본 대기 동작', or the motion chosen as the idle),
+   * else '기본 대기 (사진)' for a photo and '기본 대기' for the demo avatar.
+   */
+  function idleItem(library) {
+    const idle = library && typeof library === 'object' && library.idle && typeof library.idle === 'object' ? library.idle : null;
+    const clip = Boolean(idle && typeof idle.mime === 'string' && idle.mime.startsWith('video/'));
+    const name = clip && !(idle.source && idle.source.photoId) ? String(idle.name ?? '').trim() : '';
+    const label = name || (clip ? motions.IDLE_MOTION_NAME : motions.onAirPhotoId(library) ? '기본 대기 (사진)' : '기본 대기');
+    return { key: 'idle', label, sub: clip ? '대기 · 반복 재생' : '대기', idle: true };
+  }
+
+  return { animateHref, onAirView, idleItem };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = BroadcastHelpers;
@@ -55,7 +69,6 @@ if (typeof document !== 'undefined') (() => {
   const motionStatus = document.getElementById('motionStatus');
   const motionSentinel = document.getElementById('motionSentinel');
   const motionHint = document.getElementById('motionHint');
-  const idleBtn = document.getElementById('idleBtn');
   // The hint under 동작: the HTML text (demo mode), or this while a photo is on air.
   const HINT_DEMO = motionHint.textContent;
   const HINT_ON_AIR = '영상이 없는 동작은 누를 수 없습니다. 동작 관리에서 영상을 넣어 주세요.';
@@ -167,7 +180,9 @@ if (typeof document !== 'undefined') (() => {
   });
 
   // ---- Motion buttons ----
-  let items = buildMotionItems(null);
+  // The idle first, as a button like the others, then the motions.
+  const allItems = library => [BroadcastHelpers.idleItem(library), ...buildMotionItems(library)];
+  let items = allItems(null);
   let shownCount = 0;
   let playingKey = null;
   let playingTimer = null;
@@ -181,7 +196,8 @@ if (typeof document !== 'undefined') (() => {
 
   function applyPlayingState() {
     for (const button of motionList.querySelectorAll('button')) {
-      const playing = button.dataset.key === playingKey;
+      // Nothing plays: the idle is what is on (its button is the lit one).
+      const playing = button.dataset.key === (playingKey ?? 'idle');
       button.classList.toggle('is-playing', playing);
       button.setAttribute('aria-pressed', playing ? 'true' : 'false');
     }
@@ -235,7 +251,7 @@ if (typeof document !== 'undefined') (() => {
       // Motion names are user data: build with textContent only.
       const button = document.createElement('button');
       button.type = 'button';
-      button.className = 'motion-btn' + (item.linked ? ' is-linked' : '');
+      button.className = 'motion-btn' + (item.linked || item.idle ? ' is-linked' : '');
       button.dataset.key = item.key;
       // A preset without its video while a photo is on air (motions.js): not clickable.
       button.disabled = item.disabled === true;
@@ -290,11 +306,12 @@ if (typeof document !== 'undefined') (() => {
     const button = event.target.closest('button[data-key]');
     if (!button || button.disabled) return;
     const item = items.find(value => value.key === button.dataset.key);
-    if (item && item.disabled !== true && item.triggerId) trigger(item);
+    if (item && item.idle) goIdle();
+    else if (item && item.disabled !== true && item.triggerId) trigger(item);
   });
 
-  // ---- Back to idle ----
-  idleBtn.addEventListener('click', async () => {
+  // ---- Back to idle (the idle's own button) ----
+  async function goIdle() {
     setStatus('');
     try {
       const response = await fetch('/api/idle', {
@@ -307,7 +324,7 @@ if (typeof document !== 'undefined') (() => {
     } catch (error) {
       setStatus(`대기 전환 실패: ${error.message}`);
     }
-  });
+  }
 
   window.addEventListener('message', (event) => {
     if (event.origin !== window.location.origin) return;
@@ -385,7 +402,7 @@ if (typeof document !== 'undefined') (() => {
       return;
     }
     if (data?.type === 'library') {
-      items = buildMotionItems(data.library);
+      items = allItems(data.library);
       render();
       motionHint.textContent = onAirPhotoId(data.library) ? HINT_ON_AIR : HINT_DEMO;
       renderOnAir(data.library);
