@@ -944,7 +944,7 @@ const AnimateHelpers = (() => {
     if (!result?.url) return [];
     if (Array.isArray(result.versions) && result.versions.length) {
       return result.versions.filter(v => v && typeof v.kind === 'string' && typeof v.url === 'string')
-        .map(v => ({ kind: v.kind, url: v.url, keyMethod: v.keyMethod ?? null }));
+        .map(v => ({ kind: v.kind, url: v.url, keyMethod: v.keyMethod ?? null, cleaned: v.cleaned === true }));
     }
     const list = [{ kind: 'original', url: result.url, keyMethod: null }];
     if (result.keyedUrl) list.push({ kind: result.keyMethod === 'ai' ? 'ai' : 'free', url: result.keyedUrl, keyMethod: result.keyMethod ?? 'color' });
@@ -3019,8 +3019,8 @@ if (typeof document !== 'undefined') (() => {
       type: 'button',
       className: 'btn btn-ghost btn-sm',
       disabled: keyBusyNow,
-      text: keyBusyNow ? '배경 지우는 중…' : '배경 제거하기',
-      title: '이 결과의 배경 제거만 다시 실행합니다. 이미 추가한 동작도 새 투명 영상으로 바뀝니다.',
+      text: keyBusyNow ? '배경 지우는 중…' : '배경 제거하기 (무료)',
+      title: '이 결과의 배경을 색으로 지우고, 남은 배경색 번짐(가장자리 테두리, 옷이나 손에 묻은 색)까지 지웁니다. AI를 쓰지 않아 크레딧이 들지 않습니다. 이미 추가한 동작도 새 투명 영상으로 바뀝니다.',
       onclick: () => rekey(job),
     });
     // The paid AI remover for this result, when the server has it: asks first, with the price.
@@ -3030,15 +3030,16 @@ if (typeof document !== 'undefined') (() => {
       className: 'btn btn-ghost btn-sm',
       disabled: keyBusyNow,
       text: `AI로 배경 제거 (${H.priceText(aiUsd, state.billing)})`,
-      title: 'AI가 영상에서 배경을 알아보고 지웁니다. 머리카락 같은 가는 부분도 부드럽게 남고, 배경이 단색이 아니어도 됩니다.',
+      title: 'AI가 영상에서 배경을 알아보고 지운 뒤, 남은 배경색 번짐까지 지웁니다. 머리카락 같은 가는 부분도 부드럽게 남고, 배경이 단색이 아니어도 됩니다.',
       onclick: () => {
         if (window.confirm(`AI로 이 영상의 배경을 지웁니다. 비용: ${H.priceText(aiUsd, state.billing)}. 진행할까요?`)) rekey(job, 'ai');
       },
     });
     const chosen = H.chosenVersion(job, chosenVersions.get(job.id));
-    // Take the background colour left on the chosen transparent version out of it, free:
-    // always offered (it can be pressed again; a version without that colour is left as it is).
-    const rimButton = job.result?.rimCleanable !== true || !chosen || chosen === 'original' ? null : el('button', {
+    // Both 배경 제거 buttons clean the background colour left on their clip by themselves. A
+    // version made before they did still gets its own button for it (free, no AI).
+    const chosenVersionView = H.jobVersions(job).find(version => version.kind === chosen) || null;
+    const rimButton = job.result?.rimCleanable !== true || !chosenVersionView || chosen === 'original' || chosenVersionView.cleaned === true ? null : el('button', {
       type: 'button',
       className: 'btn btn-ghost btn-sm',
       disabled: keyBusyNow,
