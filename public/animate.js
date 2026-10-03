@@ -500,7 +500,12 @@ const AnimateHelpers = (() => {
     let key;
     if (steps && steps.key === false) key = ['건너뜀', 'muted'];
     else if (state === 'keying') key = ['진행 중', 'active'];
-    else if (state === 'succeeded') key = job.result?.keyedUrl ? [job.result.keyMethod === 'ai' ? '완료 (AI)' : '완료', 'done'] : ['지우지 못함', 'warn'];
+    else if (state === 'succeeded') {
+      // The original put in use although a transparent version exists is a choice, not a failure.
+      const kept = Array.isArray(job.result?.versions) && job.result.versions.some(v => v && v.kind !== 'original');
+      key = job.result?.keyedUrl ? [job.result.keyMethod === 'ai' ? '완료 (AI)' : '완료', 'done']
+        : kept ? ['완료 · 원본 사용 중', 'done'] : ['지우지 못함', 'warn'];
+    }
     else if (state === 'failed' || state === 'canceled') key = ['하지 않음', 'muted'];
     else key = ['대기', 'muted'];
     // Step 3 by the AI remover is its own charge: what it took, or that it came back.
@@ -929,6 +934,40 @@ const AnimateHelpers = (() => {
     return delta;
   }
 
+  /**
+   * The versions of a finished result, the original first: [{ kind, url, keyMethod }]
+   * ('original' | 'free' | 'ai'). An older server answer without `versions` gives the
+   * original and the keyed clip.
+   */
+  function jobVersions(job) {
+    const result = job?.result;
+    if (!result?.url) return [];
+    if (Array.isArray(result.versions) && result.versions.length) {
+      return result.versions.filter(v => v && typeof v.kind === 'string' && typeof v.url === 'string')
+        .map(v => ({ kind: v.kind, url: v.url, keyMethod: v.keyMethod ?? null }));
+    }
+    const list = [{ kind: 'original', url: result.url, keyMethod: null }];
+    if (result.keyedUrl) list.push({ kind: result.keyMethod === 'ai' ? 'ai' : 'free', url: result.keyedUrl, keyMethod: result.keyMethod ?? 'color' });
+    return list;
+  }
+
+  /** The version shown as chosen: the page's pick while it exists, else the one in use, else the last. */
+  function chosenVersion(job, picked) {
+    const kinds = jobVersions(job).map(v => v.kind);
+    if (!kinds.length) return null;
+    if (kinds.includes(picked)) return picked;
+    const active = job?.result?.activeVersion;
+    if (kinds.includes(active)) return active;
+    return kinds.length > 1 ? kinds[kinds.length - 1] : kinds[0];
+  }
+
+  /** '원본' / '배경 제거 (무료)' / '배경 제거 (AI)'. */
+  function versionLabel(version) {
+    if (version?.kind === 'ai') return '배경 제거 (AI)';
+    if (version?.kind === 'free') return '배경 제거 (무료)';
+    return '원본';
+  }
+
   /** The 다운로드 link of a clip URL (?download=1 added). */
   function downloadUrl(src) {
     return `${src}${String(src).includes('?') ? '&' : '?'}download=1`;
@@ -936,6 +975,9 @@ const AnimateHelpers = (() => {
 
   return {
     downloadUrl,
+    jobVersions,
+    chosenVersion,
+    versionLabel,
     DRIVING_BATCH_SIZE,
     drivingRenderCount,
     fileKind,
@@ -2740,7 +2782,8 @@ if (typeof document !== 'undefined') (() => {
   // not reset by unrelated updates.
   const rows = new Map(); // id -> { li, head, body, media, actions, mediaKey, actionsKey }
   const nameDrafts = new Map(); // job id -> typed motion name
-  const showOriginal = new Set(); // job ids viewing the original MP4 instead of the keyed WebM
+  const chosenVersions = new Map(); // job id -> the version picked on this page ('original' | 'free' | 'ai')
+  const versionBusy = new Set(); // job ids whose motion is being switched to another version
   const addBusy = new Set();
   const addErrors = new Map();
   const keyBusy = new Set(); // job ids whose background removal is re-running
@@ -2848,49 +2891,66 @@ if (typeof document !== 'undefined') (() => {
     row.fitNote.textContent = fitNote;
     row.fitNote.hidden = !fitNote;
 
-    // The keyed WebM plays over the checkerboard; a toggle shows the original MP4.
-    const keyedUrl = job.state === 'succeeded' ? job.result?.keyedUrl || null : null;
-    const original = !keyedUrl || showOriginal.has(job.id);
-    const src = job.state === 'succeeded' && job.result?.url ? (original ? job.result.url : keyedUrl) : null;
-    const mediaKey = src ? JSON.stringify([src, keyedUrl]) : null;
+    // Every version of the result side by side (the original, then each transparent one):
+    // a click on a version's name chooses it for 다운로드 and 동작으로 추가하기.
+    const versions = job.state === 'succeeded' ? H.jobVersions(job) : [];
+    const chosen = H.chosenVersion(job, chosenVersions.get(job.id));
+    const added = H.isAdded(job, state.libraryIds);
+    const mediaKey = versions.length ? JSON.stringify([versions, chosen, job.result?.activeVersion ?? null, added]) : null;
     if (mediaKey !== row.mediaKey) {
+      // Keep the clips that did not change, so a playing one is not reset.
+      const kept = new Map(row.versionNodes || []);
+      row.versionNodes = new Map();
       row.mediaKey = mediaKey;
-      const video = src
-        ? el('video', {
+      const tiles = versions.map((version) => {
+        const transparent = version.kind !== 'original';
+        const nodeKey = version.url;
+        const video = kept.get(nodeKey) || el('video', {
           className: 'job-video',
-          src,
-          poster: original ? job.result.posterUrl || null : null,
+          src: version.url,
+          poster: transparent ? null : job.result.posterUrl || null,
           controls: true,
           // The browser's own download would save the WebM: the 다운로드 button gives the right file.
           controlsList: 'nodownload',
           playsInline: true,
           preload: 'metadata',
+        });
+        row.versionNodes.set(nodeKey, video);
+        const isChosen = version.kind === chosen;
+        const inUse = added && version.kind === job.result?.activeVersion;
+        return el('div', { className: `job-version${isChosen ? ' is-chosen' : ''}`, role: 'listitem' }, [
+          el('div', { className: `job-frame${transparent ? ' checkerboard' : ''}` }, [video]),
+          el('button', {
+            type: 'button',
+            className: 'job-version-pick',
+            'aria-pressed': String(isChosen),
+            title: isChosen ? '선택된 버전입니다' : '이 버전을 선택합니다',
+            onclick: () => {
+              chosenVersions.set(job.id, version.kind);
+              updateRow(row, state.jobs.find(item => item.id === job.id) || job);
+            },
+          }, [
+            el('span', { className: 'job-version-name', text: H.versionLabel(version) }),
+            isChosen ? el('span', { className: 'job-version-tag', text: '선택됨' }) : null,
+            inUse ? el('span', { className: 'job-version-tag is-use', text: '동작에 사용 중' }) : null,
+          ].filter(Boolean)),
+        ]);
+      });
+      const picked = versions.find(version => version.kind === chosen) || null;
+      // The chosen clip as a file: a transparent one comes as a MOV (it keeps its alpha), the original as MP4.
+      const download = picked
+        ? el('a', {
+          className: 'btn btn-ghost btn-sm job-download', href: H.downloadUrl(picked.url), download: '',
+          text: picked.kind === 'original' ? '선택한 버전 다운로드 (MP4)' : '선택한 버전 다운로드 (MOV · 투명)',
         })
         : null;
-      const toggle = keyedUrl
-        ? el('button', {
-          type: 'button',
-          className: 'btn btn-ghost btn-sm job-toggle',
-          text: original ? '배경 지운 영상 보기' : '원본 보기',
-          onclick: () => {
-            if (showOriginal.has(job.id)) showOriginal.delete(job.id);
-            else showOriginal.add(job.id);
-            updateRow(row, state.jobs.find(item => item.id === job.id) || job);
-          },
-        })
-        : null;
-      // The clip shown, as a file: a transparent one comes as a MOV (it keeps its alpha), the original as MP4.
-      const download = src
-        ? el('a', { className: 'btn btn-ghost btn-sm job-download', href: H.downloadUrl(src), download: '', text: original ? '다운로드 (MP4)' : '다운로드 (MOV · 투명)' })
-        : null;
-      row.media.replaceChildren(...(video
-        ? [el('div', { className: `job-frame${original ? '' : ' checkerboard'}` }, [video]), el('div', { className: 'job-media-actions' }, [toggle, download].filter(Boolean))]
+      row.media.replaceChildren(...(tiles.length
+        ? [el('div', { className: 'job-versions', role: 'list', 'aria-label': '결과 영상 버전' }, tiles), el('div', { className: 'job-media-actions' }, [download].filter(Boolean))]
         : []));
-      row.media.hidden = !src;
+      row.media.hidden = !tiles.length;
     }
 
-    const added = H.isAdded(job, state.libraryIds);
-    const actionsKey = JSON.stringify([job.state, added, H.isJobOfPhoto(job, state.photoId), addBusy.has(job.id), addErrors.get(job.id) || null,
+    const actionsKey = JSON.stringify([job.state, added, chosen, job.result?.activeVersion ?? null, versionBusy.has(job.id), H.isJobOfPhoto(job, state.photoId), addBusy.has(job.id), addErrors.get(job.id) || null,
       keyBusy.has(job.id), keyErrors.get(job.id) || null, aiAvailable(), state.billing?.creditsPerUsd ?? null, H.offersRefetch(job) ? H.refetchTitle(job, state.billing) : null,
       job.canRefetch === true, refetchBusy.has(job.id), refetchErrors.get(job.id) || null]);
     if (actionsKey !== row.actionsKey) {
@@ -2985,11 +3045,22 @@ if (typeof document !== 'undefined') (() => {
       onclick: () => rekey(job, 'rim'),
     });
     const rekeyStatus = keyError ? el('span', { className: 'status', dataset: { kind: 'error' }, text: keyError }) : null;
+    const chosen = H.chosenVersion(job, chosenVersions.get(job.id));
     if (added) {
+      // The motion keeps the version it was made from until another one is put in use.
+      const switchBusy = versionBusy.has(job.id);
+      const switchButton = chosen === job.result?.activeVersion ? null : el('button', {
+        type: 'button',
+        className: 'btn btn-sm',
+        disabled: switchBusy || keyBusyNow,
+        text: switchBusy ? '바꾸는 중…' : '선택한 버전으로 동작 바꾸기',
+        title: '이미 추가한 동작의 영상을 선택한 버전으로 바꿉니다.',
+        onclick: () => useVersion(job, chosen),
+      });
       return [el('span', { className: 'job-added' }, [
         '추가됨 · ',
         el('a', { className: 'link', href: '/', text: '캐릭터 목록에서 보기' }),
-      ]), rekeyButton, aiKeyButton, rimButton, rekeyStatus];
+      ]), switchButton, rekeyButton, aiKeyButton, rimButton, rekeyStatus];
     }
     const inputId = `name-${job.id}`;
     const input = el('input', {
@@ -3010,7 +3081,8 @@ if (typeof document !== 'undefined') (() => {
         className: 'btn btn-sm',
         disabled: busy,
         text: busy ? '추가 중…' : '동작으로 추가하기',
-        onclick: () => addMotion(job, input.value),
+        title: '선택한 버전의 영상을 이 사진의 동작으로 추가합니다.',
+        onclick: () => addMotion(job, input.value, chosen),
       }),
       error ? el('span', { className: 'status', dataset: { kind: 'error' }, text: error }) : null,
       rekeyButton,
@@ -3028,10 +3100,30 @@ if (typeof document !== 'undefined') (() => {
       const data = await api('POST', `/api/animate/jobs/${encodeURIComponent(job.id)}/key`, { json: method ? { method } : {} });
       if (data?.job) upsertJob(data.job);
       if (!data?.keyed) keyErrors.set(job.id, H.keyNote(data?.job) || '배경을 지우지 못했습니다');
+      // The version just made is the one in use: show it as the chosen one.
+      else chosenVersions.delete(job.id);
     } catch (error) {
       keyErrors.set(job.id, `배경 제거 실패: ${error.message}`);
     } finally {
       keyBusy.delete(job.id);
+      renderJobs();
+    }
+  }
+
+  // Put another version of an added result in use: its motion gets that clip.
+  async function useVersion(job, version) {
+    versionBusy.add(job.id);
+    keyErrors.delete(job.id);
+    renderJobs();
+    try {
+      const data = await api('POST', `/api/animate/jobs/${encodeURIComponent(job.id)}/version`, { json: { version } });
+      if (data?.job) upsertJob(data.job);
+      chosenVersions.delete(job.id);
+      scheduleCharacters();
+    } catch (error) {
+      keyErrors.set(job.id, `버전 바꾸기 실패: ${error.message}`);
+    } finally {
+      versionBusy.delete(job.id);
       renderJobs();
     }
   }
@@ -3054,14 +3146,14 @@ if (typeof document !== 'undefined') (() => {
     }
   }
 
-  async function addMotion(job, rawName) {
+  async function addMotion(job, rawName, version = null) {
     const name = String(rawName ?? '').trim();
     addBusy.add(job.id);
     addErrors.delete(job.id);
     renderJobs();
     try {
       const data = await api('POST', `/api/animate/jobs/${encodeURIComponent(job.id)}/motion`, {
-        json: name ? { name } : {},
+        json: { ...(name ? { name } : {}), ...(version ? { version } : {}) },
       });
       if (data?.motion?.id && state.libraryIds) state.libraryIds.add(data.motion.id);
       addBusy.delete(job.id);
