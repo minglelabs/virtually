@@ -3035,17 +3035,18 @@ if (typeof document !== 'undefined') (() => {
         if (window.confirm(`AI로 이 영상의 배경을 지웁니다. 비용: ${H.priceText(aiUsd, state.billing)}. 진행할까요?`)) rekey(job, 'ai');
       },
     });
-    // An AI result from before the edge clean-up existed: clean its coloured rim, free.
-    const rimButton = job.result?.rimCleanable !== true ? null : el('button', {
+    const chosen = H.chosenVersion(job, chosenVersions.get(job.id));
+    // Take the background colour left on the chosen transparent version out of it, free:
+    // always offered (it can be pressed again; a version without that colour is left as it is).
+    const rimButton = job.result?.rimCleanable !== true || !chosen || chosen === 'original' ? null : el('button', {
       type: 'button',
       className: 'btn btn-ghost btn-sm',
       disabled: keyBusyNow,
       text: '배경색 번짐 지우기 (무료)',
-      title: 'AI로 배경을 지운 영상에 남은 배경색(가장자리 테두리, 옷이나 손에 묻은 색)을 지웁니다. AI를 쓰지 않아 크레딧이 들지 않습니다. 이미 추가한 동작도 함께 바뀝니다.',
-      onclick: () => rekey(job, 'rim'),
+      title: '선택한 배경 제거 버전에 남은 배경색(가장자리 테두리, 옷이나 손에 묻은 색)을 지웁니다. AI를 쓰지 않아 크레딧이 들지 않습니다. 이 버전을 쓰는 동작도 함께 바뀝니다.',
+      onclick: () => rekey(job, 'rim', chosen),
     });
     const rekeyStatus = keyError ? el('span', { className: 'status', dataset: { kind: 'error' }, text: keyError }) : null;
-    const chosen = H.chosenVersion(job, chosenVersions.get(job.id));
     if (added) {
       // The motion keeps the version it was made from until another one is put in use.
       const switchBusy = versionBusy.has(job.id);
@@ -3092,16 +3093,18 @@ if (typeof document !== 'undefined') (() => {
     ];
   }
 
-  async function rekey(job, method = null) {
+  async function rekey(job, method = null, version = null) {
     keyBusy.add(job.id);
     keyErrors.delete(job.id);
     renderJobs();
     try {
-      const data = await api('POST', `/api/animate/jobs/${encodeURIComponent(job.id)}/key`, { json: method ? { method } : {} });
+      const data = await api('POST', `/api/animate/jobs/${encodeURIComponent(job.id)}/key`, { json: { ...(method ? { method } : {}), ...(version ? { version } : {}) } });
       if (data?.job) upsertJob(data.job);
       if (!data?.keyed) keyErrors.set(job.id, H.keyNote(data?.job) || '배경을 지우지 못했습니다');
+      else if (method === 'rim') {
+        if (data.rimCleaned === false) keyErrors.set(job.id, '이 영상의 배경은 초록·파랑·분홍 단색이 아니라서 지울 번짐이 없습니다');
       // The version just made is the one in use: show it as the chosen one.
-      else chosenVersions.delete(job.id);
+      } else chosenVersions.delete(job.id);
     } catch (error) {
       keyErrors.set(job.id, `배경 제거 실패: ${error.message}`);
     } finally {

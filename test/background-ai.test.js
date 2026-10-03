@@ -45,7 +45,9 @@ test('video: the answer is kept as it comes when it has transparent pixels, refu
 });
 
 test('video: a clip on a key colour gets its rim cleaned; any other clip keeps the answer as it came', async (t) => {
-  const { edgeCleanFilter } = require('../lib/animate/background-ai');
+  const { edgeCleanFilter, spillOf } = require('../lib/animate/background-ai');
+  // A background that is no key colour still names what it spills; a neutral one spills nothing.
+  assert.deepEqual([[75, 110, 65], [40, 60, 200], [200, 60, 190], [250, 250, 250], [20, 20, 20], [120, 130, 110]].map(spillOf), ['green', 'blue', 'magenta', null, null, null]);
   assert.match(edgeCleanFilter('green'), /\[o\]despill=type=green:mix=1:expand=0\.6\[ds\];\[m\]alphaextract,erosion\[al\]/);
   assert.match(edgeCleanFilter('blue'), /despill=type=blue:mix=1:expand=0\.6:green=0:blue=-1\[ds\]/);
   assert.match(edgeCleanFilter('green', { choke: false }), /\[m\]alphaextract\[al\]/);
