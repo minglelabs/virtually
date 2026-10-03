@@ -46,11 +46,12 @@ test('a result keeps every version: each can be put in use, added as the motion 
   ffmpeg(['-f', 'lavfi', '-i', "color=c=red:s=64x96:r=8:d=1,format=yuva420p,geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='if(between(X,16,48)*between(Y,24,72),255,0)'",
     '-c:v', 'libvpx-vp9', '-pix_fmt', 'yuva420p', '-auto-alt-ref', '0', file('ai.webm')]);
   let aiCalls = 0;
+  const rimCalls = [];
   const backgroundAi = {
     available: () => true,
     image: async () => { throw new Error('not used'); },
     video: async (src, dest) => { aiCalls += 1; await fs.copyFile(file('ai.webm'), dest); return { rimCleaned: false }; },
-    cleanRim: async () => false,
+    cleanRim: async (src, keyedPath, options) => { rimCalls.push([path.basename(keyedPath), options.choke]); return true; },
     videoUsd: () => 0.05,
     view: () => ({ available: true, imageUsd: 0.004, videoUsdPerSecond: 0.05, videoMinSeconds: 1 }),
   };
@@ -90,6 +91,19 @@ test('a result keeps every version: each can be put in use, added as the motion 
   assert.deepEqual([response.status, data.keyed, kinds(data.job), data.job.result.activeVersion, aiCalls], [200, true, ['original', 'free', 'ai'], 'ai', 1]);
   assert.deepEqual(await bytes(data.job.result.versions[2].url), fsSync.readFileSync(file('ai.webm')));
   assert.deepEqual(await bytes(data.job.result.versions[1].url), freeBytes, 'the free version is still there');
+
+  // '배경색 번짐 지우기' works on the version asked for, free or AI, in use or not; the alpha
+  // is pulled in the first time only.
+  assert.equal(data.job.result.rimCleanable, true);
+  for (const [version, choke] of [['free', true], ['free', false], ['ai', true]]) {
+    response = await post(`/api/animate/jobs/${id}/key`, { method: 'rim', version });
+    data = await response.json();
+    assert.deepEqual([response.status, data.keyed, data.rimCleaned, data.job.result.activeVersion], [200, true, true, 'ai'], version);
+    assert.deepEqual(rimCalls[rimCalls.length - 1], [`keyed.${version}.webm`, choke]);
+  }
+  assert.equal(aiCalls, 1, 'no AI call for the colour clean-up');
+  response = await post(`/api/animate/jobs/${id}/key`, { method: 'rim', version: 'original' });
+  assert.equal((await response.json()).rimCleaned, true, 'an unknown or original version means the one in use');
 
   // Back to the free one, then to an unknown one.
   response = await post(`/api/animate/jobs/${id}/version`, { version: 'free' });

@@ -234,11 +234,11 @@ test('the paid AI removers run only when picked: photo and result, with their co
   const rekeyed = (await response.json()).job;
   assert.equal(rekeyed.result.keyMethod, 'ai');
   assert.equal(calls.video, 3);
-  // A result keyed by the AI now has had its rim looked at: '가장자리 정리' is for older results only.
-  assert.equal(rekeyed.result.rimCleanable, false);
+  // '배경색 번짐 지우기' is offered for any transparent version, and never calls the paid remover.
+  assert.equal(rekeyed.result.rimCleanable, true);
   response = await json('POST', `/api/animate/jobs/${job.id}/key`, { method: 'rim' });
-  assert.deepEqual([response.status, (await response.json()).code], [409, 'rim_not_cleanable']);
-  assert.equal(calls.video, 3, 'the rim clean-up never calls the paid remover');
+  assert.deepEqual([response.status, (await response.json()).code], [409, 'rim_not_cleanable'], 'this fake remover has no local clean-up');
+  assert.equal(calls.video, 3, 'the colour clean-up never calls the paid remover');
   response = await json('POST', `/api/animate/jobs/${job.id}/key`, {});
   assert.equal(calls.video, 3, 'the plain 배경 제거하기 never calls the paid remover');
 
