@@ -62,8 +62,8 @@ const AdminActivityHelpers = (() => {
       case 'motion.add': text = `만든 동작 ${or(q(event.motionName), '')}을(를) 동작 목록에 추가했습니다`; break;
       case 'library.upload': text = `${event.kind === 'idle' ? '대기 영상' : '동작'} ${or(q(event.itemName), '')}을(를) 올렸습니다`; break;
       case 'media.delete': text = `동작·영상 ${or(q(event.itemName), '')}을(를) 지웠습니다`; break;
-      case 'driving.upload': text = `동작 영상(참고용) ${or(q(event.drivingName), '')}을(를) 올렸습니다`; break;
-      case 'driving.delete': text = `동작 영상(참고용) ${or(q(event.drivingName), '')}을(를) 지웠습니다`; break;
+      case 'driving.upload': text = `레퍼런스 영상 ${or(q(event.drivingName), '')}을(를) 올렸습니다`; break;
+      case 'driving.delete': text = `레퍼런스 영상 ${or(q(event.drivingName), '')}을(를) 지웠습니다`; break;
       case 'onair.set': text = event.photoId ? `${character}을(를) 방송에 올렸습니다` : '방송을 내렸습니다'; break;
       case 'motion.trigger': text = `${event.characterName ? `${character}의 ` : ''}동작 ${event.motionId === 'demo' ? '데모' : or(q(event.motionName), '')}을(를) 재생했습니다`; break;
       case 'job.create': {

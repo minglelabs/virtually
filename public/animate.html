@@ -78,7 +78,7 @@
     <div class="path-choice" role="tablist" aria-label="동작 만드는 방법">
       <button type="button" role="tab" id="pathAiTab" class="path-tab is-selected" data-path="ai" aria-selected="true" aria-controls="aiPath">
         <span class="path-title">AI로 만들기</span>
-        <span class="path-sub">동작 영상을 골라 이 사진을 AI로 움직입니다</span>
+        <span class="path-sub">레퍼런스 영상을 골라 이 사진을 AI로 움직입니다</span>
       </button>
       <button type="button" role="tab" id="pathUploadTab" class="path-tab" data-path="upload" aria-selected="false" aria-controls="uploadPath" tabindex="-1">
         <span class="path-title">완성된 영상 올리기</span>
@@ -89,7 +89,7 @@
     <div id="aiPath" class="path-panel" role="tabpanel" aria-labelledby="pathAiTab">
       <!-- 2. Driving video -->
       <section class="card" aria-labelledby="drivingTitle">
-        <h2 id="drivingTitle">2. 동작 영상</h2>
+        <h2 id="drivingTitle">2. 레퍼런스 영상</h2>
         <div id="exampleBar" class="bar" hidden>
           <span>예시 영상이 아직 없습니다</span>
           <button type="button" id="fetchExamplesBtn" class="btn btn-sm">예시 영상 받기</button>
@@ -126,7 +126,7 @@
             <label for="marginSelect">여백</label>
             <select id="marginSelect" class="select-sm"></select>
           </div>
-          <p class="muted route-margin-hint">캐릭터가 화면 밖으로 나가 잘리지 않게 동작 영상과 사진 둘레(아래 제외)에 여백을 붙입니다. 사진은 동작 영상과 같은 비율로 맞춰 보냅니다. 넓을수록 캐릭터가 작게 만들어집니다. 가격에는 영향이 없습니다.</p>
+          <p class="muted route-margin-hint">캐릭터가 화면 밖으로 나가 잘리지 않게 레퍼런스 영상과 사진 둘레(아래 제외)에 여백을 붙입니다. 사진은 레퍼런스 영상과 같은 비율로 맞춰 보냅니다. 넓을수록 캐릭터가 작게 만들어집니다. 가격에는 영향이 없습니다.</p>
         </div>
       </section>
 

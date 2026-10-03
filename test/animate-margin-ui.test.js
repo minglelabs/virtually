@@ -71,7 +71,7 @@ test('animate page has the 여백 select and hint, labels come from the payload'
   assert.match(html, /<div id="marginBox" class="route-margin" hidden>/);
   assert.match(html, /<label for="marginSelect">여백<\/label>/);
   assert.match(html, /<select id="marginSelect"/);
-  assert.match(html, /캐릭터가 화면 밖으로 나가 잘리지 않게 동작 영상과 사진 둘레\(아래 제외\)에 여백을 붙입니다\. 사진은 동작 영상과 같은 비율로 맞춰 보냅니다\. 넓을수록 캐릭터가 작게 만들어집니다\./);
+  assert.match(html, /캐릭터가 화면 밖으로 나가 잘리지 않게 레퍼런스 영상과 사진 둘레\(아래 제외\)에 여백을 붙입니다\. 사진은 레퍼런스 영상과 같은 비율로 맞춰 보냅니다\. 넓을수록 캐릭터가 작게 만들어집니다\./);
   const js = fs.readFileSync(path.join(__dirname, '..', 'public', 'animate.js'), 'utf8');
   // No hardcoded margin labels: only the payload's `margins` names them.
   assert.doesNotMatch(js, /'보통'|'넓게'|label: '없음'/);

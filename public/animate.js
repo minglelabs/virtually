@@ -36,7 +36,7 @@ const AnimateHelpers = (() => {
     no_credentials: '서버에 이 모델의 설정이 없습니다. 운영자에게 알려 주세요',
     no_media_relay: '서버에 영상 업로드 설정이 없습니다. 운영자에게 알려 주세요',
     character_missing: '캐릭터 이미지가 없습니다',
-    driving_missing: '동작 영상이 없습니다',
+    driving_missing: '레퍼런스 영상이 없습니다',
     driving_unavailable: '예시 영상을 먼저 받아 주세요',
     driving_too_long: '영상이 모델 제한보다 깁니다',
     driving_too_short: '영상이 모델 최소 길이보다 짧습니다',
@@ -2652,7 +2652,7 @@ if (typeof document !== 'undefined') (() => {
     const route = selectedRoute();
     if (state.ffmpeg && state.ffmpeg.available === false) return 'ffmpeg가 필요합니다';
     if (!chosenPhoto()) return state.list && H.listPhotos(state.list).length === 0 ? '캐릭터를 먼저 만들어 주세요' : '캐릭터 사진을 고르세요';
-    if (!driving) return '동작 영상을 고르세요';
+    if (!driving) return '레퍼런스 영상을 고르세요';
     if (!route) return '모델을 고르세요';
     const rs = H.routeState(route, driving.duration);
     if (rs.tooLong) return '영상이 모델 제한보다 깁니다';
