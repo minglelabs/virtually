@@ -14,7 +14,7 @@ const DirectorHelpers = (() => {
   /** The hint under the title: why it cannot work yet, or what it does. */
   function noteText(state) {
     if (!state) return '';
-    if (!state.ai?.configured) return 'AI 설정(TYPESAFE_API_KEY 또는 OPENAI_API_KEY)이 서버에 없어 켤 수 없습니다.';
+    if (!state.ai?.configured) return 'AI 설정(OPENAI_API_KEY 등)이 서버에 없어 켤 수 없습니다.';
     if (!state.onAir) return '방송할 캐릭터를 먼저 골라 주세요. 자동 반응은 방송 중인 캐릭터의 동작으로 움직입니다.';
     if (!state.motions) return '이 캐릭터에 등록된 동작이 없습니다. 동작 관리에서 동작을 먼저 넣어 주세요.';
     // The price is on the 켜기 button (buttonPrice).
@@ -48,7 +48,11 @@ const DirectorHelpers = (() => {
     if (state.error) return `AI 오류: ${state.error}`;
     const last = state.last;
     if (!last) return state.enabled ? '아직 판단한 적이 없습니다' : '';
-    const how = last.driver === 'jev' ? 'Jev' : last.driver === 'decisions' ? 'Decisions API' : `일반 호출${state.ai?.decisionsNote ? ' (Decisions API 사용 불가)' : ''}`;
+    const odds = last.probabilities && typeof last.probabilities === 'object'
+      ? Object.entries(last.probabilities).sort((a, b) => b[1] - a[1]).slice(0, 4)
+        .map(([label, value]) => `${label === IDLE_LABEL ? '대기' : label} ${Math.round(value * 100)}%`).join(', ') : '';
+    const how = last.driver === 'jev' || last.driver === 'clef' ? `${last.driver === 'jev' ? 'Jev' : 'Clef-flash'}${odds ? ` (${odds})` : ''}`
+      : last.driver === 'decisions' ? 'Decisions API' : `일반 호출${last.tier ? ` · ${last.tier}` : ''}${state.ai?.decisionsNote ? ' (Decisions API 사용 불가)' : ''}`;
     const picked = last.label === IDLE_LABEL ? '동작 없음(대기)' : `'${last.label}'`;
     return `방금 판단: ${picked} · ${Number.isFinite(last.ms) ? `${last.ms}ms · ` : ''}${how} · 누적 ${state.asked}회`;
   }
@@ -201,6 +205,8 @@ if (typeof document !== 'undefined') (() => {
     socket.addEventListener('open', () => {
       socket.send(JSON.stringify({
         api_key: key.apiKey, model: key.model, audio_format: 'auto', language_hints: ['ko'], enable_endpoint_detection: true,
+        // The names it should recognise as said: motions and characters.
+        ...(Array.isArray(key.terms) && key.terms.length ? { context: { terms: key.terms } } : {}),
       }));
       const recorder = new MediaRecorder(mic.stream);
       mic.recorder = recorder;
