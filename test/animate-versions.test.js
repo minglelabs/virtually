@@ -79,7 +79,9 @@ test('a result keeps every version: each can be put in use, added as the motion 
   const kinds = j => j.result.versions.map(v => v.kind);
 
   // The run made the free transparent clip: the original and that one, the free one in use.
+  // The free key ran the colour clean-up on its clip by itself.
   assert.deepEqual([kinds(job), job.result.activeVersion], [['original', 'free'], 'free']);
+  assert.deepEqual([rimCalls.length, rimCalls[0][0], job.result.versions[1].cleaned], [1, 'result.webm', true]);
   const freeUrl = job.result.versions[1].url;
   assert.match(freeUrl, new RegExp(`^/api/animate/jobs/${id}/result\\?variant=free&v=\\d+$`));
   const freeBytes = await bytes(freeUrl);
@@ -93,9 +95,9 @@ test('a result keeps every version: each can be put in use, added as the motion 
   assert.deepEqual(await bytes(data.job.result.versions[1].url), freeBytes, 'the free version is still there');
 
   // '배경색 번짐 지우기' works on the version asked for, free or AI, in use or not; the alpha
-  // is pulled in the first time only.
+  // is pulled in the first time only (the free version had its clean-up when it was made).
   assert.equal(data.job.result.rimCleanable, true);
-  for (const [version, choke] of [['free', true], ['free', false], ['ai', true]]) {
+  for (const [version, choke] of [['free', false], ['ai', true]]) {
     response = await post(`/api/animate/jobs/${id}/key`, { method: 'rim', version });
     data = await response.json();
     assert.deepEqual([response.status, data.keyed, data.rimCleaned, data.job.result.activeVersion], [200, true, true, 'ai'], version);
