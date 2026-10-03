@@ -44,14 +44,20 @@
       </div>
       <div id="characterRows" class="char-rows"></div>
       <p id="characterMeta" class="muted character-meta"></p>
-      <!-- The chosen photo's background: cut it out (free, or the paid AI remover) or go back to the original -->
+      <!-- The chosen photo's versions (the original, the free cut, the AI cut): one photo, one set of
+           motions. A click on a version puts it in use; the buttons make the versions it does not have yet. -->
       <div id="photoBg" class="photo-bg" hidden>
-        <span id="photoBgTag" class="badge"></span>
-        <button type="button" id="photoBgCut" class="btn btn-ghost btn-sm">투명 배경으로 만들기</button>
-        <button type="button" id="photoBgAi" class="btn btn-ghost btn-sm">AI로 배경 지우기</button>
-        <button type="button" id="photoBgKeep" class="btn btn-ghost btn-sm">원본 사진으로</button>
-        <button type="button" id="photoBgDelete" class="btn btn-ghost btn-sm btn-danger">사진 삭제</button>
-        <span id="photoBgNote" class="step-note"></span>
+        <div class="photo-versions-head">
+          <strong class="photo-versions-title">이 사진의 버전</strong>
+          <span id="photoBgTag" class="badge"></span>
+        </div>
+        <div id="photoVersions" class="photo-versions" role="list" aria-label="사진 버전"></div>
+        <div class="photo-bg-actions">
+          <button type="button" id="photoBgCut" class="btn btn-ghost btn-sm">배경 제거 버전 만들기 (무료)</button>
+          <button type="button" id="photoBgAi" class="btn btn-ghost btn-sm">AI로 배경 제거 버전 만들기</button>
+          <button type="button" id="photoBgDelete" class="btn btn-ghost btn-sm btn-danger">사진 삭제</button>
+        </div>
+        <p id="photoBgNote" class="step-note photo-bg-note"></p>
       </div>
       <input type="file" id="characterInput" accept="image/png,image/jpeg,image/webp" multiple hidden>
       <p id="characterStatus" class="status" aria-live="polite"></p>

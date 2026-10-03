@@ -625,7 +625,22 @@ button.motion-thumb:hover .motion-play { background: var(--accent); }
 .job-steps li[data-kind="error"] { color: var(--danger); border-color: rgba(255, 138, 138, 0.5); }
 
 /* The chosen photo's background state and its buttons (1. 캐릭터 사진). */
-.photo-bg { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 8px; }
+.photo-bg { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); }
+.photo-versions-head { display: flex; align-items: center; gap: 8px; }
+.photo-versions-title { font-size: 13px; }
+/* The versions of the chosen photo side by side; the row scrolls sideways when they do not fit. */
+.photo-versions { display: flex; gap: 10px; max-width: 100%; overflow-x: auto; padding: 2px 2px 6px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+.photo-version { flex: 0 0 auto; display: flex; flex-direction: column; gap: 4px; width: 128px; padding: 5px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.photo-version:hover { border-color: #4a5263; }
+.photo-version:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.photo-version:disabled { cursor: default; opacity: 0.7; }
+.photo-version.is-used { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.photo-version-img { display: block; height: 140px; border-radius: 6px; overflow: hidden; }
+.photo-version-img img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.photo-version-name { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; }
+.photo-version-tag { padding: 0 6px; border-radius: 4px; background: var(--accent); color: #fff; font-size: 11px; font-weight: 600; line-height: 18px; }
+.photo-bg-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.photo-bg-note { margin: 0; }
 
 .route-option-note { font-size: 12px; color: var(--muted); }
 

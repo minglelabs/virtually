@@ -447,7 +447,7 @@ const AnimateHelpers = (() => {
     if (photo.transparent === 'own') return { needed: false, note: '이미 투명 배경인 사진이라 필요 없습니다.' };
     // Its background was cut out before (when it was uploaded, or by a button): nothing left to choose or pay.
     if (photo.transparent === 'cut') {
-      return { needed: false, done: true, note: `이미 배경을 지운 사진${photo.cutoutMethod === 'ai' ? ' (AI)' : ''}이라 그대로 씁니다. 추가 비용이 없습니다. 원본으로 보내려면 위에서 '원본 사진으로'를 누르세요.` };
+      return { needed: false, done: true, note: `이미 배경을 지운 사진${photo.cutoutMethod === 'ai' ? ' (AI)' : ''}이라 그대로 씁니다. 추가 비용이 없습니다. 원본으로 보내려면 위 '이 사진의 버전'에서 '원본'을 고르세요.` };
     }
     if (ai) {
       return photo.aiCutReady === true
@@ -836,16 +836,37 @@ const AnimateHelpers = (() => {
    */
   function photoBackground(photo) {
     if (!photo) return null;
-    if (photo.transparent === 'own') return { tag: '투명 배경', note: '처음부터 배경이 투명한 사진입니다.', canCut: false, cut: false, own: true };
-    if (photo.transparent === 'cut') {
-      return { tag: '배경 지움', note: '올릴 때 단색 배경을 자동으로 지운 사진입니다.', canCut: false, cut: true, own: false };
-    }
+    if (photo.transparent === 'own') return { tag: '투명 배경', note: '처음부터 배경이 투명한 사진입니다.', canCut: false, cut: false, own: true, hasPlain: false, hasAi: false };
+    const kinds = photoVersions(photo).map(version => version.kind);
+    const hasPlain = kinds.includes('plain');
+    const hasAi = kinds.includes('ai');
+    const cut = photo.transparent === 'cut';
     const plain = !(photo.cutoutReason === 'not_uniform' || photo.cutoutReason === 'no_subject');
-    return {
-      tag: '배경 있음',
-      note: plain ? '배경을 지운 사진이 새로 추가되고, 이 사진은 그대로 남습니다.' : '배경이 한 가지 색이 아니라서 무료 방식으로는 지울 수 없습니다. AI로 지우면 새 사진으로 추가됩니다.',
-      canCut: plain, cut: false, own: false,
-    };
+    const notes = ['버전을 누르면 그 버전이 방송과 동작 만들기에 쓰입니다. 동작은 사진에 묶여 있어서 버전을 바꿔도 그대로 남습니다.'];
+    if (!hasPlain && !plain) notes.push('배경이 한 가지 색이 아니라서 무료 방식으로는 지울 수 없습니다.');
+    return { tag: cut ? '배경 지움' : '배경 있음', note: notes.join(' '), canCut: !hasPlain && plain, cut, own: false, hasPlain, hasAi };
+  }
+
+  /**
+   * The versions of a photo, the original first: [{ kind, url, used }] ('original' |
+   * 'plain' | 'ai'). An older answer without `versions` gives what is shown.
+   */
+  function photoVersions(photo) {
+    if (!photo) return [];
+    if (Array.isArray(photo.versions) && photo.versions.length) {
+      return photo.versions.filter(v => v && typeof v.kind === 'string' && typeof v.url === 'string')
+        .map(v => ({ kind: v.kind, url: v.url, used: v.used === true }));
+    }
+    const list = [{ kind: 'original', url: String(photo.url ?? ''), used: photo.transparent !== 'cut' }];
+    if (photo.transparent === 'cut') list.push({ kind: photo.cutoutMethod === 'ai' ? 'ai' : 'plain', url: String(photo.displayUrl ?? ''), used: true });
+    return list;
+  }
+
+  /** '원본' / '배경 제거 (무료)' / '배경 제거 (AI)'. */
+  function photoVersionLabel(version) {
+    if (version?.kind === 'ai') return '배경 제거 (AI)';
+    if (version?.kind === 'plain') return '배경 제거 (무료)';
+    return '원본';
   }
 
   /** `search` with ?photo= set to `photoId` (removed for none), other parameters kept: '' or '?...'. */
@@ -975,6 +996,8 @@ const AnimateHelpers = (() => {
 
   return {
     downloadUrl,
+    photoVersions,
+    photoVersionLabel,
     jobVersions,
     chosenVersion,
     versionLabel,
@@ -1101,7 +1124,7 @@ if (typeof document !== 'undefined') (() => {
   const photoBgTag = $('photoBgTag');
   const photoBgCut = $('photoBgCut');
   const photoBgAi = $('photoBgAi');
-  const photoBgKeep = $('photoBgKeep');
+  const photoVersionsRow = $('photoVersions');
   const photoBgNote = $('photoBgNote');
   const photoBgDelete = $('photoBgDelete');
   const characterInput = $('characterInput');
@@ -1598,15 +1621,57 @@ if (typeof document !== 'undefined') (() => {
     if (!background) return;
     photoBgTag.textContent = background.tag;
     photoBgNote.textContent = background.note;
-    photoBgCut.hidden = background.own || background.cut;
+    // The versions: a click puts one in use (nothing is made, nothing is charged).
+    const versions = H.photoVersions(entry.photo);
+    photoVersionsRow.replaceChildren(...versions.map((version) => {
+      const tile = el('button', {
+        type: 'button',
+        className: `photo-version${version.used ? ' is-used' : ''}`,
+        role: 'listitem',
+        disabled: photoBgBusy,
+        'aria-pressed': String(version.used),
+        title: version.used ? '지금 쓰는 버전입니다' : '이 버전을 방송과 동작 만들기에 씁니다',
+        onclick: () => { if (!version.used) usePhotoVersion(version.kind); },
+      }, [
+        el('span', { className: `photo-version-img${version.kind === 'original' && !background.own ? '' : ' checkerboard'}` }, [
+          el('img', { src: version.url, alt: '', loading: 'lazy', decoding: 'async', draggable: 'false' }),
+        ]),
+        el('span', { className: 'photo-version-name' }, [
+          H.photoVersionLabel(version),
+          version.used ? el('span', { className: 'photo-version-tag', text: '사용 중' }) : null,
+        ].filter(Boolean)),
+      ]);
+      return tile;
+    }));
+    // The buttons make the versions the photo does not have yet.
+    photoBgCut.hidden = background.own || background.hasPlain;
     photoBgCut.disabled = photoBgBusy || !background.canCut;
-    photoBgAi.hidden = background.own || state.backgroundAi?.available !== true;
+    photoBgCut.title = background.canCut ? '단색 배경을 지운 버전을 만들어 씁니다. 크레딧이 들지 않습니다.' : '배경이 한 가지 색이 아니라서 무료 방식으로는 지울 수 없습니다';
+    photoBgAi.hidden = background.own || background.hasAi || state.backgroundAi?.available !== true;
     photoBgDelete.disabled = photoBgBusy;
     photoBgAi.disabled = photoBgBusy;
     // The price is on the button, not only in the question it asks.
-    photoBgAi.textContent = `AI로 배경 지우기 (${entry.photo.aiCutReady === true ? '추가 비용 없음' : H.priceText(state.backgroundAi?.imageUsd, state.billing)})`;
-    photoBgKeep.hidden = !background.cut;
-    photoBgKeep.disabled = photoBgBusy;
+    photoBgAi.textContent = `AI로 배경 제거 버전 만들기 (${entry.photo.aiCutReady === true ? '추가 비용 없음' : H.priceText(state.backgroundAi?.imageUsd, state.billing)})`;
+  }
+
+  // Put one of the chosen photo's versions in use.
+  async function usePhotoVersion(kind) {
+    const entry = chosenPhoto();
+    if (!entry || photoBgBusy) return;
+    photoBgBusy = true;
+    renderPhotoBg();
+    setStatus(characterStatus, '');
+    try {
+      const path = `/api/characters/${encodeURIComponent(entry.character.id)}/photos/${encodeURIComponent(entry.photo.id)}/version`;
+      applyList(await api('PUT', path, { json: { version: kind }, errorText: H.serverErrorText }));
+      setStatus(characterStatus, `'${H.photoVersionLabel({ kind })}' 버전을 씁니다. 이 사진의 동작은 그대로입니다`, 'success');
+    } catch (error) {
+      setStatus(characterStatus, error.message, 'error');
+      loadCharacters().catch(() => {});
+    } finally {
+      photoBgBusy = false;
+      renderPhotoBg();
+    }
   }
 
   async function changePhotoBg(method, body, doneText) {
@@ -1619,8 +1684,6 @@ if (typeof document !== 'undefined') (() => {
       const path = `/api/characters/${encodeURIComponent(entry.character.id)}/photos/${encodeURIComponent(entry.photo.id)}/transparent`;
       const data = await api(method, path, { json: body, errorText: H.serverErrorText });
       applyList(data);
-      // The photo without its background is a new photo: show it as the chosen one.
-      if (data?.photo?.id && H.findPhoto(state.list, data.photo.id)) selectPhoto(data.photo.id, { byUser: true });
       setStatus(characterStatus, doneText, 'success');
     } catch (error) {
       setStatus(characterStatus, error.message, 'error');
@@ -1631,7 +1694,7 @@ if (typeof document !== 'undefined') (() => {
       renderPhotoBg();
     }
   }
-  photoBgCut.addEventListener('click', () => changePhotoBg('POST', {}, '배경을 지운 사진을 새로 추가했습니다. 원본 사진은 그대로 있습니다'));
+  photoBgCut.addEventListener('click', () => changePhotoBg('POST', {}, '배경을 지운 버전을 만들어 씁니다. 원본도 버전으로 남아 있고, 이 사진의 동작은 그대로입니다'));
   photoBgDelete.addEventListener('click', () => deletePhoto(chosenPhoto()));
   // Delete one photo (the button under the strip, or the × on a photo tile): asks first.
   async function deletePhoto(entry) {
@@ -1651,11 +1714,10 @@ if (typeof document !== 'undefined') (() => {
       renderPhotoBg();
     }
   }
-  photoBgKeep.addEventListener('click', () => changePhotoBg('DELETE', {}, '원본 사진으로 되돌렸습니다'));
   photoBgAi.addEventListener('click', () => {
     const price = H.priceText(state.backgroundAi?.imageUsd, state.billing);
-    if (chosenPhoto()?.photo.aiCutReady === true || window.confirm(`AI로 이 사진의 배경을 지워 새 사진으로 추가합니다. 단색이 아닌 배경도 지울 수 있습니다.\n비용: 사진 1장당 ${price}. 진행할까요?`)) {
-      changePhotoBg('POST', { method: 'ai' }, 'AI로 배경을 지운 사진을 새로 추가했습니다. 원본 사진은 그대로 있습니다');
+    if (chosenPhoto()?.photo.aiCutReady === true || window.confirm(`AI로 이 사진의 배경을 지운 버전을 만듭니다. 단색이 아닌 배경도 지울 수 있습니다. 같은 사진의 버전으로 추가되어 동작은 그대로 남습니다.\n비용: 사진 1장당 ${price}. 진행할까요?`)) {
+      changePhotoBg('POST', { method: 'ai' }, 'AI로 배경을 지운 버전을 만들어 씁니다. 원본도 버전으로 남아 있고, 이 사진의 동작은 그대로입니다');
     }
   });
 
