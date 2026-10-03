@@ -461,8 +461,14 @@ test('job validation, uploads, config, cancel, and no idle-image fallback', { sk
     response = await fetch(`${app.base}${long.url}`, { method: 'HEAD' });
     assert.equal(response.headers.get('content-type'), 'video/quicktime');
     const drivings = (await (await fetch(`${app.base}/api/animate/drivings`)).json()).drivings;
-    assert.deepEqual(drivings.slice(-3).map(item => item.id), [long.id, short.id, mine.id], 'uploads newest first after the examples');
-    assert.equal(drivings[0].id, 'hi-wave');
+    assert.deepEqual(drivings.slice(0, 3).map(item => item.id), [long.id, short.id, mine.id], 'uploads newest first, before the examples');
+    // PUT .../order lists the named videos first, in that order; unknown ids are dropped.
+    response = await fetch(`${app.base}/api/animate/drivings/order`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: [mine.id, 'nope', drivings[drivings.length - 1].id, long.id] }) });
+    assert.equal(response.status, 200);
+    assert.deepEqual((await response.json()).drivings.slice(0, 4).map(item => item.id), [mine.id, drivings[drivings.length - 1].id, long.id, short.id]);
+    response = await fetch(`${app.base}/api/animate/drivings/order`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: [] }) });
+    assert.deepEqual((await response.json()).drivings.map(item => item.id), drivings.map(item => item.id), 'no order: back to the default');
+    assert.equal(drivings[3].id, 'hi-wave', 'the examples follow the uploads');
 
     // Job validation.
     const post = body => json(app.base, 'POST', '/api/animate/jobs', { photoId, ...body });
@@ -597,7 +603,7 @@ test('deleting an example hides it; restore brings it back unavailable', { skip 
     assert.deepEqual(await response.json(), { ok: true });
     let data = await list(app.base);
     assert.equal(data.hiddenExamples, 1);
-    assert.deepEqual(data.drivings.map(item => item.id), ['free-dance', 'gone', 'not-video', 'bad-redirect', mine.id]);
+    assert.deepEqual(data.drivings.map(item => item.id), [mine.id, 'free-dance', 'gone', 'not-video', 'bad-redirect']);
     for (const ext of ['mp4', 'jpg', 'json']) assert.equal(fsSync.existsSync(exampleFile('hi-wave', ext)), false, `hi-wave.${ext} removed`);
     assert.deepEqual(JSON.parse(await fs.readFile(hiddenPath, 'utf8')), { hidden: ['hi-wave'] });
     assert.deepEqual((await fs.readdir(drivingsDir)).filter(name => name.endsWith('.tmp')), [], 'no temp files left');
