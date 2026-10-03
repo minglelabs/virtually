@@ -2975,12 +2975,21 @@ if (typeof document !== 'undefined') (() => {
         if (window.confirm(`AI로 이 영상의 배경을 지웁니다. 비용: ${H.priceText(aiUsd, state.billing)}. 진행할까요?`)) rekey(job, 'ai');
       },
     });
+    // An AI result from before the edge clean-up existed: clean its coloured rim, free.
+    const rimButton = job.result?.rimCleanable !== true ? null : el('button', {
+      type: 'button',
+      className: 'btn btn-ghost btn-sm',
+      disabled: keyBusyNow,
+      text: '가장자리 정리 (무료)',
+      title: 'AI로 배경을 지운 영상의 가장자리에 남은 배경색 테두리를 지웁니다. AI를 쓰지 않아 크레딧이 들지 않습니다. 이미 추가한 동작도 함께 바뀝니다.',
+      onclick: () => rekey(job, 'rim'),
+    });
     const rekeyStatus = keyError ? el('span', { className: 'status', dataset: { kind: 'error' }, text: keyError }) : null;
     if (added) {
       return [el('span', { className: 'job-added' }, [
         '추가됨 · ',
         el('a', { className: 'link', href: '/', text: '캐릭터 목록에서 보기' }),
-      ]), rekeyButton, aiKeyButton, rekeyStatus];
+      ]), rekeyButton, aiKeyButton, rimButton, rekeyStatus];
     }
     const inputId = `name-${job.id}`;
     const input = el('input', {
@@ -3006,6 +3015,7 @@ if (typeof document !== 'undefined') (() => {
       error ? el('span', { className: 'status', dataset: { kind: 'error' }, text: error }) : null,
       rekeyButton,
       aiKeyButton,
+      rimButton,
       rekeyStatus,
     ];
   }
