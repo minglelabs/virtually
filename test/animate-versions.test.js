@@ -136,3 +136,10 @@ test('a result keeps every version: each can be put in use, added as the motion 
   assert.match(response.headers.get('content-disposition') || '', /\.mov/);
   await response.arrayBuffer();
 });
+
+test('page helper: the quality of a job, as asked and as it came', () => {
+  assert.equal(A.qualityText({ resolution: '720p', result: { width: 752, height: 1232 } }), '720p · 752×1232');
+  assert.equal(A.qualityText({ resolution: '480p', result: null }), '480p', 'before there is a result');
+  assert.equal(A.qualityText({ resolution: null, result: { width: 720, height: 1280 } }), '720×1280', 'a model without the choice');
+  assert.equal(A.qualityText({}), '');
+});

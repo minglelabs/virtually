@@ -582,6 +582,19 @@ const AnimateHelpers = (() => {
   }
 
   /** "영상 3초" / "영상 9.9초" for a job whose result length is known, else ''. */
+  /**
+   * The quality of a job, for its card: the resolution asked for ('720p') and, once there
+   * is a result, its real size ('720p · 752×1232'); the size alone for a model without the
+   * choice; '' when neither is known.
+   */
+  function qualityText(job) {
+    const asked = typeof job?.resolution === 'string' ? job.resolution : '';
+    const w = Number(job?.result?.width);
+    const h = Number(job?.result?.height);
+    const size = Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0 ? `${w}×${h}` : '';
+    return [asked, size].filter(Boolean).join(' · ');
+  }
+
   function resultLengthText(job) {
     const text = formatSeconds(Number(job?.result?.duration));
     return text ? `영상 ${text}` : '';
@@ -1085,6 +1098,7 @@ const AnimateHelpers = (() => {
     formatElapsed,
     jobTimingText,
     resultLengthText,
+    qualityText,
     progressText,
     videoContentType,
   };
@@ -2921,6 +2935,8 @@ if (typeof document !== 'undefined') (() => {
     row.head.replaceChildren(...[
       el('span', { className: `badge badge-state state-${job.state}`, text: stateLabel }),
       el('span', { className: 'job-title', text: title }),
+      // The quality next to the price: what was paid for.
+      H.qualityText(job) ? el('span', { className: 'badge job-quality', title: '화질 (요청한 해상도 · 실제 영상 크기)', text: H.qualityText(job) }) : null,
       creditsLabel
         ? el('span', { className: 'badge job-credits' + (job.billing.refunded === true ? ' is-refunded' : ''), text: creditsLabel })
         : null,
