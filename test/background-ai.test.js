@@ -48,6 +48,7 @@ test('video: a clip on a key colour gets its rim cleaned; any other clip keeps t
   const { edgeCleanFilter } = require('../lib/animate/background-ai');
   assert.match(edgeCleanFilter('green'), /despill=type=green:mix=1:expand=0\.6,format=gbrap/);
   assert.match(edgeCleanFilter('blue'), /despill=type=blue:mix=1:expand=0\.6:green=0:blue=-1,/);
+  assert.match(edgeCleanFilter('magenta'), /geq=r='r\(X,Y\)-max\(0,min\(r\(X,Y\),b\(X,Y\)\)-g\(X,Y\)\)'/);
   const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'virtually-bgai-'));
   t.after(() => fsp.rm(dir, { recursive: true, force: true }));
   const file = name => path.join(dir, name);
@@ -68,6 +69,18 @@ test('video: a clip on a key colour gets its rim cleaned; any other clip keeps t
   assert.notDeepEqual(fs.readFileSync(file('clean.webm')), answer, 'a key colour: cleaned');
   await ai.video(file('green.mp4'), file('found.webm'));
   assert.notDeepEqual(fs.readFileSync(file('found.webm')), answer, 'the key colour is found without being told');
+  // Magenta (the key colour of a character that wears green and blue): the same, by the expression.
+  ffmpeg(['-f', 'lavfi', '-i', `color=c=0xFF00FF:s=64x96:r=8:d=1,${box.replace('red', 'yellow')}`, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', file('magenta.mp4')]);
+  ffmpeg(['-f', 'lavfi', '-i', `color=c=0xFF00FF:s=64x96:r=8:d=1,${box.replace('red', 'yellow')},format=yuva420p,geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='if(between(X,13,51)*between(Y,21,75),255,0)'`,
+    '-c:v', 'libvpx-vp9', '-pix_fmt', 'yuva420p', '-auto-alt-ref', '0', file('answer-magenta.webm')]);
+  const magentaAi = createBackgroundAi({
+    providers: { wavespeed: { removeBackground: async (ctx, source, destPath) => fsp.copyFile(file('answer-magenta.webm'), destPath) } },
+    configStore: { resolvedCredentials: () => ({ apiKey: 'k' }), baseUrl: () => null, allowInsecure: () => false },
+  });
+  await magentaAi.video(file('magenta.mp4'), file('clean-magenta.webm'), { keyColor: { name: 'magenta' } });
+  const rim = spawnSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-c:v', 'libvpx-vp9', '-i', file('clean-magenta.webm'), '-frames:v', '1',
+    '-vf', 'format=rgba,crop=1:1:14:40', '-f', 'rawvideo', '-']).stdout;
+  assert.ok(Math.min(rim[0], rim[2]) <= rim[1] + 40, `red and blue are not both above green at the rim: ${[...rim]}`);
   // Still a transparent clip, and the green ring is gone from its rim: the pixel just outside the box.
   const { measureFit } = require('../lib/animate/fit');
   assert.ok(await measureFit('ffmpeg', 'ffprobe', file('clean.webm')));
