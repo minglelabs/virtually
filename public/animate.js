@@ -2980,8 +2980,8 @@ if (typeof document !== 'undefined') (() => {
       type: 'button',
       className: 'btn btn-ghost btn-sm',
       disabled: keyBusyNow,
-      text: '가장자리 정리 (무료)',
-      title: 'AI로 배경을 지운 영상의 가장자리에 남은 배경색 테두리를 지웁니다. AI를 쓰지 않아 크레딧이 들지 않습니다. 이미 추가한 동작도 함께 바뀝니다.',
+      text: '배경색 번짐 지우기 (무료)',
+      title: 'AI로 배경을 지운 영상에 남은 배경색(가장자리 테두리, 옷이나 손에 묻은 색)을 지웁니다. AI를 쓰지 않아 크레딧이 들지 않습니다. 이미 추가한 동작도 함께 바뀝니다.',
       onclick: () => rekey(job, 'rim'),
     });
     const rekeyStatus = keyError ? el('span', { className: 'status', dataset: { kind: 'error' }, text: keyError }) : null;

@@ -46,8 +46,9 @@ test('video: the answer is kept as it comes when it has transparent pixels, refu
 
 test('video: a clip on a key colour gets its rim cleaned; any other clip keeps the answer as it came', async (t) => {
   const { edgeCleanFilter } = require('../lib/animate/background-ai');
-  assert.match(edgeCleanFilter('green'), /despill=type=green:mix=1:expand=0\.6,format=gbrap/);
-  assert.match(edgeCleanFilter('blue'), /despill=type=blue:mix=1:expand=0\.6:green=0:blue=-1,/);
+  assert.match(edgeCleanFilter('green'), /\[o\]despill=type=green:mix=1:expand=0\.6\[ds\];\[m\]alphaextract,erosion\[al\]/);
+  assert.match(edgeCleanFilter('blue'), /despill=type=blue:mix=1:expand=0\.6:green=0:blue=-1\[ds\]/);
+  assert.match(edgeCleanFilter('green', { choke: false }), /\[m\]alphaextract\[al\]/);
   assert.match(edgeCleanFilter('magenta'), /geq=r='r\(X,Y\)-max\(0,min\(r\(X,Y\),b\(X,Y\)\)-g\(X,Y\)\)'/);
   const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'virtually-bgai-'));
   t.after(() => fsp.rm(dir, { recursive: true, force: true }));
