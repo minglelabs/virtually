@@ -43,3 +43,35 @@ test('video: the answer is kept as it comes when it has transparent pixels, refu
   await assert.rejects(ai.video(file('source.mp4'), file('out2.webm')), /no transparent background/);
   assert.equal(fs.existsSync(file('out2.webm')), false);
 });
+
+test('video: a clip on a key colour gets its rim cleaned; any other clip keeps the answer as it came', async (t) => {
+  const { edgeCleanFilter } = require('../lib/animate/background-ai');
+  assert.match(edgeCleanFilter('green'), /despill=type=green:mix=1:expand=0\.6,format=gbrap/);
+  assert.match(edgeCleanFilter('blue'), /despill=type=blue:mix=1:expand=0\.6:green=0:blue=-1,/);
+  const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'virtually-bgai-'));
+  t.after(() => fsp.rm(dir, { recursive: true, force: true }));
+  const file = name => path.join(dir, name);
+  const box = 'drawbox=x=16:y=24:w=32:h=48:color=red:t=fill';
+  ffmpeg(['-f', 'lavfi', '-i', `color=c=0x00FF00:s=64x96:r=8:d=1,${box}`, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', file('green.mp4')]);
+  ffmpeg(['-f', 'lavfi', '-i', `color=c=white:s=64x96:r=8:d=1,${box}`, '-c:v', 'libx264', '-pix_fmt', 'yuv420p', file('white.mp4')]);
+  // The remover's answer: the box, with a ring of the background kept around it.
+  ffmpeg(['-f', 'lavfi', '-i', `color=c=0x00FF00:s=64x96:r=8:d=1,${box},format=yuva420p,geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='if(between(X,13,51)*between(Y,21,75),255,0)'`,
+    '-c:v', 'libvpx-vp9', '-pix_fmt', 'yuva420p', '-auto-alt-ref', '0', file('answer.webm')]);
+  const ai = createBackgroundAi({
+    providers: { wavespeed: { removeBackground: async (ctx, source, destPath) => fsp.copyFile(file('answer.webm'), destPath) } },
+    configStore: { resolvedCredentials: () => ({ apiKey: 'k' }), baseUrl: () => null, allowInsecure: () => false },
+  });
+  const answer = fs.readFileSync(file('answer.webm'));
+  await ai.video(file('white.mp4'), file('plain.webm'));
+  assert.deepEqual(fs.readFileSync(file('plain.webm')), answer, 'not a key colour: untouched');
+  await ai.video(file('green.mp4'), file('clean.webm'), { keyColor: { name: 'green' } });
+  assert.notDeepEqual(fs.readFileSync(file('clean.webm')), answer, 'a key colour: cleaned');
+  await ai.video(file('green.mp4'), file('found.webm'));
+  assert.notDeepEqual(fs.readFileSync(file('found.webm')), answer, 'the key colour is found without being told');
+  // Still a transparent clip, and the green ring is gone from its rim: the pixel just outside the box.
+  const { measureFit } = require('../lib/animate/fit');
+  assert.ok(await measureFit('ffmpeg', 'ffprobe', file('clean.webm')));
+  const pixel = spawnSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-c:v', 'libvpx-vp9', '-i', file('clean.webm'), '-frames:v', '1',
+    '-vf', 'format=rgba,crop=1:1:14:40', '-f', 'rawvideo', '-']).stdout;
+  assert.ok(pixel[1] <= Math.max(pixel[0], pixel[2]) + 40, `green is not above the other channels at the rim: ${[...pixel]}`);
+});
