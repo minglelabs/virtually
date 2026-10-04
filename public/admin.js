@@ -170,10 +170,10 @@
     return Boolean(failure && failure.ok !== true && PAGE_CODES.has(failure.code));
   }
 
-  /** '1크레딧 = 1원 · 원가 1달러 = 2,000 크레딧'; the first part alone without a valid rate. */
+  /** '원가 1달러 = 2,000 크레딧'; '' without a valid rate. */
   function rateText(creditsPerUsd) {
-    if (!Number.isInteger(creditsPerUsd) || creditsPerUsd < 1) return B.TEXT.rate;
-    return `${B.TEXT.rate} · 원가 1달러 = ${B.formatCredits(creditsPerUsd)} 크레딧`;
+    if (!Number.isInteger(creditsPerUsd) || creditsPerUsd < 1) return '';
+    return `원가 1달러 = ${B.formatCredits(creditsPerUsd)} 크레딧`;
   }
 
   /** The search box value as sent: trimmed, at most 100 characters. */
@@ -425,7 +425,7 @@
     const view = usersView(result.body, query);
     showMessages(pageMessage, []);
     rateNode.textContent = view.rate;
-    rateNode.hidden = false;
+    rateNode.hidden = !view.rate;
     adjustCard.hidden = false;
     usersCard.hidden = false;
     setStatus(usersStatus, '');

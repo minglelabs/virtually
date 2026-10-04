@@ -161,9 +161,9 @@ test('refusalMessage: not an admin, billing off or misconfigured, and no server'
 // ---- Users and history ----
 
 test('rateText, search and paths', () => {
-  assert.equal(A.rateText(2000), '1크레딧 = 1원 · 원가 1달러 = 2,000 크레딧');
-  assert.equal(A.rateText(1500), '1크레딧 = 1원 · 원가 1달러 = 1,500 크레딧');
-  for (const bad of [undefined, null, 0, 1.5, '2000']) assert.equal(A.rateText(bad), '1크레딧 = 1원');
+  assert.equal(A.rateText(2000), '원가 1달러 = 2,000 크레딧');
+  assert.equal(A.rateText(1500), '원가 1달러 = 1,500 크레딧');
+  for (const bad of [undefined, null, 0, 1.5, '2000']) assert.equal(A.rateText(bad), '');
   assert.equal(A.searchQuery('  홍길동 '), '홍길동');
   assert.equal(A.searchQuery('x'.repeat(150)), 'x'.repeat(100));
   assert.equal(A.searchQuery(null), '');
@@ -186,7 +186,7 @@ test('userRow and usersView: email, name, balance, last activity and the 상태 
     ],
   };
   const view = A.usersView(payload, '');
-  assert.equal(view.rate, '1크레딧 = 1원 · 원가 1달러 = 2,000 크레딧');
+  assert.equal(view.rate, '원가 1달러 = 2,000 크레딧');
   assert.equal(view.empty, null);
   assert.deepEqual(view.rows, [
     { email: 'a@b.com', name: 'Some One', balance: '51,234', negative: false, lastAt: '9월 30일 14:05', at, status: '' },
@@ -196,7 +196,7 @@ test('userRow and usersView: email, name, balance, last activity and the 상태 
   assert.equal(A.userStatusText({ pending: true, loginAllowed: true }), '로그인 전');
   assert.equal(A.usersView({ creditsPerUsd: 2000, users: [] }, '').empty, '아직 사용자가 없습니다.');
   assert.equal(A.usersView({ creditsPerUsd: 2000, users: [] }, ' kim ').empty, '찾는 사용자가 없습니다.');
-  assert.equal(A.usersView(null, '').rate, '1크레딧 = 1원');
+  assert.equal(A.usersView(null, '').rate, '');
 });
 
 test('historyView: the billing page rows plus who adjusted, and a summary line', () => {
@@ -287,10 +287,9 @@ test('every element admin.js looks up exists once in admin.html; no HTML strings
   assert.doesNotMatch(js, /innerHTML|outerHTML|insertAdjacentHTML|document\.write/);
   // The shared texts come from billing.js, not copies (comments may quote them).
   const code = js.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-  for (const text of ['크레딧 결제가 꺼져 있습니다', '결제 설정에 문제가 있습니다', '서버에 연결하지 못했습니다', '1크레딧 = 1원']) {
+  for (const text of ['크레딧 결제가 꺼져 있습니다', '결제 설정에 문제가 있습니다', '서버에 연결하지 못했습니다']) {
     assert.ok(!code.includes(text), text);
   }
-  assert.match(code, /B\.TEXT\.rate/);
 });
 
 // ---- Page glue in a fake DOM ----
@@ -511,7 +510,7 @@ test('admin page glue: an admin sees the rate, the form and every account; user 
   const page = adminPage({ routes: baseRoutes() });
   await waitFor(() => page.el('usersCard').hidden === false, 'the users');
   assert.equal(page.el('rateText').hidden, false);
-  assert.equal(page.el('rateText').textContent, '1크레딧 = 1원 · 원가 1달러 = 2,000 크레딧');
+  assert.equal(page.el('rateText').textContent, '원가 1달러 = 2,000 크레딧');
   assert.equal(page.el('adjustCard').hidden, false);
   assert.equal(page.el('historyCard').hidden, true);
   assert.deepEqual(page.el('adminMessage').children, []);
