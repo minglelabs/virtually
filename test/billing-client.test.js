@@ -95,8 +95,8 @@ test('priceText: subscription suffixes, custom and free prices', () => {
   assert.equal(billing.buyLabel(null), '구매');
 });
 
-test('the rate is the fixed 1크레딧 = 1원; the transfer note falls back to asking the admin', () => {
-  assert.equal(billing.TEXT.rate, '1크레딧 = 1원');
+test('no fixed price of a credit is shown; the transfer note falls back to asking the admin', () => {
+  assert.equal(billing.TEXT.rate, '');
   assert.equal(billing.rateText, undefined, 'no dollar rate on the billing page');
   assert.equal(billing.transferText('입금 계좌: OO은행 000-000000-00 (예금주)\n입금 후 로그인 이메일을 알려 주세요.'),
     '입금 계좌: OO은행 000-000000-00 (예금주)\n입금 후 로그인 이메일을 알려 주세요.');
@@ -228,7 +228,7 @@ test('billingView: enabled shows balance, rate, sandbox, products and history', 
   assert.equal(view.message, null);
   assert.equal(view.balance, '보유 크레딧 -5');
   // Always 1 credit = 1 KRW, whatever creditsPerUsd prices the models at.
-  assert.equal(view.rate, '1크레딧 = 1원');
+  assert.equal(view.rate, '');
   assert.equal(view.transfer, '충전은 관리자에게 문의해 주세요.');
   assert.equal(view.polar, true);
   assert.equal(view.isAdmin, false);
@@ -280,7 +280,7 @@ test('billingView: without Polar there are no products, portal or sandbox; the t
   assert.equal(view.sandbox, false);
   assert.equal(view.transfer, note);
   assert.equal(view.isAdmin, true);
-  assert.equal(view.rate, '1크레딧 = 1원');
+  assert.equal(view.rate, '');
   assert.equal(billing.billingView(enabledPayload({ polar: false, server: 'sandbox' })).sandbox, false);
   // An older server sends no `polar` field: Polar counts as on.
   const older = enabledPayload({ products: [product()] });
@@ -638,7 +638,7 @@ test('billing.js shares its helpers with the admin page and runs its page glue o
   const shared = window.VirtuallyBillingHelpers;
   assert.ok(shared, 'window.VirtuallyBillingHelpers');
   assert.deepEqual(Object.keys(shared).sort(), Object.keys(billing).sort());
-  assert.equal(shared.TEXT.rate, '1크레딧 = 1원');
+  assert.equal(shared.TEXT.rate, '');
 });
 
 test('every element billing.js looks up exists in billing.html', () => {
@@ -1023,7 +1023,7 @@ test('billing page glue: enabled shows balance, rate, sandbox note, products and
   });
   await waitFor(() => page.el('summaryCard').hidden === false, 'the summary');
   assert.equal(page.el('balanceText').textContent, '보유 크레딧 1,234');
-  assert.equal(page.el('rateText').textContent, '1크레딧 = 1원');
+  assert.equal(page.el('rateText').textContent, '');
   assert.equal(page.el('sandboxBadge').hidden, false);
   assert.equal(page.el('sandboxNote').hidden, false);
   assert.equal(page.el('portalBtn').hidden, true);
@@ -1076,7 +1076,7 @@ test('billing page glue: without Polar, 충전 안내 with the transfer note and
     }),
   });
   await waitFor(() => page.el('summaryCard').hidden === false, 'the summary');
-  assert.equal(page.el('rateText').textContent, '1크레딧 = 1원');
+  assert.equal(page.el('rateText').textContent, '');
   assert.equal(page.el('productsCard').hidden, true);
   assert.equal(page.el('syncBtn').hidden, true);
   assert.equal(page.el('portalBtn').hidden, true);

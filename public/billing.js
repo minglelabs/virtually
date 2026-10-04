@@ -21,7 +21,8 @@
     disabled: '크레딧 결제가 꺼져 있습니다. data/billing/config.json을 만들면 켜집니다(README 참고).',
     invalid: '결제 설정에 문제가 있습니다',
     balance: '보유 크레딧',
-    rate: '1크레딧 = 1원',
+    // No fixed price of a credit is shown: the packs carry their own prices.
+    rate: '',
     transferDefault: '충전은 관리자에게 문의해 주세요.',
     credits: '크레딧',
     buy: '구매',
