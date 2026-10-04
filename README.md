@@ -310,6 +310,8 @@ Start in Polar's [sandbox](https://sandbox.polar.sh): a separate Polar environme
 4. **Settings → Webhooks → Add Endpoint**: URL `<publicUrl>/api/billing/polar/webhook`, format **Raw**, API version **2026-10**, events `order.paid`, `order.updated` and `order.refunded`. Copy the endpoint's secret (`whsec_...`).
 5. Add the `polar` object (below) to `data/billing/config.json` with `"server": "sandbox"`, the token and the secret. The 크레딧 page then shows the badge **테스트 결제(샌드박스)**; pay with the test card `4242 4242 4242 4242`, any future expiry date and any CVC.
 
+On a host where the config comes from `VIRTUALLY_BILLING_CONFIG`, the Polar keys may be their own variables instead of a `polar` object: `POLAR_ACCESS_TOKEN` and `POLAR_WEBHOOK_SECRET` (both needed) and `POLAR_SERVER` (`production` by default, or `sandbox`).
+
 #### The polar fields
 
 ```json
