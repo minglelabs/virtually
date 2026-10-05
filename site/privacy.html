@@ -18,7 +18,7 @@
 
   <main class="wrap doc">
     <h1>Privacy Policy</h1>
-    <p class="updated">Last updated: October 1, 2026</p>
+    <p class="updated">Last updated: October 5, 2026</p>
 
     <p>This policy explains what Virtually, operated by MingleLabs ("we", "us"), collects when you use the Service, why, and who else handles it. We do not sell your personal data and we do not run advertising or third-party analytics trackers.</p>
 
@@ -27,7 +27,8 @@
       <tr><th>Data</th><th>Why we use it</th></tr>
       <tr><td>Your Google account email, name and a Google account identifier, received when you sign in</td><td>To identify your account, sign you in, keep your credit balance and contact you about your account</td></tr>
       <tr><td>A sign-in session cookie</td><td>To keep you signed in. It is a strictly necessary cookie, not used for tracking</td></tr>
-      <tr><td>Your content: character photos, motion and reference videos, generated clips</td><td>To run the overlay, the motion library and AI motions for you</td></tr>
+      <tr><td>Your content: character photos, motion and reference videos, generated clips, and the background videos and images of your scene</td><td>To run the overlay, the scene, the motion library and AI motions for you</td></tr>
+      <tr><td>Your microphone audio and its transcript, only while automatic reactions are switched on</td><td>To recognise what you say and choose a motion. The audio goes from your browser straight to the speech recognition provider; we do not record or store it, and the transcript is kept in memory for about 30 seconds</td></tr>
       <tr><td>Credit ledger: balance, purchases, charges, refunds and top-ups</td><td>To account for credits and handle refunds and support. Kept as accounting records</td></tr>
       <tr><td>Activity log: which account created, uploaded, deleted or played something, and when</td><td>Security, abuse prevention, support and troubleshooting</td></tr>
       <tr><td>Order information received from Polar (order, checkout and customer identifiers, email, and the credits granted)</td><td>To credit your purchase and process refunds</td></tr>
@@ -38,8 +39,10 @@
     <ul class="plain">
       <li><strong>Google</strong> – sign-in.</li>
       <li><strong>Polar (polar.sh)</strong> – merchant of record: payment, tax, receipts and refunds. Polar is an independent controller of the payment data it collects, under its own privacy policy.</li>
-      <li><strong>Railway</strong> – the hosting provider that runs our servers and stores the data above.</li>
-      <li><strong>AI video providers</strong> – when you create an AI motion, we send the provider that runs the job the character image (placed on a plain background) and the reference video (re-encoded and trimmed), plus a text prompt describing the motion. We currently use WaveSpeed AI. The software also supports fal.ai, Higgsfield, Replicate and Kling, which we may use in the future; we will update this page if so. These providers process the files under their own terms and policies and may store the files and results for a limited time, and a result may be reachable by its link at the provider until it expires (for example, about 7 days at WaveSpeed). Do not send content you are not willing to share with them.</li>
+      <li><strong>Railway</strong> – the hosting provider that runs our servers.</li>
+      <li><strong>Supabase</strong> – the database that holds account records. <strong>Cloudflare (R2)</strong> – stores the files you upload and the clips made for you.</li>
+      <li><strong>Speech recognition and motion choice</strong> – only while automatic reactions are switched on: your microphone audio is streamed from your browser to Soniox, which turns it into text, and that text is sent with the names of your motions to an AI model provider (OpenAI, TypeSafe or Cloudflare) that picks the motion.</li>
+      <li><strong>AI video providers</strong> – when you create an AI motion, we send the provider that runs the job the character image (placed on a plain background) and the reference video (re-encoded and trimmed), plus a text prompt describing the motion. We currently use WaveSpeed AI, which also runs AI background removal (it receives the photo or clip whose background is removed). The software also supports fal.ai, Higgsfield, Replicate and Kling, which we may use in the future; we will update this page if so. These providers process the files under their own terms and policies and may store the files and results for a limited time, and a result may be reachable by its link at the provider until it expires (for example, about 7 days at WaveSpeed). Do not send content you are not willing to share with them.</li>
     </ul>
     <p>We also disclose data where the law requires it or to protect our rights and users.</p>
 
