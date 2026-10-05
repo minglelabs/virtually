@@ -422,6 +422,8 @@ a.btn { display: inline-block; text-align: center; text-decoration: none; }
 .scene-size { display: flex; align-items: center; gap: 6px; font-size: 13px; }
 .scene-size input[type="range"] { flex: 1; min-width: 0; }
 .scene-size-value { flex: none; width: 42px; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+.scene-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13px; }
+.scene-line select { flex: 1; min-width: 0; max-width: 100%; padding: 2px 6px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; font: inherit; font-size: 13px; }
 /* A layer that can be dragged is selected: the canvas takes the pointer instead of the preview. */
 .canvas.is-placing { cursor: move; touch-action: none; }
 .canvas.is-placing iframe { pointer-events: none; }

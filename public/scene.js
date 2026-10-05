@@ -103,9 +103,25 @@ const SceneHelpers = (() => {
     return percent == null ? `영상을 확인하는 중…${which}` : `올리는 중…${which} ${percent}%`;
   }
 
+  // The play counts offered for a video (0: over and over).
+  const REPEAT_COUNTS = [0, 1, 2, 3, 4, 5, 10, 20];
+
+  /** The options of a video's 반복 select: [{ value, label }], with the layer's own count among them. */
+  function repeatChoices(current) {
+    const now = Number.isInteger(current) && current > 0 ? current : 0;
+    const counts = REPEAT_COUNTS.includes(now) ? REPEAT_COUNTS : [...REPEAT_COUNTS, now].sort((a, b) => a - b);
+    return counts.map(value => ({ value, label: value === 0 ? '계속 반복' : `${value}번만 재생` }));
+  }
+
+  /** The other video layers a video can be joined with: [{ id, name }], the front one first. */
+  function joinChoices(scene, id) {
+    return layersOf(scene).filter(layer => layer.kind === 'video' && layer.id !== id)
+      .map(layer => ({ id: layer.id, name: String(layer.name ?? '') })).reverse();
+  }
+
   return {
     CHARACTER_ID, PERCENT_MIN, PERCENT_MAX, layersOf, layerOf, mediaCount, rows, canPlace, percentOf, scaleOf, dragged,
-    withLayer, countText, uploadPath, contentType, uploadText,
+    withLayer, countText, uploadPath, contentType, uploadText, repeatChoices, joinChoices,
   };
 })();
 
@@ -131,6 +147,7 @@ if (typeof document !== 'undefined') (() => {
   let characterName = '';
   let opened = false; // the card opens by itself once, when the scene has videos or images
   let uploading = false;
+  let joining = false; // two videos are being joined on the server
   let drag = null;
 
   function setStatus(text, kind) {
@@ -247,6 +264,53 @@ if (typeof document !== 'undefined') (() => {
     ];
   }
 
+  // A video: how many times it plays, play it again from its start, and join it with another video.
+  function videoControls(layer) {
+    const parts = [];
+    const current = Number.isInteger(layer.repeat) && layer.repeat > 0 ? layer.repeat : 0;
+    const repeat = el('select', {
+      'aria-label': '반복 횟수',
+      onchange: () => act('PATCH', layerPath(layer.id), { repeat: Number(repeat.value) }),
+    }, H.repeatChoices(current).map(choice => el('option', { value: choice.value, selected: choice.value === current, text: choice.label })));
+    const replay = el('button', {
+      type: 'button', className: 'btn btn-ghost btn-sm', text: '처음부터 재생', title: '이 영상을 처음부터 다시 재생합니다 (OBS 화면에서도)',
+      onclick: () => call('POST', `${layerPath(layer.id)}/replay`, {}).catch(error => setStatus(error.message, 'error')),
+    });
+    parts.push(el('div', { className: 'scene-line' }, [el('span', { className: 'scene-size-label', text: '반복' }), repeat, replay]));
+    if (current > 0) parts.push(el('p', { className: 'hint', text: `${current}번 재생한 뒤 마지막 장면에서 멈춥니다. 숨겼다 보이거나 '처음부터 재생'을 누르면 다시 재생합니다.` }));
+    const others = H.joinChoices(shown(), layer.id);
+    if (others.length) {
+      const pick = el('select', { 'aria-label': '뒤에 이어붙일 영상' }, others.map(other => el('option', { value: other.id, text: other.name })));
+      const join = el('button', {
+        type: 'button', className: 'btn btn-ghost btn-sm', text: '뒤에 이어붙이기', disabled: joining,
+        title: '이 영상 다음에 고른 영상이 이어지는 새 영상을 만듭니다',
+        onclick: () => joinLayers(layer, pick.value),
+      });
+      parts.push(el('div', { className: 'scene-line' }, [el('span', { className: 'scene-size-label', text: '이어붙이기' }), pick, join]));
+    }
+    return parts;
+  }
+
+  // The video `layer`, then the video `otherId`, as one new video layer (both stay as they are).
+  async function joinLayers(layer, otherId) {
+    if (joining || !otherId) return;
+    joining = true;
+    render();
+    setStatus('두 영상을 이어붙이는 중… (영상 길이에 따라 1~2분 걸릴 수 있습니다)');
+    try {
+      const data = await call('POST', `${layerPath(layer.id)}/join`, { with: otherId });
+      if (data && data.layer) selectedId = data.layer.id;
+      setStatus('');
+      joining = false;
+      if (data && data.scene) apply(data.scene);
+    } catch (error) {
+      setStatus(`이어붙이지 못했습니다: ${error.message}`, 'error');
+    } finally {
+      joining = false;
+      render();
+    }
+  }
+
   function options(layer) {
     if (layer.kind === 'character') return sizeControls(layer);
     const parts = [];
@@ -257,6 +321,7 @@ if (typeof document !== 'undefined') (() => {
     parts.push(el('label', { className: 'scene-check' }, [fill, document.createTextNode(' 화면에 꽉 채우기')]));
     if (layer.fill === false) parts.push(...sizeControls(layer));
     else parts.push(el('p', { className: 'hint', text: '끄면 크기를 줄이고 자리를 옮길 수 있습니다.' }));
+    if (layer.kind === 'video') parts.push(...videoControls(layer));
     if (layer.kind === 'video' && layer.audio === true) {
       const sound = el('input', {
         type: 'checkbox', checked: layer.muted === false,

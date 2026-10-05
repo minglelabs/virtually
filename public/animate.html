@@ -69,6 +69,25 @@
       <p id="idleSummary" class="muted idle-summary"></p>
       <div id="motionTiles" class="motion-grid" role="list"></div>
       <p id="motionsEmpty" class="muted" hidden>이 사진으로 만든 동작이 아직 없습니다. 아래에서 만들거나 올려 주세요.</p>
+      <!-- Two tools that make one more motion out of this photo's motions (animate.js; lib/clips.js). -->
+      <div id="clipTools" class="clip-tools" hidden>
+        <h3 class="clip-tools-title">영상 반복 · 이어붙이기</h3>
+        <p class="muted clip-tools-note">고른 동작으로 새 동작을 하나 더 만듭니다. 원래 동작은 그대로 남고, 크레딧은 들지 않습니다.</p>
+        <div class="clip-tool">
+          <label for="repeatMotion" class="clip-tool-label">반복</label>
+          <select id="repeatMotion" aria-label="반복할 동작"></select>
+          <input type="number" id="repeatTimes" min="2" max="20" step="1" value="2" inputmode="numeric" aria-label="반복 횟수">
+          <span>번</span>
+          <button type="button" id="repeatBtn" class="btn btn-sm">반복한 동작 만들기</button>
+        </div>
+        <div class="clip-tool">
+          <label for="joinFirst" class="clip-tool-label">이어붙이기</label>
+          <select id="joinFirst" aria-label="앞에 올 동작"></select>
+          <span>다음에</span>
+          <select id="joinSecond" aria-label="뒤에 올 동작"></select>
+          <button type="button" id="joinBtn" class="btn btn-sm">이어붙인 동작 만들기</button>
+        </div>
+      </div>
       <p id="motionsStatus" class="status" aria-live="polite"></p>
     </section>
 

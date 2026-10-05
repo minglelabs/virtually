@@ -399,14 +399,18 @@ The overlay can carry the whole picture, not only the character: the **화면 �
 - **The list** shows the layers with the front one first; the character is one of the rows. **맨 위로 / 위로 / 아래로 / 맨 아래로** change the order, **숨기기 / 보이기** hides a layer without removing it, **×** deletes it and its file. A new layer goes right behind the character.
 - **Selecting a row** (click its name) shows its options and outlines the layer on the canvas preview. A video or image has **화면에 꽉 채우기** (on by default: it covers the canvas, cropped to its shape). With it off, and always for the character, a **크기** slider (5–300 %) sizes the layer and dragging on the canvas moves it; **원래대로** puts it back. The character scales around the middle of its bottom edge, so its feet stay on the ground.
 - **소리 켜기** (videos with sound, off by default) plays the clip's sound in OBS; the canvas preview is always silent. To send it to the stream, turn on **Control audio via OBS** in the browser source's properties.
+- **반복** (videos): **계속 반복** (the default) or **N번만 재생**: the clip plays N times and stays on its last frame. It starts over when the count is changed, when the layer is hidden and shown again, and with **처음부터 재생**, which plays the clip from its start on every open page (OBS included).
+- **이어붙이기** (videos): pick another video layer and **뒤에 이어붙이기** makes ONE new video layer, this clip followed by that one, right in front of the first and placed like it. Both clips stay. See [Repeat and join](#repeat-and-join-영상-반복--이어붙이기) for how clips are joined.
 
 Sizes and positions are fractions of the canvas, so the picture looks the same at any OBS source size. The preview shows a change while it is being made; the overlay in OBS gets it when it is saved (a drag or the slider let go).
 
 | Route | |
 |---|---|
-| `GET /api/scene` | `{ layers }`, back to front. The character: `{ id: "character", kind: "character", visible, scale, x, y }`. A video or image: `{ id, kind: "video" \| "image", name, mime, url, createdAt, width, height, duration, alpha, audio, visible, fill, scale, x, y, muted }`. `x`, `y`: the centre's offset as a fraction of the canvas width and height (−1.5…1.5); `scale`: 0.05…4. Also readable with the overlay key. |
+| `GET /api/scene` | `{ layers }`, back to front. The character: `{ id: "character", kind: "character", visible, scale, x, y }`. A video or image: `{ id, kind: "video" \| "image", name, mime, url, createdAt, width, height, duration, alpha, audio, visible, fill, scale, x, y, muted, repeat }`. `x`, `y`: the centre's offset as a fraction of the canvas width and height (−1.5…1.5); `scale`: 0.05…4; `repeat` (videos): 0 = over and over, 1…99 = that many times. Also readable with the overlay key. |
 | `POST /api/scene/layers?name=<file name>` | The raw file as the body. `201 { layer, scene }`; `415 unsupported_media`, `413 too_large` / `too_large_image`, `422 too_long_to_convert` / `convert_failed`, `409 too_many_layers`. |
-| `PATCH /api/scene/layers/<id>` | Any of `{ name, visible, fill, muted, scale, x, y }` (`id` may be `character`: `visible`, `scale`, `x`, `y`). `{ scene }`. |
+| `PATCH /api/scene/layers/<id>` | Any of `{ name, visible, fill, muted, repeat, scale, x, y }` (`id` may be `character`: `visible`, `scale`, `x`, `y`). `{ scene }`. |
+| `POST /api/scene/layers/<id>/replay` | Plays a video layer from its start on the open pages (sent as `{ "type": "scene-replay", "id" }` on `/api/events`; nothing is stored). `{ ok }`. |
+| `POST /api/scene/layers/<id>/join` | `{ "with": "<layer id>" }`: the video `<id>`, then the other video, as one new layer. `201 { layer, scene }`; `400` when one of them is not a video, `422 mixed_alpha` / `too_long` / `clip_failed`. |
 | `POST /api/scene/layers/<id>/move` | `{ "to": "top" \| "up" \| "down" \| "bottom" }` (top = the very front). `{ scene }`. |
 | `DELETE /api/scene/layers/<id>` | Removes the layer and its file (`400 character_fixed` for the character). `{ scene }`. |
 
@@ -572,6 +576,26 @@ The server processes the video before it answers (short clips take seconds) and 
 4. Otherwise it stays opaque: an MP4 H.264 (yuv420p) or a WebM VP8/VP9 is kept as it is, anything else becomes an H.264 yuv420p MP4 (`+faststart`). The overlay shows it with its background; the page says **배경이 있는 채로 추가됨** and why, from `keyReason`: `not_uniform` (the border is not one colour), `not_key_color` (one colour, but not green, blue or magenta), `unreadable` or `key_failed`.
 
 The motion's `fit` is measured from the stored file. The stored record is `{ id, name, kind: "motion", mime, url, createdAt, photoId, source: { upload: { filename, alpha, keyed, keyColor, keyReason } }, fit }`. Temporary files are always removed, and a failed upload leaves no record. The older `POST /api/upload` (see [Add clips](#add-clips)) still works for scripts; it adds to the photo on air.
+
+## Repeat and join (영상 반복 · 이어붙이기)
+
+Two tools make a new video out of the ones you have, on the server with ffmpeg (`lib/clips.js`). They use no AI and no credits, and the clips they start from stay as they are.
+
+On the 동작 관리 page, under **이 사진의 동작**:
+
+- **반복**: pick a motion and a count (2–20). The new motion `이름 ×N` is that clip N times in a row. Nothing is re-encoded (the same packets are written again), so it takes a moment, loses no quality and keeps a transparent background. Up to 10 minutes.
+- **이어붙이기**: pick the motion that comes first and the one that follows. The new motion `앞 + 뒤` is one clip. Motions are filmed in frames of different sizes, so the two are re-encoded onto one frame: the second clip is scaled until its character is as tall as the first clip's and placed so the feet and the middle of the body are where the first clip had them (the same rule the overlay uses when it plays them one after the other). Two transparent clips give a transparent WebM (VP9); two clips with a background give an MP4, the second fitted into the first one's frame. A transparent clip and one with a background are refused (remove the background first). Up to 5 minutes together.
+
+A motion made this way is a motion like any other: a button on the 방송 화면, a name 자동 반응 can pick, 다운로드, and it can be repeated or joined again (`원영턴 ×3 + 양손 브이`).
+
+| Route | |
+|---|---|
+| `POST /api/media/<id>/repeat` | `{ "times": 2…20 }`. `201 { motion, characters, … }` (the character list, like the other motion calls); `400 bad_times`, `422 too_long` / `clip_failed`. |
+| `POST /api/media/<id>/join` | `{ "with": "<motion id>" }`: the motion `<id>`, then the other one (the same motion is allowed). `201 { motion, characters, … }`; `404 motion_missing`, `409 different_photo` (both must belong to one photo), `422 mixed_alpha` / `too_long` / `clip_failed`. |
+
+The new motion's `source` says where it came from: `{ "repeat": { "motionId", "times" } }` or `{ "join": { "motionIds": [first, second] } }`.
+
+The scene's video layers have the same join (**이어붙이기** in [화면 구성](#화면-구성-the-scene)) and, instead of a repeated file, a play count.
 
 ## Character API
 

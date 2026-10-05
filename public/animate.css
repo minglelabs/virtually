@@ -581,6 +581,23 @@ select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); ou
 .idle-summary { margin-bottom: 10px; font-size: 13px; overflow-wrap: anywhere; }
 .motion-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
 .motion-grid:empty { display: none; }
+/* 영상 반복 · 이어붙이기: one more motion made out of this photo's motions */
+.clip-tools { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.clip-tools[hidden] { display: none; }
+.clip-tools-title { margin: 0; font-size: 14px; }
+.clip-tool { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13px; }
+.clip-tool-label { flex: none; min-width: 64px; font-weight: 600; }
+.clip-tool select, .clip-tool input[type="number"] {
+  padding: 4px 8px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 13px;
+}
+.clip-tool select { min-width: 0; max-width: 220px; }
+.clip-tool input[type="number"] { width: 64px; }
 .motion-tile {
   display: flex;
   flex-direction: column;
