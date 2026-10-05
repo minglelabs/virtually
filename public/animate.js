@@ -89,6 +89,13 @@ const AnimateHelpers = (() => {
     return text || errorText(error);
   }
 
+  /** The 반복 횟수 field as a count: a whole number from 2 to 20, else null. */
+  function clipTimes(value) {
+    const text = String(value ?? '').trim();
+    const times = /^\d+$/.test(text) ? Number(text) : NaN;
+    return Number.isInteger(times) && times >= 2 && times <= 20 ? times : null;
+  }
+
   /** Options a route actually exposes as selects (fixed value lists only). */
   function selectableOptions(route) {
     return (Array.isArray(route?.options) ? route.options : [])
@@ -1051,6 +1058,7 @@ const AnimateHelpers = (() => {
     ACTIVE_STATES,
     errorText,
     serverErrorText,
+    clipTimes,
     selectableOptions,
     effectiveOptions,
     estimateUsd,
@@ -1130,6 +1138,13 @@ if (typeof document !== 'undefined') (() => {
   const motionTiles = $('motionTiles');
   const motionsEmpty = $('motionsEmpty');
   const motionsStatus = $('motionsStatus');
+  const clipTools = $('clipTools');
+  const repeatMotion = $('repeatMotion');
+  const repeatTimes = $('repeatTimes');
+  const repeatBtn = $('repeatBtn');
+  const joinFirst = $('joinFirst');
+  const joinSecond = $('joinSecond');
+  const joinBtn = $('joinBtn');
   const characterCard = $('characterCard');
   const characterEmpty = $('characterEmpty');
   const characterRows = $('characterRows');
@@ -1856,7 +1871,66 @@ if (typeof document !== 'undefined') (() => {
       tile.node.remove();
       motionNodes.delete(id);
     }
+    renderClipTools(items.map(item => item.motion));
   }
+
+  // ---- 영상 반복 · 이어붙이기: one more motion out of this photo's motions (lib/clips.js) ----
+  // Each select lists the photo's motions and keeps what was picked across re-renders.
+  function fillMotionSelect(select, motions, fallback) {
+    const picked = motions.some(motion => motion.id === select.value) ? select.value : fallback;
+    select.replaceChildren(...motions.map(motion => el('option', { value: motion.id, text: motion.name })));
+    if (picked) select.value = picked;
+  }
+
+  function renderClipTools(motions) {
+    clipTools.hidden = motions.length === 0;
+    if (!motions.length) return;
+    fillMotionSelect(repeatMotion, motions, motions[0].id);
+    fillMotionSelect(joinFirst, motions, motions[0].id);
+    // Two different motions by default, when there are two.
+    fillMotionSelect(joinSecond, motions, (motions.find(motion => motion.id !== joinFirst.value) || motions[0]).id);
+    for (const control of [repeatMotion, repeatTimes, repeatBtn, joinFirst, joinSecond, joinBtn]) control.disabled = motionBusy;
+  }
+
+  const motionNameOf = select => (select.selectedOptions[0] ? select.selectedOptions[0].textContent : '');
+
+  // Run one of the two tools: `working` is shown while the server makes the clip.
+  async function makeClip(path, json, working, done) {
+    if (motionBusy) return;
+    motionBusy = true;
+    renderMotions();
+    setStatus(motionsStatus, working);
+    try {
+      const data = await api('POST', path, { json, errorText: H.serverErrorText });
+      applyList(data);
+      setStatus(motionsStatus, done(data.motion), 'success');
+    } catch (error) {
+      setStatus(motionsStatus, `만들지 못했습니다: ${error.message}`, 'error');
+    } finally {
+      motionBusy = false;
+      renderMotions();
+    }
+  }
+
+  repeatBtn.addEventListener('click', () => {
+    const times = H.clipTimes(repeatTimes.value);
+    if (!repeatMotion.value) return;
+    if (times === null) {
+      setStatus(motionsStatus, '반복 횟수는 2부터 20까지 정할 수 있습니다', 'error');
+      return;
+    }
+    const name = motionNameOf(repeatMotion);
+    makeClip(`/api/media/${encodeURIComponent(repeatMotion.value)}/repeat`, { times },
+      `'${name}'을(를) ${times}번 반복한 동작을 만드는 중…`,
+      motion => `'${motion.name}' 동작을 만들었습니다. 원래 동작은 그대로 있습니다`);
+  });
+
+  joinBtn.addEventListener('click', () => {
+    if (!joinFirst.value || !joinSecond.value) return;
+    makeClip(`/api/media/${encodeURIComponent(joinFirst.value)}/join`, { with: joinSecond.value },
+      `'${motionNameOf(joinFirst)}' 다음에 '${motionNameOf(joinSecond)}'을(를) 이어붙이는 중… (영상 길이에 따라 1~2분 걸릴 수 있습니다)`,
+      motion => `'${motion.name}' 동작을 만들었습니다. 원래 동작은 그대로 있습니다`);
+  });
 
   // The default idle while the photo has no idle video: the still photo, as the first
   // tile, so it can be seen and picked again after another motion was chosen.

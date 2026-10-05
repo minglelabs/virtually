@@ -51,7 +51,7 @@ test('parseScene: the character is always there; malformed and repeated layers g
   assert.deepEqual(parsed.layers.map(layer => layer.id), [ID_A, 'character']);
   assert.deepEqual(parsed.layers[0], {
     id: ID_A, kind: 'video', name: '배경 영상', mime: 'video/mp4', createdAt: null, width: 1280, height: 720, duration: 4,
-    alpha: false, audio: true, visible: true, fill: false, scale: scene.SCALE_MAX, x: -scene.OFFSET_MAX, y: 0, muted: false,
+    alpha: false, audio: true, visible: true, fill: false, scale: scene.SCALE_MAX, x: -scene.OFFSET_MAX, y: 0, muted: false, repeat: 0,
   });
   assert.deepEqual(parsed.layers[1], { id: 'character', kind: 'character', visible: false, scale: 0.5, x: 0.25, y: 0 });
   // What the pages get: a url for each file, none for the character.
@@ -274,7 +274,7 @@ test('routes: upload, list, serve, patch, move, delete; the stream tells every c
   const bg = body.layer;
   assert.deepEqual({ ...bg, id: null, createdAt: null, url: null }, {
     id: null, kind: 'video', name: '내 배경', mime: 'video/mp4', createdAt: null, width: 320, height: 180, duration: bg.duration,
-    alpha: false, audio: true, visible: true, fill: true, scale: 1, x: 0, y: 0, muted: true, url: null,
+    alpha: false, audio: true, visible: true, fill: true, scale: 1, x: 0, y: 0, muted: true, repeat: 0, url: null,
   });
   assert.ok(bg.duration > 0.8 && bg.duration < 1.3);
   assert.equal(bg.url, `/api/media/${bg.id}`);

@@ -195,7 +195,17 @@ const OverlayScene = (() => {
     return `translate(${dx}px, ${dy}px) scale(${scale})`;
   }
 
-  return { CHARACTER_ID, sceneLayers, placeFree, characterTransform };
+  /** How many times a video layer plays: a whole number of 1 or more, or 0 for over and over. */
+  function repeatOf(layer) {
+    return layer && Number.isInteger(layer.repeat) && layer.repeat > 0 ? layer.repeat : 0;
+  }
+
+  /** After `played` rounds of a clip that plays `limit` times: does it start once more? */
+  function playsAgain(played, limit) {
+    return !(limit > 0) || played < limit;
+  }
+
+  return { CHARACTER_ID, sceneLayers, placeFree, characterTransform, repeatOf, playsAgain };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = { ...OverlayFit, ...OverlayPlayback, ...OverlayScene };
@@ -643,6 +653,22 @@ if (typeof document !== 'undefined') (() => {
     }
     // Its real size is known: a layer that does not fill the canvas takes its shape.
     el.addEventListener(video ? 'loadedmetadata' : 'load', () => applyScene());
+    // A clip with a play count (layer.repeat) does not loop: it is started again here until
+    // the count is reached, and then stays on its last frame.
+    if (video) {
+      el.addEventListener('ended', () => {
+        const limit = Number(el.dataset.repeat) || 0;
+        if (!limit) return;
+        const played = (Number(el.dataset.plays) || 0) + 1;
+        el.dataset.plays = String(played);
+        if (OverlayScene.playsAgain(played, limit)) {
+          el.currentTime = 0;
+          playSceneVideo(el);
+        } else {
+          el.dataset.done = '1';
+        }
+      });
+    }
     el.src = layer.url;
     stage.append(el);
     sceneEls.set(layer.id, el);
@@ -663,21 +689,45 @@ if (typeof document !== 'undefined') (() => {
     }
   }
 
+  // From its start, counting its rounds from none.
+  function restartSceneVideo(el) {
+    el.dataset.plays = '0';
+    delete el.dataset.done;
+    try {
+      el.currentTime = 0;
+    } catch (_) {}
+    if (el.style.display !== 'none') playSceneVideo(el);
+  }
+
+  // POST /api/scene/layers/<id>/replay: the streamer plays a video layer again.
+  function replaySceneVideo(id) {
+    const el = sceneEls.get(id);
+    if (el && el.tagName === 'VIDEO') restartSceneVideo(el);
+  }
+
   function showSceneEl(el, layer) {
     const visible = layer.visible !== false;
+    const wasHidden = el.style.display === 'none';
     el.style.display = visible ? '' : 'none';
     if (el.tagName !== 'VIDEO') return;
     if (!visible) {
       el.pause();
       return;
     }
+    const repeat = OverlayScene.repeatOf(layer);
+    const recount = el.dataset.repeat !== undefined && el.dataset.repeat !== String(repeat);
+    el.dataset.repeat = String(repeat);
+    el.loop = repeat === 0;
+    // A clip with a count starts over when the count changes and when it is shown again.
+    if (recount || (wasHidden && repeat > 0)) restartSceneVideo(el);
     const sound = !IS_PREVIEW && layer.muted === false && layer.audio !== false && el.dataset.soundBlocked !== '1';
     if (el.muted === sound) {
       el.muted = !sound;
       // A browser pauses a clip that is given sound without a click: start it again (silently if it must).
       if (sound) playSceneVideo(el);
     }
-    if (el.paused) playSceneVideo(el);
+    // Not one that has played its rounds: it waits on its last frame.
+    if (el.paused && el.dataset.done !== '1') playSceneVideo(el);
   }
 
   function placeSceneEl(el, layer, canvas) {
@@ -803,6 +853,8 @@ if (typeof document !== 'undefined') (() => {
       drawSceneOutline();
     } else if (data.type === 'scene') {
       updateScene(data.scene);
+    } else if (data.type === 'scene-replay') {
+      replaySceneVideo(data.id);
     } else if (data.type === 'play') {
       playMotion(data.id, data.seq);
     } else if (data.type === 'idle') {
