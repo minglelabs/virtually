@@ -141,7 +141,64 @@ const OverlayPlayback = (() => {
   return { onAirPhotoId, reactionFor };
 })();
 
-if (typeof module !== 'undefined' && module.exports) module.exports = { ...OverlayFit, ...OverlayPlayback };
+// The scene (lib/scene.js): the character among video and image layers. Pure helpers,
+// exported for node tests like OverlayFit.
+const OverlayScene = (() => {
+  const CHARACTER_ID = 'character';
+  const finite = value => typeof value === 'number' && Number.isFinite(value);
+  const DEFAULT_CHARACTER = Object.freeze({ id: CHARACTER_ID, kind: 'character', visible: true, scale: 1, x: 0, y: 0 });
+
+  /**
+   * The layers of a scene from the back to the front: what GET /api/scene sent, without
+   * anything malformed, and always with the character (in front when the scene has none).
+   */
+  function sceneLayers(scene) {
+    const layers = [];
+    const seen = new Set();
+    for (const layer of scene && Array.isArray(scene.layers) ? scene.layers : []) {
+      if (!layer || typeof layer !== 'object' || typeof layer.id !== 'string' || seen.has(layer.id)) continue;
+      const character = layer.id === CHARACTER_ID;
+      if (!character && !((layer.kind === 'video' || layer.kind === 'image') && typeof layer.url === 'string' && layer.url)) continue;
+      seen.add(layer.id);
+      layers.push(character ? { ...DEFAULT_CHARACTER, ...layer, kind: 'character' } : layer);
+    }
+    if (!seen.has(CHARACTER_ID)) layers.push({ ...DEFAULT_CHARACTER });
+    return layers;
+  }
+
+  /**
+   * Where a layer that does not fill the canvas is drawn: { left, top, width, height } in px.
+   * It is fitted inside the canvas at its own shape (`natural`, else the layer's width and
+   * height), scaled by layer.scale, its centre moved by x, y (fractions of the canvas).
+   * Null while its size is unknown.
+   */
+  function placeFree(canvas, layer, natural = null) {
+    const w = natural && natural.width > 0 ? natural.width : layer.width;
+    const h = natural && natural.height > 0 ? natural.height : layer.height;
+    if (!canvas || !finite(canvas.width) || !finite(canvas.height) || canvas.width <= 0 || canvas.height <= 0) return null;
+    if (!finite(w) || !finite(h) || w <= 0 || h <= 0) return null;
+    const fit = Math.min(canvas.width / w, canvas.height / h);
+    const scale = finite(layer.scale) && layer.scale > 0 ? layer.scale : 1;
+    const width = w * fit * scale;
+    const height = h * fit * scale;
+    const cx = canvas.width * (0.5 + (finite(layer.x) ? layer.x : 0));
+    const cy = canvas.height * (0.5 + (finite(layer.y) ? layer.y : 0));
+    return { left: cx - width / 2, top: cy - height / 2, width, height };
+  }
+
+  /** The CSS transform of the character's box ('' when it is where it always was). */
+  function characterTransform(canvas, layer) {
+    const scale = layer && finite(layer.scale) && layer.scale > 0 ? layer.scale : 1;
+    const dx = layer && finite(layer.x) && canvas ? layer.x * canvas.width : 0;
+    const dy = layer && finite(layer.y) && canvas ? layer.y * canvas.height : 0;
+    if (scale === 1 && !dx && !dy) return '';
+    return `translate(${dx}px, ${dy}px) scale(${scale})`;
+  }
+
+  return { CHARACTER_ID, sceneLayers, placeFree, characterTransform };
+})();
+
+if (typeof module !== 'undefined' && module.exports) module.exports = { ...OverlayFit, ...OverlayPlayback, ...OverlayScene };
 
 if (typeof document !== 'undefined') (() => {
   // DOM Elements
@@ -153,6 +210,12 @@ if (typeof document !== 'undefined') (() => {
   const reactionLayer = document.getElementById('reaction-layer');
   const reactionVideo = document.getElementById('reaction-video');
   const reactionImage = document.getElementById('reaction-image');
+  const stage = document.getElementById('stage');
+  const characterBox = document.getElementById('character');
+  const sceneOutline = document.getElementById('scene-outline');
+  // Inside the controller's canvas preview (an iframe): never any sound, and it shows the
+  // layer selected there.
+  const IS_PREVIEW = window.parent !== window;
 
   // Application State (photo: the view's on-air photo, or null in demo mode)
   let library = {
@@ -299,11 +362,20 @@ if (typeof document !== 'undefined') (() => {
       return OverlayFit.idleBox(canvas, idle, { natural: natural.width > 0 && natural.height > 0 ? natural : null });
     }
     // The demo layer keeps its layout while hidden (visibility/opacity only).
-    const r = demoAvatar.getBoundingClientRect();
+    const r = localRect(demoAvatar);
     const avatarRect = r.width > 0 && r.height > 0
       ? { left: r.left, top: r.top, width: r.width, height: r.height }
       : null;
     return OverlayFit.idleBox(canvas, null, { avatarRect });
+  }
+
+  // An element's box inside the character's box as laid out, whatever the scene's scale
+  // and position of that box (getBoundingClientRect sees the transformed one).
+  function localRect(el) {
+    const r = el.getBoundingClientRect();
+    const c = characterBox.getBoundingClientRect();
+    const s = characterBox.offsetWidth > 0 && c.width > 0 ? c.width / characterBox.offsetWidth : 1;
+    return { left: (r.left - c.left) / s, top: (r.top - c.top) / s, width: r.width / s, height: r.height / s };
   }
 
   function clearMotionFit() {
@@ -335,6 +407,7 @@ if (typeof document !== 'undefined') (() => {
   }
 
   window.addEventListener('resize', () => {
+    applyScene();
     if (activeFit) applyMotionFit();
   });
 
@@ -535,6 +608,174 @@ if (typeof document !== 'undefined') (() => {
     }
   }
 
+  // ---- The scene: the character among video and image layers (lib/scene.js) ----
+  let sceneNow = OverlayScene.sceneLayers(null); // back -> front
+  let selectedLayerId = null; // preview only: the layer selected on the controller
+  const sceneEls = new Map(); // layer id -> its <video> or <img>
+
+  function removeSceneEl(id) {
+    const el = sceneEls.get(id);
+    sceneEls.delete(id);
+    if (!el) return;
+    if (el.tagName === 'VIDEO') {
+      try {
+        el.pause();
+        el.removeAttribute('src');
+        el.load();
+      } catch (_) {}
+    }
+    el.remove();
+  }
+
+  function createSceneEl(layer) {
+    const video = layer.kind === 'video';
+    const el = document.createElement(video ? 'video' : 'img');
+    el.className = 'scene-layer';
+    el.dataset.url = layer.url;
+    if (video) {
+      el.loop = true;
+      el.muted = true;
+      el.playsInline = true;
+      el.preload = 'auto';
+    } else {
+      el.alt = '';
+      el.decoding = 'async';
+    }
+    // Its real size is known: a layer that does not fill the canvas takes its shape.
+    el.addEventListener(video ? 'loadedmetadata' : 'load', () => applyScene());
+    el.src = layer.url;
+    stage.append(el);
+    sceneEls.set(layer.id, el);
+    return el;
+  }
+
+  // Sound only where it is broadcast, and only when the browser lets a page start it
+  // (OBS does; a browser tab wants a click first, and then the clip plays silently).
+  function playSceneVideo(el) {
+    const attempt = el.play();
+    if (attempt && typeof attempt.catch === 'function') {
+      attempt.catch(() => {
+        if (el.muted) return;
+        el.dataset.soundBlocked = '1';
+        el.muted = true;
+        el.play().catch(() => {});
+      });
+    }
+  }
+
+  function showSceneEl(el, layer) {
+    const visible = layer.visible !== false;
+    el.style.display = visible ? '' : 'none';
+    if (el.tagName !== 'VIDEO') return;
+    if (!visible) {
+      el.pause();
+      return;
+    }
+    const sound = !IS_PREVIEW && layer.muted === false && layer.audio !== false && el.dataset.soundBlocked !== '1';
+    if (el.muted === sound) {
+      el.muted = !sound;
+      // A browser pauses a clip that is given sound without a click: start it again (silently if it must).
+      if (sound) playSceneVideo(el);
+    }
+    if (el.paused) playSceneVideo(el);
+  }
+
+  function placeSceneEl(el, layer, canvas) {
+    const free = layer.fill === false;
+    el.classList.toggle('is-free', free);
+    const natural = el.tagName === 'VIDEO'
+      ? { width: el.videoWidth, height: el.videoHeight }
+      : { width: el.naturalWidth, height: el.naturalHeight };
+    const place = free ? OverlayScene.placeFree(canvas, layer, natural) : null;
+    for (const side of ['left', 'top', 'width', 'height']) {
+      if (place) el.style.setProperty(side, `${place[side]}px`);
+      else el.style.removeProperty(side);
+    }
+  }
+
+  function drawSceneOutline() {
+    const layer = IS_PREVIEW && selectedLayerId ? sceneNow.find(item => item.id === selectedLayerId) : null;
+    let rect = null;
+    if (layer && layer.visible !== false) {
+      if (layer.kind === 'character') {
+        // Around the character itself when its box is known, else around its whole box.
+        const c = characterBox.getBoundingClientRect();
+        const s = characterBox.offsetWidth > 0 && c.width > 0 ? c.width / characterBox.offsetWidth : 1;
+        const box = currentIdleBox({ width: window.innerWidth, height: window.innerHeight });
+        rect = box
+          ? { left: c.left + box[0] * s, top: c.top + box[1] * s, width: (box[2] - box[0]) * s, height: (box[3] - box[1]) * s }
+          : c;
+      } else if (sceneEls.has(layer.id)) {
+        rect = sceneEls.get(layer.id).getBoundingClientRect();
+      }
+    }
+    if (!rect || !(rect.width > 0) || !(rect.height > 0)) {
+      sceneOutline.hidden = true;
+      return;
+    }
+    sceneOutline.hidden = false;
+    for (const side of ['left', 'top', 'width', 'height']) sceneOutline.style.setProperty(side, `${rect[side]}px`);
+  }
+
+  function applyScene() {
+    const canvas = { width: window.innerWidth, height: window.innerHeight };
+    const kept = new Set();
+    sceneNow.forEach((layer, index) => {
+      if (layer.kind === 'character') {
+        characterBox.style.zIndex = String(index);
+        // Not `visibility`: the layers inside set their own.
+        characterBox.style.opacity = layer.visible === false ? '0' : '';
+        characterBox.style.transform = OverlayScene.characterTransform(canvas, layer);
+        return;
+      }
+      kept.add(layer.id);
+      let el = sceneEls.get(layer.id);
+      if (el && (el.dataset.url !== layer.url || (el.tagName === 'VIDEO') !== (layer.kind === 'video'))) {
+        removeSceneEl(layer.id);
+        el = null;
+      }
+      if (!el) el = createSceneEl(layer);
+      el.style.zIndex = String(index);
+      placeSceneEl(el, layer, canvas);
+      showSceneEl(el, layer);
+    });
+    for (const id of [...sceneEls.keys()]) if (!kept.has(id)) removeSceneEl(id);
+    drawSceneOutline();
+  }
+
+  function updateScene(scene) {
+    sceneNow = OverlayScene.sceneLayers(scene);
+    applyScene();
+  }
+
+  async function fetchScene() {
+    try {
+      const res = await fetch('/api/scene', { cache: 'no-store' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      updateScene(await res.json());
+    } catch (err) {
+      console.warn('Could not fetch /api/scene:', err);
+    }
+  }
+
+  // A browser stops the clips of a page nobody sees: start them again when it is seen.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') applyScene();
+  });
+
+  // The controller's preview: the scene while a layer is being dragged or resized there
+  // (before it is saved), and which layer is selected.
+  if (IS_PREVIEW) {
+    window.addEventListener('message', (event) => {
+      if (event.source !== window.parent || event.origin !== window.location.origin) return;
+      const data = event.data;
+      if (!data || data.source !== 'virtually-controller' || data.type !== 'scene') return;
+      selectedLayerId = typeof data.selected === 'string' ? data.selected : null;
+      if (data.scene) updateScene(data.scene);
+      else applyScene();
+    });
+  }
+
   // Fetch library from API
   async function fetchLibrary() {
     try {
@@ -558,6 +799,10 @@ if (typeof document !== 'undefined') (() => {
     if (!data || typeof data !== 'object') return;
     if (data.type === 'library') {
       updateLibrary(data.library);
+      // The idle changed: the outline of a selected character follows it.
+      drawSceneOutline();
+    } else if (data.type === 'scene') {
+      updateScene(data.scene);
     } else if (data.type === 'play') {
       playMotion(data.id, data.seq);
     } else if (data.type === 'idle') {
@@ -605,6 +850,7 @@ if (typeof document !== 'undefined') (() => {
     eventSource.onopen = () => {
       // Reconnected / connected: refresh library immediately
       fetchLibrary();
+      fetchScene();
       // A restarted server may have lost or never seen the size: report it again.
       reportObsSourceSize();
     };
@@ -631,6 +877,8 @@ if (typeof document !== 'undefined') (() => {
   }
 
   // Initialize
+  applyScene();
   fetchLibrary();
+  fetchScene();
   connectSSE();
 })();

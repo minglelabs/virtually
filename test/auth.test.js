@@ -356,6 +356,10 @@ test('overlay key: /overlay?key sets the overlay cookie, which opens the overlay
   assert.equal(media.status, 200);
   assert.equal(media.text, bytes.toString());
   assert.equal((await request(ctx.port, `/api/media/${id}`, { method: 'HEAD', cookie })).status, 200);
+  // The scene it draws (the layers around the character): read with the key, changed only with a session.
+  const scene = await request(ctx.port, '/api/scene', { cookie });
+  assert.equal(scene.status, 200);
+  assert.deepEqual(scene.json.layers.map(layer => layer.id), ['character']);
   assert.equal((await request(ctx.port, '/api/obs-source', { cookie })).status, 200);
   const reported = await request(ctx.port, '/api/obs-source', { method: 'POST', cookie, ...json({ width: 800, height: 600 }) });
   assert.equal(reported.status, 200);
@@ -370,6 +374,8 @@ test('overlay key: /overlay?key sets the overlay cookie, which opens the overlay
     ['POST', '/api/trigger'], ['POST', '/api/idle'], ['POST', '/api/upload?kind=motion&name=x&filename=x.webm'],
     ['GET', '/api/animate/status'], ['GET', '/api/auth/me'], ['POST', '/api/auth/overlay-key'], ['DELETE', `/api/media/${id}`],
     ['GET', '/api/characters'], ['POST', '/api/characters?name=x'], ['PUT', '/api/active-photo'],
+    ['POST', '/api/scene/layers?name=x.png'], ['PATCH', '/api/scene/layers/character'], ['POST', '/api/scene/layers/character/move'],
+    ['DELETE', '/api/scene/layers/character'],
   ]) {
     const response = await request(ctx.port, pathname, { method, cookie, ...(method === 'POST' || method === 'PUT' ? json({ id: 'demo' }) : {}) });
     assert.equal(response.status, 401, `${method} ${pathname}`);

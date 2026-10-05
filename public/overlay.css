@@ -28,6 +28,46 @@ html, body {
   pointer-events: none;
 }
 
+/* The character's box: the whole canvas, scaled around its bottom middle and moved by the scene. */
+.character {
+  position: absolute;
+  inset: 0;
+  transform-origin: 50% 100%;
+  pointer-events: none;
+}
+
+/*
+ * A video or image layer of the scene (overlay.js adds them to the stage and sets their
+ * z-index). It covers the canvas; one that does not fill it (.is-free) gets its box in px.
+ */
+.scene-layer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  background: transparent !important;
+  pointer-events: none;
+}
+
+.scene-layer.is-free {
+  object-fit: contain;
+}
+
+.scene-outline {
+  position: absolute;
+  z-index: 2147483000;
+  border: 2px dashed #6c8cff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45), inset 0 0 0 1px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+
+.scene-outline[hidden] {
+  display: none;
+}
+
 /* Base layer structure */
 .layer {
   position: absolute;
