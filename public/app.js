@@ -389,6 +389,8 @@ if (typeof document !== 'undefined') (() => {
   // change; EventSource reconnects itself.
   window.VirtuallyMotions.liveEvents('/api/events', { open: () => {
     if (motionStatus.dataset.kind === 'connection') setStatus('');
+    // scene.js asks for the scene again (it shares this stream instead of opening its own).
+    window.dispatchEvent(new CustomEvent('virtually:live-open'));
   }, error: (closed) => {
     setStatus('서버 연결이 끊겼습니다. 다시 연결하는 중입니다.', 'connection');
     // A refused stream (the login ended, or the server is restarting) is opened again by
@@ -401,6 +403,7 @@ if (typeof document !== 'undefined') (() => {
     } catch {
       return;
     }
+    window.dispatchEvent(new CustomEvent('virtually:live', { detail: data }));
     if (data?.type === 'library') {
       items = allItems(data.library);
       render();

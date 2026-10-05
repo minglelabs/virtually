@@ -8,6 +8,9 @@
 </head>
 <body>
   <div id="stage" class="stage">
+    <!-- The character: one layer of the scene. overlay.js orders it among the video and image
+         layers it adds to the stage (GET /api/scene), and scales and moves this box. -->
+    <div id="character" class="character">
     <!-- Demo Avatar Layer: overlay.js shows it once the library is known and has no idle media (never while
          a photo is on air), or for a demo reaction. Hidden at load, so a photo on air never flashes the demo. -->
     <div id="demo-layer" class="layer demo-layer" aria-hidden="true">
@@ -137,6 +140,10 @@
       <video id="reaction-video" class="media-element" muted playsinline></video>
       <img id="reaction-image" class="media-element" alt="">
     </div>
+    </div>
+
+    <!-- The controller's preview only: the outline of the layer selected there. -->
+    <div id="scene-outline" class="scene-outline" hidden></div>
   </div>
 
   <script src="overlay.js"></script>

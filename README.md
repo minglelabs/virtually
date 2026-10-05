@@ -27,7 +27,7 @@ Open the printed character list URL in your browser. It works before you add any
 | Path | Page |
 |---|---|
 | `/` | **캐릭터 목록** (character list): your characters and their photos. Create characters, add photos, pick the photo to put on air (**이 캐릭터로 방송하기**, which then opens `/broadcast`). The selected photo of every character has **동작 관리**, which opens `/animate?photo=<photoId>`. |
-| `/broadcast` | **방송 화면**: the controller (motion buttons, OBS guide) next to the true-scale canvas preview, for the photo on air. |
+| `/broadcast` | **방송 화면**: the controller (motion buttons, OBS guide, and [화면 구성](#화면-구성-the-scene): background videos and images layered with the character) next to the true-scale canvas preview, for the photo on air. |
 | `/animate?photo=<photoId>` | **동작 관리**: one character's motions — make them for one photo, with AI or by uploading a finished video. |
 | `/overlay` | The OBS Browser Source. Its URL never changes: it follows the photo on air. |
 | `/login` | Google login (only when [login](#google-login-optional) is on); afterwards it returns to the page you came from (default `/`). |
@@ -242,7 +242,7 @@ With login off there is one set of data directly under `data/`, as before. Login
 ### What login protects
 
 - **Public**: `/login`, the sign-in routes under `/auth/google/`, `POST /auth/logout`, `GET /api/auth/status`, the static `.css`/`.js` files (the source is public anyway) and the Polar webhook `POST /api/billing/polar/webhook` (checked by its signature instead; see [Card payments with Polar (optional)](#card-payments-with-polar-optional)).
-- **Login or overlay key**: `/overlay` and the calls it makes — `GET /api/library`, `GET /api/events`, media files (`/api/media/<id>`, which includes the photos and their cutouts, so OBS reaches the photo on air with its key) and `GET`/`POST /api/obs-source` (the overlay reports its size).
+- **Login or overlay key**: `/overlay` and the calls it makes — `GET /api/library`, `GET /api/scene`, `GET /api/events`, media files (`/api/media/<id>`, which includes the photos and their cutouts, so OBS reaches the photo on air with its key) and `GET`/`POST /api/obs-source` (the overlay reports its size).
 - **Login**: everything else — the character list, the 방송 화면, the 동작 관리 page, the 크레딧 page (`/billing`), the 크레딧 관리 page (`/admin`, whose API answers [admins](#credits-configjson) only) and every other API call (triggers, uploads, deletes, `/api/characters*`, `/api/active-photo`, `/api/animate/*`, `/api/billing/*`). A page opened without a login goes to `/login` and comes back afterwards; an API call gets `401` with the header `X-Virtually-Auth: required`.
 
 A login lasts 30 days and is extended while you use it. **로그아웃**, next to your name at the top of the pages, ends it in that browser.
@@ -381,7 +381,7 @@ Recommended properties, in OBS order:
 - **Local file**: off.
 - **URL**: the overlay URL printed by the server (default `http://127.0.0.1:8787/overlay`). With Google login on, copy the URL with its key from the controller instead (see [OBS with login on](#obs-with-login-on)).
 - **Width** / **Height**: the same as your OBS canvas (**Settings → Video → Base (Canvas) Resolution**; the source defaults to 800 / 600). The overlay reports this size to the controller, whose 캔버스 preview then shows the same size (800 × 600, the OBS default, until the first report).
-- **Control audio via OBS**: off — motion clips have no audio.
+- **Control audio via OBS**: off — motion clips have no audio. (On only if a background video of [화면 구성](#화면-구성-the-scene) should be heard on the stream.)
 - **Use custom frame rate**: off — follow the OBS output frame rate.
 - **Custom CSS**: leave the default — it is what makes the background transparent.
 - **Shutdown source when not visible**: off — otherwise the overlay unloads whenever the source is hidden and reloads when shown.
@@ -390,6 +390,27 @@ Recommended properties, in OBS order:
 - **Refresh cache of current page** (button): not needed normally — press it if the OBS view still looks old after updating Virtually.
 
 Do not add a camera feed to the overlay page. Audio stays with your regular microphone and OBS sources.
+
+## 화면 구성 (the scene)
+
+The overlay can carry the whole picture, not only the character: the **화면 구성** card of the 방송 화면 adds videos and images as **layers** around the character, so a looping background, a frame or a logo and the character go to OBS as one browser source. (Putting the overlay over other OBS sources still works exactly as before: a scene with no added layer is the transparent character overlay.)
+
+- **영상 · 이미지 추가** uploads one or more files: MP4, WebM or MOV video (up to 500 MB) and PNG, JPEG, WebP or GIF images (up to 30 MB), at most 20. A WebM (VP8/VP9/AV1) or an H.264 MP4 is kept as it is, with no length limit; an H.264 MOV is rewrapped as MP4; anything else (HEVC from a phone, ProRes, …) is converted during the upload (H.264 + AAC, at most 1920 wide; a clip with an alpha channel becomes VP9 with alpha, without sound), which is why those are limited to 5 minutes. Videos loop.
+- **The list** shows the layers with the front one first; the character is one of the rows. **맨 위로 / 위로 / 아래로 / 맨 아래로** change the order, **숨기기 / 보이기** hides a layer without removing it, **×** deletes it and its file. A new layer goes right behind the character.
+- **Selecting a row** (click its name) shows its options and outlines the layer on the canvas preview. A video or image has **화면에 꽉 채우기** (on by default: it covers the canvas, cropped to its shape). With it off, and always for the character, a **크기** slider (5–300 %) sizes the layer and dragging on the canvas moves it; **원래대로** puts it back. The character scales around the middle of its bottom edge, so its feet stay on the ground.
+- **소리 켜기** (videos with sound, off by default) plays the clip's sound in OBS; the canvas preview is always silent. To send it to the stream, turn on **Control audio via OBS** in the browser source's properties.
+
+Sizes and positions are fractions of the canvas, so the picture looks the same at any OBS source size. The preview shows a change while it is being made; the overlay in OBS gets it when it is saved (a drag or the slider let go).
+
+| Route | |
+|---|---|
+| `GET /api/scene` | `{ layers }`, back to front. The character: `{ id: "character", kind: "character", visible, scale, x, y }`. A video or image: `{ id, kind: "video" \| "image", name, mime, url, createdAt, width, height, duration, alpha, audio, visible, fill, scale, x, y, muted }`. `x`, `y`: the centre's offset as a fraction of the canvas width and height (−1.5…1.5); `scale`: 0.05…4. Also readable with the overlay key. |
+| `POST /api/scene/layers?name=<file name>` | The raw file as the body. `201 { layer, scene }`; `415 unsupported_media`, `413 too_large` / `too_large_image`, `422 too_long_to_convert` / `convert_failed`, `409 too_many_layers`. |
+| `PATCH /api/scene/layers/<id>` | Any of `{ name, visible, fill, muted, scale, x, y }` (`id` may be `character`: `visible`, `scale`, `x`, `y`). `{ scene }`. |
+| `POST /api/scene/layers/<id>/move` | `{ "to": "top" \| "up" \| "down" \| "bottom" }` (top = the very front). `{ scene }`. |
+| `DELETE /api/scene/layers/<id>` | Removes the layer and its file (`400 character_fixed` for the character). `{ scene }`. |
+
+Every change is sent on `/api/events` as `{ "type": "scene", "scene" }`; a page asks `GET /api/scene` when its stream opens. The files are served by `GET /api/media/<id>` (with byte ranges, and cacheable: a layer's file never changes). They count toward the account's storage, are mirrored to the bucket like the other media, and using them costs no credits.
 
 ## 자동 반응 (AI director)
 
@@ -595,7 +616,8 @@ Everything lives in `data/` (Git-ignored). With login on, the per-account items 
 - `data/characters/index.json` — `{ "v": 1, "activePhotoId", "characters" }`, written atomically (temporary file + rename). A character is `{ id: "c-<uuid>", name, createdAt, basePhotoId, photos }`; a photo is `{ id: "ph-<uuid>" (a migrated one keeps its "ch-<uuid>"), filename, mime, width, height, hasAlpha, createdAt, fit, cutout }`, where `cutout` is `{ "cut": true, "color", "fit" }` or `{ "cut": false, "reason": "has_alpha" | "not_uniform" | "no_subject" }` (absent: not decided yet, retried at startup).
 - `data/characters/photos/` — `<photoId>.png` / `.jpg` / `.webp`, and `<photoId>.cutout.png` for a photo whose plain background was cut out.
 - `data/library.json` — `{ idle, motions, idles, idleChoice }` (`idleChoice` maps a photo id to the motion chosen as its idle). Every motion has a `photoId` (`null`: no photo, shown only while nothing is on air); `idles` maps a photo id to the idle uploaded for that photo; `idle` is the old library idle, shown only while nothing is on air.
-- `data/media/` — the motion and idle files (`<id>.webm`, `.mp4`, `.png` or `.webp`).
+- `data/media/` — the motion and idle files (`<id>.webm`, `.mp4`, `.png` or `.webp`), and the files of the scene's layers (also `.jpg`, `.gif`).
+- `data/scene.json` — `{ layers }`, back to front: the character and the videos and images of [화면 구성](#화면-구성-the-scene), each with its visibility, size and place.
 - `data/animate/` — the 동작 만들기 settings, driving videos and jobs.
 
 **One-time migration.** At the first start with characters (while `data/characters/index.json` does not exist), every photo of the old character library (`data/animate/characters/index.json`, its file present) becomes its own character named `캐릭터 1`, `캐릭터 2`, … (by creation time) with that photo as its base photo and the same id. The files are copied; the old folder is left untouched. The old selection, else the first photo, goes on air. Each motion gets the photo of the job it came from, else the photo on air, so nothing disappears (without photos, motions keep no photo), and the old idle becomes the idle of the photo on air. `index.json` is written last, so an interrupted migration runs again at the next start; the server logs `[characters] migrated N photo(s)`.

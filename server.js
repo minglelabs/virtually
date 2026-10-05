@@ -33,6 +33,7 @@ const STATIC_FILES = new Map([
   ['/animate.js', ['animate.js', 'text/javascript; charset=utf-8']],
   ['/motions.js', ['motions.js', 'text/javascript; charset=utf-8']],
   ['/director.js', ['director.js', 'text/javascript; charset=utf-8']],
+  ['/scene.js', ['scene.js', 'text/javascript; charset=utf-8']],
   ['/overlay.css', ['overlay.css', 'text/css; charset=utf-8']],
   ['/overlay.js', ['overlay.js', 'text/javascript; charset=utf-8']],
   ['/login', ['login.html', 'text/html; charset=utf-8']],

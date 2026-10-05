@@ -83,6 +83,22 @@
         </div>
       </details>
 
+      <!-- The scene (scene.js): videos and images layered with the character, sent to OBS as one picture. -->
+      <details class="card obs-toggle scene-card" id="sceneCard">
+        <summary class="obs-summary"><span>화면 구성 <span id="sceneCount" class="scene-count"></span></span></summary>
+        <div class="obs-body">
+          <p class="hint">배경 영상이나 이미지를 올리면 캐릭터와 한 화면으로 합쳐져 OBS로 나갑니다. 목록에서 위에 있을수록 앞에 보입니다.</p>
+          <div class="scene-add">
+            <button type="button" id="sceneAddBtn" class="btn btn-sm">영상 · 이미지 추가</button>
+            <progress id="sceneProgress" max="100" value="0" hidden></progress>
+            <input type="file" id="sceneFile" accept="video/mp4,video/webm,video/quicktime,image/png,image/jpeg,image/webp,image/gif,.mp4,.webm,.mov,.png,.jpg,.jpeg,.webp,.gif" multiple hidden>
+          </div>
+          <p id="sceneStatus" class="status" aria-live="polite"></p>
+          <ol id="sceneList" class="scene-list"></ol>
+          <p class="hint">MP4 · WebM · MOV 영상(500MB까지), PNG · JPEG · WebP · GIF 이미지(30MB까지). 영상은 계속 반복 재생됩니다.</p>
+        </div>
+      </details>
+
       <!-- AI director (director.js): motions picked from what the streamer says, played from a queue. -->
       <section class="card director" id="directorCard" aria-labelledby="directorTitle">
         <div class="director-head">
@@ -150,5 +166,6 @@
   <script src="./motions.js"></script>
   <script src="./app.js"></script>
   <script src="./director.js"></script>
+  <script src="./scene.js"></script>
 </body>
 </html>

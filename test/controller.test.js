@@ -98,7 +98,9 @@ test('main page links to the animate page instead of uploading', () => {
   assert.match(html, /<a href="\.\/animate" id="motionAddLink" class="motion-add-btn">/);
   assert.match(html, /동작 관리/);
   assert.match(html, /동작 추가 · 대기 동작 고르기/);
-  assert.doesNotMatch(html, /type="file"|addMotionInput|uploadStatus/);
+  assert.doesNotMatch(html, /addMotionInput|uploadStatus/);
+  // The one file input is the scene's (화면 구성: background videos and images), not a motion upload.
+  assert.deepEqual(html.match(/<input type="file"[^>]*>/g).map(tag => /id="([^"]+)"/.exec(tag)[1]), ['sceneFile']);
   const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
   assert.doesNotMatch(app, /\/api\/upload/);
   assert.match(app, /motionAddLink\.setAttribute\('href', view \? animateHref : '\.\/animate'\)/);
@@ -107,7 +109,7 @@ test('main page links to the animate page instead of uploading', () => {
 test('page scripts never assign innerHTML/outerHTML or use insertAdjacentHTML', () => {
   const fs = require('node:fs');
   const path = require('node:path');
-  for (const file of ['animate.js', 'app.js', 'motions.js', 'login.js', 'auth.js']) {
+  for (const file of ['animate.js', 'app.js', 'motions.js', 'login.js', 'auth.js', 'scene.js', 'overlay.js']) {
     const src = fs.readFileSync(path.join(__dirname, '..', 'public', file), 'utf8');
     assert.doesNotMatch(src, /innerHTML|outerHTML|insertAdjacentHTML|document\.write/, file);
   }
