@@ -51,7 +51,7 @@ test('parseScene: the character is always there; malformed and repeated layers g
   assert.deepEqual(parsed.layers.map(layer => layer.id), [ID_A, 'character']);
   assert.deepEqual(parsed.layers[0], {
     id: ID_A, kind: 'video', name: '배경 영상', mime: 'video/mp4', createdAt: null, width: 1280, height: 720, duration: 4,
-    alpha: false, audio: true, visible: true, fill: false, scale: scene.SCALE_MAX, x: -scene.OFFSET_MAX, y: 0, muted: false, repeat: 0,
+    alpha: false, audio: true, visible: true, fill: false, scale: scene.SCALE_MAX, x: -scene.OFFSET_MAX, y: 0, muted: false, repeat: 0, src: null,
   });
   assert.deepEqual(parsed.layers[1], { id: 'character', kind: 'character', visible: false, scale: 0.5, x: 0.25, y: 0 });
   // What the pages get: a url for each file, none for the character.
@@ -272,15 +272,18 @@ test('routes: upload, list, serve, patch, move, delete; the stream tells every c
   assert.equal(response.status, 201);
   let body = await response.json();
   const bg = body.layer;
-  assert.deepEqual({ ...bg, id: null, createdAt: null, url: null }, {
+  assert.deepEqual({ ...bg, id: null, createdAt: null, url: null, src: null }, {
     id: null, kind: 'video', name: '내 배경', mime: 'video/mp4', createdAt: null, width: 320, height: 180, duration: bg.duration,
-    alpha: false, audio: true, visible: true, fill: true, scale: 1, x: 0, y: 0, muted: true, repeat: 0, url: null,
+    alpha: false, audio: true, visible: true, fill: true, scale: 1, x: 0, y: 0, muted: true, repeat: 0, src: null, url: null,
   });
   assert.ok(bg.duration > 0.8 && bg.duration < 1.3);
-  assert.equal(bg.url, `/api/media/${bg.id}`);
+  // The video is kept in the library (영상 관리); the layer shows it.
+  assert.notEqual(bg.src, bg.id);
+  assert.equal(bg.url, `/api/media/${bg.src}`);
+  assert.deepEqual((await (await send('GET', '/api/videos')).json()).videos.map(video => [video.id, video.name]), [[bg.src, '내 배경']]);
   assert.deepEqual(names(body.scene), ['내 배경', 'character']);
   assert.deepEqual((await nextScene()).scene, body.scene);
-  assert.deepEqual(await fs.readFile(path.join(dataDir, 'media', `${bg.id}.mp4`)), await fs.readFile(mp4), 'the file as uploaded');
+  assert.deepEqual(await fs.readFile(path.join(dataDir, 'media', `${bg.src}.mp4`)), await fs.readFile(mp4), 'the file as uploaded');
 
   // Served to the page (and to OBS) with byte ranges; the browser may keep it.
   response = await fetch(`${base}${bg.url}`, { headers: { Range: 'bytes=0-9' } });
@@ -303,11 +306,11 @@ test('routes: upload, list, serve, patch, move, delete; the stream tells every c
   body = await response.json();
   const phone = body.layer;
   assert.deepEqual([phone.mime, phone.width, phone.height, phone.audio], ['video/mp4', 180, 320, false]);
-  const probed = JSON.parse(execFileSync(FFPROBE, ['-v', 'error', '-print_format', 'json', '-show_streams', path.join(dataDir, 'media', `${phone.id}.mp4`)]).toString());
+  const probed = JSON.parse(execFileSync(FFPROBE, ['-v', 'error', '-print_format', 'json', '-show_streams', path.join(dataDir, 'media', `${phone.src}.mp4`)]).toString());
   assert.deepEqual(probed.streams.map(item => [item.codec_name, item.pix_fmt]), [['h264', 'yuv420p']]);
   // An H.264 MOV is rewrapped: the picture untouched, the sound made one a browser plays.
   body = await (await upload(h264mov)).json();
-  const camera = JSON.parse(execFileSync(FFPROBE, ['-v', 'error', '-print_format', 'json', '-show_streams', '-show_format', path.join(dataDir, 'media', `${body.layer.id}.mp4`)]).toString());
+  const camera = JSON.parse(execFileSync(FFPROBE, ['-v', 'error', '-print_format', 'json', '-show_streams', '-show_format', path.join(dataDir, 'media', `${body.layer.src}.mp4`)]).toString());
   assert.deepEqual(camera.streams.map(item => item.codec_name).sort(), ['aac', 'h264']);
   assert.deepEqual([body.layer.mime, body.layer.audio], ['video/mp4', true]);
   assert.deepEqual(names(body.scene), ['내 배경', 'loop', 'logo', 'photo', 'phone', 'camera', 'character']);
@@ -349,13 +352,35 @@ test('routes: upload, list, serve, patch, move, delete; the stream tells every c
   body = await (await send('POST', `/api/scene/layers/${bg.id}/move`, { to: 'up' })).json();
   assert.deepEqual(names(body.scene), ['character', 'loop', '바다', 'photo', 'phone', 'camera', 'logo']);
 
-  // Delete: the layer and its file go; the motion routes do not touch scene files.
-  assert.equal((await send('DELETE', `/api/media/${phone.id}`)).status, 404);
-  assert.ok(fsSync.existsSync(path.join(dataDir, 'media', `${phone.id}.mp4`)));
+  // Delete: a video layer leaves the scene and its video stays in the library; an image's
+  // file goes with its layer. The motion routes do not touch these files.
+  assert.equal((await send('DELETE', `/api/media/${phone.src}`)).status, 404);
   body = await (await send('DELETE', `/api/scene/layers/${phone.id}`)).json();
   assert.deepEqual(names(body.scene), ['character', 'loop', '바다', 'photo', 'camera', 'logo']);
-  assert.equal(fsSync.existsSync(path.join(dataDir, 'media', `${phone.id}.mp4`)), false);
+  assert.ok(fsSync.existsSync(path.join(dataDir, 'media', `${phone.src}.mp4`)));
+  assert.equal((await fetch(`${base}${phone.url}`)).status, 200);
+  // The video put back on the scene from the library, twice: two layers of one file.
+  response = await fetch(`${base}/api/scene/layers?video=${phone.src}`, { method: 'POST' });
+  assert.equal(response.status, 201);
+  body = await response.json();
+  assert.deepEqual([body.layer.src, body.layer.name, body.layer.fill, body.layer.url], [phone.src, 'phone', true, phone.url]);
+  body = await (await fetch(`${base}/api/scene/layers?video=${phone.src}`, { method: 'POST' })).json();
+  assert.deepEqual(names(body.scene), ['phone', 'phone', 'character', 'loop', '바다', 'photo', 'camera', 'logo']);
+  assert.equal((await fetch(`${base}/api/scene/layers?video=${ID_A}`, { method: 'POST' })).status, 404);
+  // Deleted in the library: its layers leave the scene, and the file goes.
+  response = await send('DELETE', `/api/videos/${phone.src}`);
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).videos.some(video => video.id === phone.src), false);
+  body = { scene: await (await send('GET', '/api/scene')).json() };
+  assert.deepEqual(names(body.scene), ['character', 'loop', '바다', 'photo', 'camera', 'logo']);
+  assert.equal(fsSync.existsSync(path.join(dataDir, 'media', `${phone.src}.mp4`)), false);
   assert.equal((await fetch(`${base}${phone.url}`)).status, 404);
+  const photo = body.scene.layers.find(layer => layer.name === 'photo');
+  await send('DELETE', `/api/scene/layers/${photo.id}`);
+  assert.equal(fsSync.existsSync(path.join(dataDir, 'media', `${photo.id}.jpg`)), false);
+  assert.equal((await fetch(`${base}${photo.url}`)).status, 404);
+  await upload(jpg);
+  await send('POST', '/api/scene/layers/character/move', { to: 'bottom' });
 
   // The library the overlay reads is as it was (the scene travels on its own).
   assert.deepEqual(await (await send('GET', '/api/library')).json(), { idle: null, motions: [], character: null, photo: null });

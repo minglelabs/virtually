@@ -15,6 +15,7 @@
       <a href="/" class="topnav-tab">캐릭터</a>
       <a href="/broadcast" class="topnav-tab" aria-current="page">방송 화면</a>
       <a href="/animate" class="topnav-tab">동작 관리</a>
+      <a href="/videos" class="topnav-tab">영상 관리</a>
       <a href="/billing" class="topnav-tab">크레딧</a>
     </nav>
     <div id="authSlot" class="auth-slot" hidden></div>
@@ -32,9 +33,15 @@
           <strong id="onAirName" class="on-air-name">방송할 캐릭터를 골라 주세요</strong>
         </div>
         <div class="on-air-actions">
-          <a href="/" id="onAirChange" class="btn btn-ghost btn-sm">캐릭터 고르기</a>
+          <button type="button" id="onAirChange" class="btn btn-ghost btn-sm" aria-expanded="false" aria-controls="onAirPicker">캐릭터 고르기</button>
           <a href="/animate" id="onAirAnimate" class="btn btn-sm" hidden>동작 관리</a>
         </div>
+      </section>
+      <!-- 캐릭터 고르기 (app.js): every character and its photos; a click puts that photo on air. -->
+      <section id="onAirPicker" class="card on-air-picker" aria-label="방송할 캐릭터와 사진" hidden>
+        <p id="onAirPickerStatus" class="status" aria-live="polite"></p>
+        <div id="onAirPickerList" class="on-air-picker-list"></div>
+        <a href="/" class="link">캐릭터 화면에서 추가 · 관리</a>
       </section>
 
       <details class="card obs-toggle" id="obsToggle">
@@ -93,9 +100,15 @@
             <progress id="sceneProgress" max="100" value="0" hidden></progress>
             <input type="file" id="sceneFile" accept="video/mp4,video/webm,video/quicktime,image/png,image/jpeg,image/webp,image/gif,.mp4,.webm,.mov,.png,.jpg,.jpeg,.webp,.gif" multiple hidden>
           </div>
+          <!-- The videos kept in 영상 관리 (lib/videos.js): one of them as a new layer. -->
+          <div class="scene-add scene-saved">
+            <select id="sceneVideoPick" aria-label="저장한 영상" hidden></select>
+            <button type="button" id="sceneVideoAdd" class="btn btn-ghost btn-sm" hidden>저장한 영상 넣기</button>
+            <a href="/videos" class="btn btn-ghost btn-sm">영상 관리 · 편집</a>
+          </div>
           <p id="sceneStatus" class="status" aria-live="polite"></p>
           <ol id="sceneList" class="scene-list"></ol>
-          <p class="hint">MP4 · WebM · MOV 영상(500MB까지), PNG · JPEG · WebP · GIF 이미지(30MB까지). 영상은 계속 반복 재생됩니다.</p>
+          <p class="hint">MP4 · WebM · MOV 영상(500MB까지), PNG · JPEG · WebP · GIF 이미지(30MB까지). 영상은 계속 반복 재생됩니다. 여기에 올린 영상은 영상 관리에도 보관됩니다.</p>
         </div>
       </details>
 

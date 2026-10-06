@@ -27,8 +27,9 @@ Open the printed character list URL in your browser. It works before you add any
 | Path | Page |
 |---|---|
 | `/` | **캐릭터 목록** (character list): your characters and their photos. Create characters, add photos, pick the photo to put on air (**이 캐릭터로 방송하기**, which then opens `/broadcast`). The selected photo of every character has **동작 관리**, which opens `/animate?photo=<photoId>`. |
-| `/broadcast` | **방송 화면**: the controller (motion buttons, OBS guide, and [화면 구성](#화면-구성-the-scene): background videos and images layered with the character) next to the true-scale canvas preview, for the photo on air. |
+| `/broadcast` | **방송 화면**: the controller (**캐릭터 고르기**: put another character or photo on air without leaving the page; motion buttons, OBS guide, and [화면 구성](#화면-구성-the-scene): background videos and images layered with the character) next to the true-scale canvas preview, for the photo on air. |
 | `/animate?photo=<photoId>` | **동작 관리**: one character's motions — make them for one photo, with AI or by uploading a finished video. |
+| `/videos` | **영상 관리**: the videos you keep (backgrounds and the like) and [a small editor](#영상-관리-the-video-library-and-editor) that cuts and joins them on a timeline. |
 | `/overlay` | The OBS Browser Source. Its URL never changes: it follows the photo on air. |
 | `/login` | Google login (only when [login](#google-login-optional) is on); afterwards it returns to the page you came from (default `/`). |
 
@@ -396,7 +397,8 @@ Do not add a camera feed to the overlay page. Audio stays with your regular micr
 The overlay can carry the whole picture, not only the character: the **화면 구성** card of the 방송 화면 adds videos and images as **layers** around the character, so a looping background, a frame or a logo and the character go to OBS as one browser source. (Putting the overlay over other OBS sources still works exactly as before: a scene with no added layer is the transparent character overlay.)
 
 - **영상 · 이미지 추가** uploads one or more files: MP4, WebM or MOV video (up to 500 MB) and PNG, JPEG, WebP or GIF images (up to 30 MB), at most 20. A WebM (VP8/VP9/AV1) or an H.264 MP4 is kept as it is, with no length limit; an H.264 MOV is rewrapped as MP4; anything else (HEVC from a phone, ProRes, …) is converted during the upload (H.264 + AAC, at most 1920 wide; a clip with an alpha channel becomes VP9 with alpha, without sound), which is why those are limited to 5 minutes. Videos loop.
-- **The list** shows the layers with the front one first; the character is one of the rows. **맨 위로 / 위로 / 아래로 / 맨 아래로** change the order, **숨기기 / 보이기** hides a layer without removing it, **×** deletes it and its file. A new layer goes right behind the character.
+- **The list** shows the layers with the front one first; the character is one of the rows. **맨 위로 / 위로 / 아래로 / 맨 아래로** change the order, **숨기기 / 보이기** hides a layer without removing it, **×** takes it off the scene (an image's file is deleted with it; a video stays in 영상 관리). A new layer goes right behind the character.
+- **저장한 영상 넣기** puts a video kept in [영상 관리](#영상-관리-the-video-library-and-editor) on the scene as a new layer (the same video may be on the scene more than once). A video uploaded here with **영상 · 이미지 추가** is kept there too. A selected video has **영상 관리에서 자르기 · 편집**, which opens the editor with it.
 - **Selecting a row** (click its name) shows its options and outlines the layer on the canvas preview. A video or image has **화면에 꽉 채우기** (on by default: it covers the canvas, cropped to its shape). With it off, and always for the character, a **크기** slider (5–300 %) sizes the layer and dragging on the canvas moves it; **원래대로** puts it back. The character scales around the middle of its bottom edge, so its feet stay on the ground.
 - **소리 켜기** (videos with sound, off by default) plays the clip's sound in OBS; the canvas preview is always silent. To send it to the stream, turn on **Control audio via OBS** in the browser source's properties.
 - **반복** (videos): **계속 반복** (the default) or **N번만 재생**: the clip plays N times and stays on its last frame. It starts over when the count is changed, when the layer is hidden and shown again, and with **처음부터 재생**, which plays the clip from its start on every open page (OBS included).
@@ -406,15 +408,42 @@ Sizes and positions are fractions of the canvas, so the picture looks the same a
 
 | Route | |
 |---|---|
-| `GET /api/scene` | `{ layers }`, back to front. The character: `{ id: "character", kind: "character", visible, scale, x, y }`. A video or image: `{ id, kind: "video" \| "image", name, mime, url, createdAt, width, height, duration, alpha, audio, visible, fill, scale, x, y, muted, repeat }`. `x`, `y`: the centre's offset as a fraction of the canvas width and height (−1.5…1.5); `scale`: 0.05…4; `repeat` (videos): 0 = over and over, 1…99 = that many times. Also readable with the overlay key. |
+| `GET /api/scene` | `{ layers }`, back to front. The character: `{ id: "character", kind: "character", visible, scale, x, y }`. A video or image: `{ id, kind: "video" \| "image", name, mime, url, createdAt, width, height, duration, alpha, audio, visible, fill, scale, x, y, muted, repeat, src }` (`src`: the library video a video layer shows; its `url` is that video's file). `x`, `y`: the centre's offset as a fraction of the canvas width and height (−1.5…1.5); `scale`: 0.05…4; `repeat` (videos): 0 = over and over, 1…99 = that many times. Also readable with the overlay key. |
 | `POST /api/scene/layers?name=<file name>` | The raw file as the body. `201 { layer, scene }`; `415 unsupported_media`, `413 too_large` / `too_large_image`, `422 too_long_to_convert` / `convert_failed`, `409 too_many_layers`. |
+| `POST /api/scene/layers?video=<video id>` | A video of the library as a new layer (no body). `201 { layer, scene }`; `404 video_missing`, `409 too_many_layers`. |
 | `PATCH /api/scene/layers/<id>` | Any of `{ name, visible, fill, muted, repeat, scale, x, y }` (`id` may be `character`: `visible`, `scale`, `x`, `y`). `{ scene }`. |
 | `POST /api/scene/layers/<id>/replay` | Plays a video layer from its start on the open pages (sent as `{ "type": "scene-replay", "id" }` on `/api/events`; nothing is stored). `{ ok }`. |
 | `POST /api/scene/layers/<id>/join` | `{ "with": "<layer id>" }`: the video `<id>`, then the other video, as one new layer. `201 { layer, scene }`; `400` when one of them is not a video, `422 mixed_alpha` / `too_long` / `clip_failed`. |
 | `POST /api/scene/layers/<id>/move` | `{ "to": "top" \| "up" \| "down" \| "bottom" }` (top = the very front). `{ scene }`. |
-| `DELETE /api/scene/layers/<id>` | Removes the layer and its file (`400 character_fixed` for the character). `{ scene }`. |
+| `DELETE /api/scene/layers/<id>` | Removes the layer (and an image's file; a video stays in the library). `400 character_fixed` for the character. `{ scene }`. |
 
 Every change is sent on `/api/events` as `{ "type": "scene", "scene" }`; a page asks `GET /api/scene` when its stream opens. The files are served by `GET /api/media/<id>` (with byte ranges, and cacheable: a layer's file never changes). They count toward the account's storage, are mirrored to the bucket like the other media, and using them costs no credits.
+
+## 영상 관리 (the video library and editor)
+
+The **영상 관리** page (`/videos`) keeps the account's videos: the ones uploaded there (**영상 올리기**: MP4, WebM or MOV, up to 500 MB, converted like a scene upload when a browser cannot play them), the ones uploaded on the 방송 화면, and the ones made in the editor. Up to 200. Each has **편집**, **+ 타임라인**, **방송 화면에 추가** (a new layer of [화면 구성](#화면-구성-the-scene)), **이름**, **다운로드** and **삭제** (which also takes it off the scene).
+
+**The editor.** **편집** opens a video on the timeline at the bottom of the page, under a preview. The timeline is one row of pieces, each a span of one video:
+
+- **Go somewhere**: click the ruler or a piece; **Space** plays and stops; **← / →** step 0.1 s (1 s with Shift).
+- **분할** (`S`) cuts the piece under the playhead in two.
+- **복사 / 잘라내기 / 붙여넣기** (`Ctrl+C` / `X` / `V`, `⌘` on a Mac) work on the selected piece; a paste lands right after the piece under the playhead (before everything at 0:00).
+- **Move a piece**: drag it along the timeline (a white bar shows where it lands), or **← 앞으로 / 뒤로 →**. Splitting and dragging is how a part of a video is moved somewhere else.
+- **삭제** (`Delete`) removes the selected piece. **실행 취소 / 다시 실행** (`Ctrl+Z`, `Ctrl+Shift+Z`).
+- **Put another video after it**: **+ 타임라인** on a video of the list, or **+ 영상 첨부** to upload a file straight onto the end of the timeline (it is kept in the list too).
+- **새 영상으로 저장** writes the timeline as ONE new video (up to 10 minutes) under the name next to the button. The videos it was cut from stay as they are. The pieces are re-encoded onto the first piece's frame (lib/clips.js, as in [Repeat and join](#repeat-and-join-영상-반복--이어붙이기)): H.264 MP4 with sound, or VP9 WebM when every piece is transparent. Transparent pieces and pieces with a background cannot be saved as one video.
+
+Nothing is stored until it is saved: the timeline lives in the page (leaving it with unsaved changes asks first).
+
+| Route | |
+|---|---|
+| `GET /api/videos` | `{ videos }`, the newest first: `{ id, name, mime, url, createdAt, width, height, duration, alpha, audio, source }` (`source`: `{ segments }` for a video made in the editor, else `null`). |
+| `POST /api/videos?name=<file name>` | The raw file as the body. `201 { video, videos }`; `415 not_a_video`, `413 too_large`, `422 too_long_to_convert` / `convert_failed`, `409 too_many_videos`. |
+| `POST /api/videos/render` | `{ "name", "segments": [{ "video": "<id>", "start", "end" }] }` (seconds; up to 100 pieces): the pieces one after the other as one new video. `201 { video, videos }`; `400 bad_segments`, `404 video_missing`, `422 mixed_alpha` / `too_long` / `clip_failed`. |
+| `PATCH /api/videos/<id>` | `{ "name" }`. `{ videos }`. |
+| `DELETE /api/videos/<id>` | Deletes the video and its file, and takes its layers off the scene. `{ videos }`. |
+
+Every change is sent on `/api/events` as `{ "type": "videos", "videos" }`. The files are served by `GET /api/media/<id>` (`?download=1`: as a file to save). A scene made before the library existed is moved over at the first start: each of its video layers becomes a video of the library under the same id, the file where it was.
 
 ## 자동 반응 (AI director)
 
@@ -642,6 +671,7 @@ Everything lives in `data/` (Git-ignored). With login on, the per-account items 
 - `data/library.json` — `{ idle, motions, idles, idleChoice }` (`idleChoice` maps a photo id to the motion chosen as its idle). Every motion has a `photoId` (`null`: no photo, shown only while nothing is on air); `idles` maps a photo id to the idle uploaded for that photo; `idle` is the old library idle, shown only while nothing is on air.
 - `data/media/` — the motion and idle files (`<id>.webm`, `.mp4`, `.png` or `.webp`), and the files of the scene's layers (also `.jpg`, `.gif`).
 - `data/scene.json` — `{ layers }`, back to front: the character and the videos and images of [화면 구성](#화면-구성-the-scene), each with its visibility, size and place.
+- `data/videos.json` — `{ videos }`: the videos of [영상 관리](#영상-관리-the-video-library-and-editor); their files are `data/media/<id>.mp4` / `.webm`.
 - `data/animate/` — the 동작 만들기 settings, driving videos and jobs.
 
 **One-time migration.** At the first start with characters (while `data/characters/index.json` does not exist), every photo of the old character library (`data/animate/characters/index.json`, its file present) becomes its own character named `캐릭터 1`, `캐릭터 2`, … (by creation time) with that photo as its base photo and the same id. The files are copied; the old folder is left untouched. The old selection, else the first photo, goes on air. Each motion gets the photo of the job it came from, else the photo on air, so nothing disappears (without photos, motions keep no photo), and the old idle becomes the idle of the photo on air. `index.json` is written last, so an interrupted migration runs again at the next start; the server logs `[characters] migrated N photo(s)`.

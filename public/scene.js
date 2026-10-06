@@ -113,6 +113,24 @@ const SceneHelpers = (() => {
     return counts.map(value => ({ value, label: value === 0 ? '계속 반복' : `${value}번만 재생` }));
   }
 
+  /** The videos kept in 영상 관리 as the options of '저장한 영상 넣기': [{ id, name }] (the newest first, as sent). */
+  function savedChoices(videos) {
+    return (Array.isArray(videos) ? videos : []).filter(video => video && typeof video.id === 'string' && video.id)
+      .map(video => ({ id: video.id, name: String(video.name ?? '') }));
+  }
+
+  /** What deleting a layer asks: a video stays in 영상 관리, an image's file goes with it. */
+  function deleteText(item) {
+    return item.kind === 'video'
+      ? `'${item.name}'을(를) 화면 구성에서 뺄까요? 영상은 영상 관리에 남습니다.`
+      : `'${item.name}'을(를) 화면 구성에서 지울까요? 올린 파일도 지워집니다.`;
+  }
+
+  /** The 영상 관리 page opened to edit the video a layer shows ('' when it shows none). */
+  function editHref(layer) {
+    return layer && layer.kind === 'video' && typeof layer.src === 'string' && layer.src ? `/videos?edit=${encodeURIComponent(layer.src)}` : '';
+  }
+
   /** The other video layers a video can be joined with: [{ id, name }], the front one first. */
   function joinChoices(scene, id) {
     return layersOf(scene).filter(layer => layer.kind === 'video' && layer.id !== id)
@@ -121,7 +139,7 @@ const SceneHelpers = (() => {
 
   return {
     CHARACTER_ID, PERCENT_MIN, PERCENT_MAX, layersOf, layerOf, mediaCount, rows, canPlace, percentOf, scaleOf, dragged,
-    withLayer, countText, uploadPath, contentType, uploadText, repeatChoices, joinChoices,
+    withLayer, countText, uploadPath, contentType, uploadText, repeatChoices, joinChoices, savedChoices, deleteText, editHref,
   };
 })();
 
@@ -139,6 +157,8 @@ if (typeof document !== 'undefined') (() => {
   const list = $('sceneList');
   const canvasBox = $('canvasBox');
   const frame = $('overlayPreviewFrame');
+  const videoPick = $('sceneVideoPick');
+  const videoAdd = $('sceneVideoAdd');
 
   let scene = null; // what the server has
   let draft = null; // { id, fields }: a size or place being changed, not saved yet
@@ -288,6 +308,8 @@ if (typeof document !== 'undefined') (() => {
       });
       parts.push(el('div', { className: 'scene-line' }, [el('span', { className: 'scene-size-label', text: '이어붙이기' }), pick, join]));
     }
+    const href = H.editHref(layer);
+    if (href) parts.push(el('a', { className: 'link', href, text: '영상 관리에서 자르기 · 편집' }));
     return parts;
   }
 
@@ -359,7 +381,7 @@ if (typeof document !== 'undefined') (() => {
       ...(item.kind === 'character' ? [] : [el('button', {
         type: 'button', className: 'scene-del', text: '×', title: '삭제', 'aria-label': `${item.name} 삭제`,
         onclick: () => {
-          if (window.confirm(`'${item.name}'을(를) 화면 구성에서 지울까요? 올린 파일도 지워집니다.`)) act('DELETE', layerPath(item.id));
+          if (window.confirm(H.deleteText(item))) act('DELETE', layerPath(item.id));
         },
       })]),
     ]);
@@ -443,6 +465,32 @@ if (typeof document !== 'undefined') (() => {
     }
   }
 
+  // ---- 저장한 영상 넣기: a video kept in 영상 관리 as a new layer ----
+  function renderSaved(videos) {
+    const choices = H.savedChoices(videos);
+    const kept = videoPick.value;
+    videoPick.replaceChildren(...choices.map(choice => el('option', { value: choice.id, text: choice.name })));
+    if (choices.some(choice => choice.id === kept)) videoPick.value = kept;
+    videoPick.hidden = !choices.length;
+    videoAdd.hidden = !choices.length;
+  }
+  const loadSaved = () => call('GET', '/api/videos').then(data => renderSaved(data.videos)).catch(() => {});
+  videoAdd.addEventListener('click', async () => {
+    if (!videoPick.value) return;
+    videoAdd.disabled = true;
+    setStatus('');
+    try {
+      const data = await call('POST', `/api/scene/layers?video=${encodeURIComponent(videoPick.value)}`);
+      if (data && data.layer) selectedId = data.layer.id;
+      if (data && data.scene) apply(data.scene);
+    } catch (error) {
+      setStatus(error.message, 'error');
+      loadSaved();
+    } finally {
+      videoAdd.disabled = false;
+    }
+  });
+
   addBtn.addEventListener('click', () => fileInput.click());
   fileInput.addEventListener('change', () => {
     const files = Array.from(fileInput.files || []);
@@ -487,9 +535,12 @@ if (typeof document !== 'undefined') (() => {
     apply(data);
   }).catch(() => {});
   window.addEventListener('virtually:live-open', load);
+  window.addEventListener('virtually:live-open', loadSaved);
+  loadSaved();
   window.addEventListener('virtually:live', (event) => {
     const data = event.detail;
     if (data?.type === 'scene') apply(data.scene);
+    else if (data?.type === 'videos') renderSaved(data.videos);
     else if (data?.type === 'library') {
       const name = String(data.library?.character?.name ?? '');
       if (name !== characterName) {

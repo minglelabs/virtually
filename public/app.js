@@ -51,7 +51,26 @@ const BroadcastHelpers = (() => {
     return { key: 'idle', label, sub: clip ? '대기 · 반복 재생' : '대기', idle: true };
   }
 
-  return { animateHref, onAirView, idleItem };
+  /**
+   * 캐릭터 고르기: what GET /api/characters sent -> [{ id, name, photos: [{ id, url, label, onAir }] }],
+   * the characters as listed, each with its photos ('사진 1', '사진 2', ...). Characters without a photo are left out.
+   */
+  function pickerRows(list) {
+    const characters = list && Array.isArray(list.characters) ? list.characters : [];
+    return characters.map((character) => {
+      const photos = (character && Array.isArray(character.photos) ? character.photos : [])
+        .filter(photo => photo && typeof photo.id === 'string' && photo.id)
+        .map((photo, index) => ({
+          id: photo.id,
+          url: String(photo.displayUrl || photo.url || ''),
+          label: `사진 ${index + 1}`,
+          onAir: photo.onAir === true,
+        }));
+      return { id: String(character?.id ?? ''), name: String(character?.name ?? ''), photos };
+    }).filter(row => row.photos.length > 0);
+  }
+
+  return { animateHref, onAirView, idleItem, pickerRows };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = BroadcastHelpers;
@@ -355,7 +374,7 @@ if (typeof document !== 'undefined') (() => {
     // Names are user data: textContent only.
     onAirName.textContent = view ? view.name : '방송할 캐릭터를 골라 주세요';
     onAirName.title = view ? view.name : '';
-    onAirChange.textContent = view ? '캐릭터 바꾸기' : '캐릭터 고르기';
+    onAirChange.textContent = view ? '캐릭터 · 사진 바꾸기' : '캐릭터 고르기';
     onAirAnimate.hidden = !view;
     const animateHref = view ? view.animateHref : BroadcastHelpers.animateHref(null);
     onAirAnimate.setAttribute('href', animateHref);
@@ -385,6 +404,93 @@ if (typeof document !== 'undefined') (() => {
     if (view.thumbIsVideo) media.play().catch(() => { /* autoplay may be blocked */ });
   }
 
+  // ---- 캐릭터 고르기: put another character or photo on air from here ----
+  const onAirPicker = document.getElementById('onAirPicker');
+  const onAirPickerList = document.getElementById('onAirPickerList');
+  const onAirPickerStatus = document.getElementById('onAirPickerStatus');
+  let pickerBusy = false;
+
+  function setPickerStatus(text, kind) {
+    onAirPickerStatus.textContent = text || '';
+    if (kind) onAirPickerStatus.dataset.kind = kind;
+    else delete onAirPickerStatus.dataset.kind;
+  }
+
+  async function putOnAir(photoId) {
+    if (pickerBusy) return;
+    pickerBusy = true;
+    setPickerStatus('');
+    try {
+      const response = await fetch('/api/active-photo', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ photoId }),
+      });
+      if (!response.ok) throw new Error(await errorMessage(response));
+      // The strip, the motions and the canvas follow through the 'library' message.
+    } catch (error) {
+      setPickerStatus(`바꾸지 못했습니다: ${error.message}`, 'error');
+    } finally {
+      pickerBusy = false;
+      loadPicker();
+    }
+  }
+
+  function renderPicker(list) {
+    const rows = BroadcastHelpers.pickerRows(list);
+    if (!rows.length) {
+      const empty = document.createElement('p');
+      empty.className = 'hint';
+      empty.textContent = '아직 캐릭터가 없습니다. 캐릭터 화면에서 사진을 올려 주세요.';
+      onAirPickerList.replaceChildren(empty);
+      return;
+    }
+    onAirPickerList.replaceChildren(...rows.map((row) => {
+      const group = document.createElement('div');
+      const name = document.createElement('p');
+      name.className = 'on-air-picker-name';
+      // Names are user data: textContent only.
+      name.textContent = row.name;
+      const photos = document.createElement('div');
+      photos.className = 'on-air-picker-photos';
+      for (const photo of row.photos) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'on-air-photo checkerboard';
+        button.setAttribute('aria-pressed', String(photo.onAir));
+        button.title = photo.onAir ? `${row.name} ${photo.label} (방송 중)` : `${row.name} ${photo.label}(으)로 방송`;
+        button.setAttribute('aria-label', button.title);
+        const image = document.createElement('img');
+        image.alt = '';
+        image.loading = 'lazy';
+        image.decoding = 'async';
+        image.src = photo.url;
+        button.append(image);
+        button.addEventListener('click', () => { if (!photo.onAir) putOnAir(photo.id); });
+        photos.append(button);
+      }
+      group.append(name, photos);
+      return group;
+    }));
+  }
+
+  async function loadPicker() {
+    if (onAirPicker.hidden) return;
+    try {
+      const response = await fetch('/api/characters', { cache: 'no-store' });
+      if (!response.ok) throw new Error(await errorMessage(response));
+      renderPicker(await response.json());
+    } catch (error) {
+      setPickerStatus(`캐릭터 목록을 불러오지 못했습니다: ${error.message}`, 'error');
+    }
+  }
+
+  onAirChange.addEventListener('click', () => {
+    onAirPicker.hidden = !onAirPicker.hidden;
+    onAirChange.setAttribute('aria-expanded', String(!onAirPicker.hidden));
+    loadPicker();
+  });
+
   // The server sends the library and the OBS source size on connect and after every
   // change; EventSource reconnects itself.
   window.VirtuallyMotions.liveEvents('/api/events', { open: () => {
@@ -409,6 +515,7 @@ if (typeof document !== 'undefined') (() => {
       render();
       motionHint.textContent = onAirPhotoId(data.library) ? HINT_ON_AIR : HINT_DEMO;
       renderOnAir(data.library);
+      loadPicker();
     } else if (data?.type === 'obs-source') {
       setCanvasSize(data);
     }
