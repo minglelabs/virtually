@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>영상 관리 · Virtually</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="./app.css">
+  <link rel="stylesheet" href="./auth.css">
+  <link rel="stylesheet" href="./videos.css">
+</head>
+<body>
+  <header class="topbar">
+    <a href="/" class="brand-link brand-mark">Virtually</a>
+    <nav class="topnav" aria-label="화면">
+      <a href="/" class="topnav-tab">캐릭터</a>
+      <a href="/broadcast" class="topnav-tab">방송 화면</a>
+      <a href="/animate" class="topnav-tab">동작 관리</a>
+      <a href="/videos" class="topnav-tab" aria-current="page">영상 관리</a>
+      <a href="/billing" class="topnav-tab">크레딧</a>
+    </nav>
+    <div id="authSlot" class="auth-slot" hidden></div>
+  </header>
+  <main class="videos-page">
+    <!-- The library: every video the account keeps (videos.js). -->
+    <section class="videos-library" aria-labelledby="libraryTitle">
+      <div class="videos-head">
+        <h1 id="libraryTitle" class="pane-title">영상 관리 <span id="libraryCount" class="videos-count"></span></h1>
+        <button type="button" id="uploadBtn" class="btn btn-sm">영상 올리기</button>
+        <input type="file" id="uploadFile" accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov" multiple hidden>
+      </div>
+      <p class="hint">방송 화면의 배경 등으로 쓸 영상을 보관합니다. '편집'을 누르면 아래 타임라인에서 자르고 이어붙여 새 영상으로 저장할 수 있습니다.</p>
+      <progress id="uploadProgress" max="100" value="0" hidden></progress>
+      <p id="libraryStatus" class="status" aria-live="polite"></p>
+      <p id="libraryEmpty" class="videos-empty" hidden>아직 영상이 없습니다. '영상 올리기'로 MP4 · WebM · MOV 영상을 올려 주세요.</p>
+      <ul id="libraryList" class="videos-list"></ul>
+    </section>
+
+    <!-- The editor: a preview and, under it, the timeline. -->
+    <section class="videos-editor" aria-labelledby="editorTitle">
+      <div class="videos-head">
+        <h2 id="editorTitle" class="pane-title">편집</h2>
+        <label for="saveName" class="visually-hidden">새 영상 이름</label>
+        <input type="text" id="saveName" class="videos-name" maxlength="100" placeholder="새 영상 이름" autocomplete="off" disabled>
+        <button type="button" id="saveBtn" class="btn btn-sm" disabled>새 영상으로 저장</button>
+      </div>
+      <p id="editorStatus" class="status" aria-live="polite"></p>
+      <div class="videos-preview checkerboard">
+        <video id="player" playsinline preload="auto"></video>
+        <p id="previewEmpty" class="videos-preview-empty">왼쪽에서 영상의 '편집'을 누르면 여기에서 편집할 수 있습니다.</p>
+      </div>
+      <div class="videos-tools" role="toolbar" aria-label="편집 도구">
+        <button type="button" id="playBtn" class="btn btn-sm" title="재생 / 정지 (Space)">재생</button>
+        <span id="timeText" class="videos-time">0:00.0 / 0:00.0</span>
+        <span class="videos-gap"></span>
+        <button type="button" id="splitBtn" class="btn btn-ghost btn-sm" title="재생 위치에서 둘로 나누기 (S)">분할</button>
+        <button type="button" id="copyBtn" class="btn btn-ghost btn-sm" title="선택한 조각 복사 (Ctrl+C)">복사</button>
+        <button type="button" id="cutBtn" class="btn btn-ghost btn-sm" title="선택한 조각 잘라내기 (Ctrl+X)">잘라내기</button>
+        <button type="button" id="pasteBtn" class="btn btn-ghost btn-sm" title="재생 위치의 조각 뒤에 붙여넣기 (Ctrl+V)">붙여넣기</button>
+        <button type="button" id="leftBtn" class="btn btn-ghost btn-sm" title="선택한 조각을 앞으로 옮기기">← 앞으로</button>
+        <button type="button" id="rightBtn" class="btn btn-ghost btn-sm" title="선택한 조각을 뒤로 옮기기">뒤로 →</button>
+        <button type="button" id="deleteBtn" class="btn btn-ghost btn-sm" title="선택한 조각 지우기 (Delete)">삭제</button>
+        <span class="videos-gap"></span>
+        <button type="button" id="undoBtn" class="btn btn-ghost btn-sm" title="실행 취소 (Ctrl+Z)">실행 취소</button>
+        <button type="button" id="redoBtn" class="btn btn-ghost btn-sm" title="다시 실행 (Ctrl+Shift+Z)">다시 실행</button>
+        <span class="videos-gap"></span>
+        <button type="button" id="addBtn" class="btn btn-ghost btn-sm" title="다른 영상 파일을 올려 타임라인 끝에 붙이기">+ 영상 첨부</button>
+        <input type="file" id="addFile" accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov" multiple hidden>
+        <label class="videos-zoom">확대 <input type="range" id="zoom" min="0" max="100" value="40" aria-label="타임라인 확대"></label>
+      </div>
+      <div id="timeline" class="videos-timeline" tabindex="0" aria-label="타임라인">
+        <div id="track" class="videos-track">
+          <div id="ruler" class="videos-ruler"></div>
+          <div id="clips" class="videos-clips"></div>
+          <div id="dropMark" class="videos-drop" hidden></div>
+          <div id="playhead" class="videos-playhead" hidden></div>
+        </div>
+      </div>
+      <p class="hint">조각을 눌러 선택하고, 끌어서 순서를 바꿉니다. 눈금이나 조각을 누르면 그 위치로 이동합니다. 저장하면 원래 영상은 그대로 두고 새 영상이 만들어집니다 (10분까지).</p>
+    </section>
+  </main>
+  <script src="./auth.js"></script>
+  <script src="./videos.js"></script>
+</body>
+</html>

@@ -42,12 +42,12 @@ test('broadcast page wiring: the on-air strip and its links', () => {
   assert.match(html, /<h2 id="controlTitle" class="pane-title">컨트롤러<\/h2>\s*(<!--[^>]*-->\s*)?<section id="onAirCard" class="card on-air" aria-labelledby="onAirName" hidden>/);
   assert.match(html, /<span id="onAirThumb" class="on-air-thumb checkerboard" hidden><\/span>/);
   assert.match(html, /<strong id="onAirName" class="on-air-name">방송할 캐릭터를 골라 주세요<\/strong>/);
-  assert.match(html, /<a href="\/" id="onAirChange" class="btn btn-ghost btn-sm">캐릭터 고르기<\/a>/);
+  assert.match(html, /<button type="button" id="onAirChange" class="btn btn-ghost btn-sm" aria-expanded="false" aria-controls="onAirPicker">캐릭터 고르기<\/button>/);
   assert.match(html, /<a href="\/animate" id="onAirAnimate" class="btn btn-sm" hidden>동작 관리<\/a>/);
 
   const app = readPublic('app.js');
   assert.match(app, /renderOnAir\(data\.library\);/);
-  assert.match(app, /onAirChange\.textContent = view \? '캐릭터 바꾸기' : '캐릭터 고르기';/);
+  assert.match(app, /onAirChange\.textContent = view \? '캐릭터 · 사진 바꾸기' : '캐릭터 고르기';/);
   assert.match(app, /onAirName\.textContent = view \? view\.name : '방송할 캐릭터를 골라 주세요';/);
   assert.doesNotMatch(app, /innerHTML|outerHTML|insertAdjacentHTML/);
 

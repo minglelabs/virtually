@@ -373,8 +373,8 @@ test('scene: a repeat count for videos, replay, and two video layers joined into
   assert.ok(Math.abs(joined.duration - 2) < 0.3, String(joined.duration));
   assert.deepEqual(body.scene.layers.map(layer => (layer.kind === 'character' ? 'character' : layer.name)), ['intro', 'intro + loop', 'loop', 'logo', 'character']);
   assert.equal((await fetch(`${base}${joined.url}`)).status, 200);
-  assert.ok(fsSync.existsSync(path.join(dataDir, 'media', `${joined.id}.mp4`)));
-  const info = await clips.probeClip(FFPROBE, path.join(dataDir, 'media', `${joined.id}.mp4`));
+  assert.ok(fsSync.existsSync(path.join(dataDir, 'media', `${joined.src}.mp4`)));
+  const info = await clips.probeClip(FFPROBE, path.join(dataDir, 'media', `${joined.src}.mp4`));
   assert.deepEqual([info.codec, info.audioCodec], ['h264', 'aac']);
 
   // Only videos, and only layers that exist.
