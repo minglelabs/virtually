@@ -4,7 +4,7 @@ A local proof of concept for putting a pre-rendered character over a live camera
 
 You keep **characters** (a name plus photos) on the main page, pick one photo and put it **on air**: the overlay then shows that photo as the idle character and plays that photo's motions. New motions are made ahead of time for one photo on the **동작 관리** page — generated from a driving video by an AI video API (see [Make motions](#make-motions-동작-만들기)), or a finished video you made yourself (see [Upload a finished motion](#upload-a-finished-motion-완성된-영상-올리기)) — or added through the HTTP API (see [Add clips](#add-clips)).
 
-This is a small first step toward the broader [Virtually presentation](https://translator.minglelabs.xyz/xr-virtually). It does not generate animations during a stream.
+This is a small first step toward the broader [Virtually presentation](https://translator.minglelabs.app/xr-virtually). It does not generate animations during a stream.
 
 ## Run
 
